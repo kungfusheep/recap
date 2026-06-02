@@ -21,6 +21,26 @@ func validStatus(s string) bool {
 	return s == StatusPending || s == StatusApproved || s == StatusRedo
 }
 
+// Review verdicts. request_changes and approve flip the task status; comment is
+// a non-blocking note (FYI) that leaves the task status untouched.
+const (
+	VerdictRequestChanges = "request_changes"
+	VerdictApprove        = "approve"
+	VerdictComment        = "comment"
+)
+
+func validVerdict(v string) bool {
+	return v == VerdictRequestChanges || v == VerdictApprove || v == VerdictComment
+}
+
+// Review lifecycle: a draft accumulates comments locally; submit publishes the
+// batch atomically; resolve marks it addressed after a fix-forward commit.
+const (
+	ReviewDraft     = "draft"
+	ReviewSubmitted = "submitted"
+	ReviewResolved  = "resolved"
+)
+
 // Task is one completed unit of autonomous work awaiting (or past) review.
 // The diff itself is NOT stored — SHA + RepoPath point into git, fetched on
 // demand. This db is purely the private review layer.
@@ -35,14 +55,34 @@ type Task struct {
 	Result    string // e.g. PASS / FAIL / the observed result
 	Status    string // pending | approved | redo
 	CreatedAt string
+	ParentID  int64 // the task this one fixes forward (0 = none)
 }
 
-// Comment is one message in a task's async review thread (you <-> agent).
+// Review is a batch of reviewer feedback against a task: a verdict, an overall
+// summary (the "new prompt"), and N comments — submitted atomically.
+type Review struct {
+	ID          int64
+	TaskID      int64
+	Verdict     string // request_changes | approve | comment
+	Summary     string
+	State       string // draft | submitted | resolved
+	CreatedAt   string
+	SubmittedAt string
+}
+
+// Comment is one message against a task. A loose thread message has ReviewID 0;
+// a review comment belongs to a Review and may be anchored to a diff line
+// (File/Line/Anchor) with the code captured at review time (Snippet).
 type Comment struct {
 	ID        int64
 	TaskID    int64
-	Who       string // "you" | "agent"
+	ReviewID  int64 // 0 = loose thread message
+	Who       string
 	Body      string
+	File      string
+	Line      int
+	Anchor    string // hunk header, e.g. "@@ -10,7 +10,9 @@"
+	Snippet   string // the diff line(s) commented on
 	CreatedAt string
 }
 
@@ -68,7 +108,64 @@ CREATE TABLE IF NOT EXISTS comments (
   body       TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS reviews (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id      INTEGER NOT NULL,
+  verdict      TEXT,
+  summary      TEXT,
+  state        TEXT NOT NULL DEFAULT 'draft',
+  created_at   TEXT NOT NULL,
+  submitted_at TEXT
+);
 `
+
+// addColumns lists the additive migrations layered on top of the base schema so
+// older dbs upgrade in place. SQLite has no "ADD COLUMN IF NOT EXISTS", so we
+// gate each on PRAGMA table_info.
+var addColumns = []struct{ table, col, decl string }{
+	{"tasks", "parent_id", "INTEGER"},
+	{"comments", "review_id", "INTEGER"},
+	{"comments", "file", "TEXT"},
+	{"comments", "line", "INTEGER"},
+	{"comments", "anchor", "TEXT"},
+	{"comments", "snippet", "TEXT"},
+}
+
+func (s *Store) hasColumn(table, col string) (bool, error) {
+	rows, err := s.db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt any
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return false, err
+		}
+		if name == col {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
+func (s *Store) migrate() error {
+	for _, a := range addColumns {
+		has, err := s.hasColumn(a.table, a.col)
+		if err != nil {
+			return err
+		}
+		if !has {
+			if _, err := s.db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", a.table, a.col, a.decl)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
 
 // dbPath resolves the global review db location: $RECAP_DB or ~/.config/recap/recap.db.
 func dbPath() (string, error) {
@@ -106,7 +203,12 @@ func OpenAt(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{db: db}, nil
+	s := &Store{db: db}
+	if err := s.migrate(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return s, nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -128,9 +230,9 @@ func (s *Store) Add(t Task) (int64, error) {
 		t.CreatedAt = nowStamp()
 	}
 	res, err := s.db.Exec(
-		`INSERT INTO tasks (repo, repo_path, sha, title, criterion, check_cmd, result, status, created_at)
-		 VALUES (?,?,?,?,?,?,?,?,?)`,
-		t.Repo, t.RepoPath, t.SHA, t.Title, t.Criterion, t.CheckCmd, t.Result, t.Status, t.CreatedAt)
+		`INSERT INTO tasks (repo, repo_path, sha, title, criterion, check_cmd, result, status, created_at, parent_id)
+		 VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		t.Repo, t.RepoPath, t.SHA, t.Title, t.Criterion, t.CheckCmd, t.Result, t.Status, t.CreatedAt, nullID(t.ParentID))
 	if err != nil {
 		return 0, err
 	}
@@ -140,11 +242,11 @@ func (s *Store) Add(t Task) (int64, error) {
 func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 	var t Task
 	err := row.Scan(&t.ID, &t.Repo, &t.RepoPath, &t.SHA, &t.Title, &t.Criterion,
-		&t.CheckCmd, &t.Result, &t.Status, &t.CreatedAt)
+		&t.CheckCmd, &t.Result, &t.Status, &t.CreatedAt, &t.ParentID)
 	return t, err
 }
 
-const taskCols = `id, repo, repo_path, sha, title, criterion, check_cmd, result, status, created_at`
+const taskCols = `id, repo, repo_path, sha, title, criterion, check_cmd, result, status, created_at, COALESCE(parent_id,0)`
 
 // Get returns one task by id.
 func (s *Store) Get(id int64) (Task, error) {
@@ -201,7 +303,7 @@ func (s *Store) SetStatus(id int64, status string) error {
 	return nil
 }
 
-// AddComment appends a message to a task's review thread.
+// AddComment appends a loose message to a task's thread (not part of a review).
 func (s *Store) AddComment(taskID int64, who, body string) (int64, error) {
 	if _, err := s.Get(taskID); err != nil {
 		return 0, err
@@ -215,21 +317,246 @@ func (s *Store) AddComment(taskID int64, who, body string) (int64, error) {
 	return res.LastInsertId()
 }
 
-// Comments returns a task's thread, oldest first.
+const commentCols = `id, task_id, COALESCE(review_id,0), who, body, COALESCE(file,''), COALESCE(line,0), COALESCE(anchor,''), COALESCE(snippet,''), created_at`
+
+func scanComment(row interface{ Scan(...any) error }) (Comment, error) {
+	var c Comment
+	err := row.Scan(&c.ID, &c.TaskID, &c.ReviewID, &c.Who, &c.Body, &c.File, &c.Line, &c.Anchor, &c.Snippet, &c.CreatedAt)
+	return c, err
+}
+
+// Comments returns a task's full thread (loose + review comments), oldest first.
 func (s *Store) Comments(taskID int64) ([]Comment, error) {
-	rows, err := s.db.Query(
-		`SELECT id, task_id, who, body, created_at FROM comments WHERE task_id = ? ORDER BY id`, taskID)
+	rows, err := s.db.Query(`SELECT `+commentCols+` FROM comments WHERE task_id = ? ORDER BY id`, taskID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []Comment
 	for rows.Next() {
-		var c Comment
-		if err := rows.Scan(&c.ID, &c.TaskID, &c.Who, &c.Body, &c.CreatedAt); err != nil {
+		c, err := scanComment(rows)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// --- reviews ---------------------------------------------------------------
+
+// draftReview returns the task's open draft review id, creating one if none.
+func (s *Store) draftReview(taskID int64) (int64, error) {
+	var id int64
+	err := s.db.QueryRow(
+		`SELECT id FROM reviews WHERE task_id = ? AND state = ? ORDER BY id DESC LIMIT 1`,
+		taskID, ReviewDraft).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if err != sql.ErrNoRows {
+		return 0, err
+	}
+	if _, err := s.Get(taskID); err != nil {
+		return 0, err
+	}
+	res, err := s.db.Exec(
+		`INSERT INTO reviews (task_id, state, created_at) VALUES (?,?,?)`,
+		taskID, ReviewDraft, nowStamp())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// DraftInfo reports the task's open draft review id and its comment count
+// without creating one (so merely viewing a task never spawns a draft).
+func (s *Store) DraftInfo(taskID int64) (reviewID int64, comments int, ok bool) {
+	err := s.db.QueryRow(
+		`SELECT id FROM reviews WHERE task_id = ? AND state = ? ORDER BY id DESC LIMIT 1`,
+		taskID, ReviewDraft).Scan(&reviewID)
+	if err != nil {
+		return 0, 0, false
+	}
+	s.db.QueryRow(`SELECT COUNT(*) FROM comments WHERE review_id = ?`, reviewID).Scan(&comments)
+	return reviewID, comments, true
+}
+
+// AddReviewComment adds a comment to the task's open draft review, optionally
+// anchored to a diff line. Returns the comment id.
+func (s *Store) AddReviewComment(taskID int64, who, body, file string, line int, anchor, snippet string) (int64, error) {
+	if body == "" {
+		return 0, fmt.Errorf("comment body is required")
+	}
+	if who == "" {
+		who = "you"
+	}
+	rid, err := s.draftReview(taskID)
+	if err != nil {
+		return 0, err
+	}
+	res, err := s.db.Exec(
+		`INSERT INTO comments (task_id, review_id, who, body, file, line, anchor, snippet, created_at)
+		 VALUES (?,?,?,?,?,?,?,?,?)`,
+		taskID, rid, who, body, nullStr(file), nullInt(line), nullStr(anchor), nullStr(snippet), nowStamp())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// SubmitReview finalizes the task's draft review: records the verdict + summary,
+// stamps it submitted, and flips the task status (request_changes→redo,
+// approve→approved; comment leaves status untouched). Returns the review.
+func (s *Store) SubmitReview(taskID int64, verdict, summary string) (Review, error) {
+	if !validVerdict(verdict) {
+		return Review{}, fmt.Errorf("invalid verdict %q (want request_changes|approve|comment)", verdict)
+	}
+	rid, err := s.draftReview(taskID)
+	if err != nil {
+		return Review{}, err
+	}
+	if _, err := s.db.Exec(
+		`UPDATE reviews SET verdict = ?, summary = ?, state = ?, submitted_at = ? WHERE id = ?`,
+		verdict, summary, ReviewSubmitted, nowStamp(), rid); err != nil {
+		return Review{}, err
+	}
+	switch verdict {
+	case VerdictApprove:
+		if err := s.SetStatus(taskID, StatusApproved); err != nil {
+			return Review{}, err
+		}
+	case VerdictRequestChanges:
+		if err := s.SetStatus(taskID, StatusRedo); err != nil {
+			return Review{}, err
+		}
+	}
+	return s.GetReview(rid)
+}
+
+// DiscardReview deletes the task's open draft review and its comments.
+func (s *Store) DiscardReview(taskID int64) error {
+	rid, err := s.draftReview(taskID)
+	if err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`DELETE FROM comments WHERE review_id = ?`, rid); err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`DELETE FROM reviews WHERE id = ?`, rid)
+	return err
+}
+
+// ResolveReview marks a submitted review addressed (after a fix-forward commit).
+func (s *Store) ResolveReview(id int64) error {
+	res, err := s.db.Exec(`UPDATE reviews SET state = ? WHERE id = ?`, ReviewResolved, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("no review #%d", id)
+	}
+	return nil
+}
+
+const reviewCols = `id, task_id, COALESCE(verdict,''), COALESCE(summary,''), state, created_at, COALESCE(submitted_at,'')`
+
+func scanReview(row interface{ Scan(...any) error }) (Review, error) {
+	var r Review
+	err := row.Scan(&r.ID, &r.TaskID, &r.Verdict, &r.Summary, &r.State, &r.CreatedAt, &r.SubmittedAt)
+	return r, err
+}
+
+// GetReview returns one review by id.
+func (s *Store) GetReview(id int64) (Review, error) {
+	row := s.db.QueryRow(`SELECT `+reviewCols+` FROM reviews WHERE id = ?`, id)
+	r, err := scanReview(row)
+	if err == sql.ErrNoRows {
+		return Review{}, fmt.Errorf("no review #%d", id)
+	}
+	return r, err
+}
+
+// ReviewComments returns a review's comments, oldest first.
+func (s *Store) ReviewComments(reviewID int64) ([]Comment, error) {
+	rows, err := s.db.Query(`SELECT `+commentCols+` FROM comments WHERE review_id = ? ORDER BY id`, reviewID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Comment
+	for rows.Next() {
+		c, err := scanComment(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// Reviews returns a task's reviews, oldest first.
+func (s *Store) Reviews(taskID int64) ([]Review, error) {
+	rows, err := s.db.Query(`SELECT `+reviewCols+` FROM reviews WHERE task_id = ? ORDER BY id`, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Review
+	for rows.Next() {
+		r, err := scanReview(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ListReviews returns reviews in a given state (empty = all), newest first.
+func (s *Store) ListReviews(state string) ([]Review, error) {
+	q := `SELECT ` + reviewCols + ` FROM reviews`
+	var args []any
+	if state != "" {
+		q += ` WHERE state = ?`
+		args = append(args, state)
+	}
+	q += ` ORDER BY id DESC`
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Review
+	for rows.Next() {
+		r, err := scanReview(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// --- null helpers ----------------------------------------------------------
+
+func nullStr(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func nullInt(n int) any {
+	if n == 0 {
+		return nil
+	}
+	return n
+}
+
+func nullID(id int64) any {
+	if id == 0 {
+		return nil
+	}
+	return id
 }

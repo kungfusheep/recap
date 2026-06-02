@@ -1,0 +1,127 @@
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// Config is recap's small config (~/.config/recap/config.toml or $RECAP_CONFIG).
+// The only field today is the TODO-path template used to drop a review
+// breadcrumb into the repo's plain-text TODO — the human-owned queue the
+// autonomous loop already reads.
+type Config struct {
+	// TODOTemplate is a path with a {relpath} placeholder, expanded per repo.
+	// {relpath} is the repo path relative to $HOME. A leading ~ is expanded.
+	// Empty disables TODO writing (submit just prints the line).
+	//
+	// e.g. "~/Library/Mobile Documents/iCloud~md~obsidian/Documents/O Notes/reponotes/{relpath}/TODO.md"
+	TODOTemplate string
+}
+
+func configPath() (string, error) {
+	if p := os.Getenv("RECAP_CONFIG"); p != "" {
+		return p, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "recap", "config.toml"), nil
+}
+
+// LoadConfig reads the config file. A missing file is not an error — it returns
+// a zero Config (TODO writing simply disabled).
+func LoadConfig() (Config, error) {
+	var c Config
+	p, err := configPath()
+	if err != nil {
+		return c, err
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return c, nil
+		}
+		return c, err
+	}
+	defer f.Close()
+
+	// tiny key = "value" parser — recap's config is intentionally trivial, so a
+	// dependency-free line reader beats pulling in a TOML library.
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		k = strings.TrimSpace(k)
+		v = strings.Trim(strings.TrimSpace(v), `"`)
+		switch k {
+		case "todo_template":
+			c.TODOTemplate = v
+		}
+	}
+	return c, sc.Err()
+}
+
+// expandHome replaces a leading ~ with the user's home dir.
+func expandHome(p string) string {
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, strings.TrimPrefix(p, "~"))
+		}
+	}
+	return p
+}
+
+// todoPathFor resolves the TODO template for a repo path, substituting
+// {relpath} (repo path relative to $HOME). Returns "" if no template is set.
+func (c Config) todoPathFor(repoPath string) (string, error) {
+	if c.TODOTemplate == "" {
+		return "", nil
+	}
+	rel := repoPath
+	if home, err := os.UserHomeDir(); err == nil {
+		if r, err := filepath.Rel(home, repoPath); err == nil && !strings.HasPrefix(r, "..") {
+			rel = r
+		}
+	}
+	return expandHome(strings.ReplaceAll(c.TODOTemplate, "{relpath}", rel)), nil
+}
+
+// appendTODO appends a single line to the file, creating it (and parent dirs) if
+// needed. Appending a plain line to a plain file is safe and reversible.
+func appendTODO(path, line string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if !strings.HasSuffix(line, "\n") {
+		line += "\n"
+	}
+	_, err = f.WriteString(line)
+	return err
+}
+
+// todoBreadcrumb is the line recap drops into the TODO for a submitted review.
+func todoBreadcrumb(rv Review, t Task) string {
+	summary := strings.TrimSpace(rv.Summary)
+	if summary == "" {
+		summary = t.Title
+	}
+	if len(summary) > 80 {
+		summary = summary[:77] + "…"
+	}
+	return fmt.Sprintf("- [ ] address recap review #%d — %s (recap review show %d)", rv.ID, summary, rv.ID)
+}

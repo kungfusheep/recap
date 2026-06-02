@@ -16,12 +16,18 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		usage(os.Stderr)
-		os.Exit(2)
+		// bare `recap` launches the reviewer TUI
+		if err := runUI(); err != nil {
+			fmt.Fprintln(os.Stderr, "recap:", err)
+			os.Exit(1)
+		}
+		return
 	}
 	cmd, args := os.Args[1], os.Args[2:]
 	var err error
 	switch cmd {
+	case "ui":
+		err = runUI()
 	case "add":
 		err = cmdAdd(args)
 	case "ls", "list":
@@ -32,6 +38,8 @@ func main() {
 		err = cmdRedo(args)
 	case "comment":
 		err = cmdComment(args)
+	case "review":
+		err = cmdReview(args)
 	case "set":
 		err = cmdSet(args)
 	case "help", "-h", "--help":
@@ -64,6 +72,7 @@ usage:
       --repo NAME        short repo name  (default: basename of repo path)
       --sha SHA          commit to review (default: short HEAD)
       --status S         pending|approved|redo (default: pending)
+      --parent ID        the task this one fixes forward (links lineage)
 
   recap ls [flags]       list tasks (default: pending only)
       --status S         filter by status
@@ -78,6 +87,20 @@ usage:
 
   recap comment <id> --who you|agent --body TEXT
   recap set <id> pending|approved|redo
+
+  recap review comment <task> --body TEXT [--file F --line N --anchor H --snippet S]
+                         add a comment to the task's draft review
+  recap review submit  <task> --verdict request_changes|approve|comment [--summary TEXT]
+                         publish the draft; request_changes flips the task to
+                         redo and drops a breadcrumb in the repo's TODO
+  recap review show <review-id>
+                         the agent's work order: verdict + summary + anchored
+                         comments + the original criterion
+  recap review resolve <review-id>
+                         mark a review addressed (after a fix-forward commit)
+  recap review discard <task>      drop the draft
+  recap review ls [--state S]      inspect reviews
+
   recap help
 
 db: $RECAP_DB or ~/.config/recap/recap.db
@@ -109,6 +132,7 @@ func cmdAdd(args []string) error {
 	repo := fs.String("repo", "", "short repo name (default: basename)")
 	sha := fs.String("sha", "", "commit sha (default: short HEAD)")
 	status := fs.String("status", StatusPending, "pending|approved|redo")
+	parent := fs.Int64("parent", 0, "id of the task this fixes forward")
 	fs.Parse(args)
 
 	if *title == "" {
@@ -136,14 +160,24 @@ func cmdAdd(args []string) error {
 		return err
 	}
 	defer st.Close()
+	if *parent != 0 {
+		if _, err := st.Get(*parent); err != nil {
+			return fmt.Errorf("--parent: %w", err)
+		}
+	}
 	id, err := st.Add(Task{
 		Repo: *repo, RepoPath: *repoPath, SHA: *sha, Title: *title,
 		Criterion: *criterion, CheckCmd: *check, Result: *result, Status: *status,
+		ParentID: *parent,
 	})
 	if err != nil {
 		return err
 	}
-	fmt.Printf("recorded #%d  %s  %s  [%s]\n", id, *repo, *title, *status)
+	if *parent != 0 {
+		fmt.Printf("recorded #%d  %s  %s  [%s]  (fixes #%d)\n", id, *repo, *title, *status, *parent)
+	} else {
+		fmt.Printf("recorded #%d  %s  %s  [%s]\n", id, *repo, *title, *status)
+	}
 	return nil
 }
 
@@ -200,14 +234,28 @@ func parseID(s string) (int64, error) {
 	return id, nil
 }
 
+// splitID pulls a leading positional id off args so flags may follow it
+// (Go's flag package stops at the first non-flag, so `show 1 --stat` would
+// otherwise drop --stat). Falls back to flags-first form via the empty return.
+func splitID(args []string) (id string, rest []string) {
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		return args[0], args[1:]
+	}
+	return "", args
+}
+
 func cmdShow(args []string) error {
 	fs := flag.NewFlagSet("show", flag.ExitOnError)
 	statOnly := fs.Bool("stat", false, "show diffstat only, not the full diff")
-	fs.Parse(args)
-	if fs.NArg() < 1 {
+	idStr, rest := splitID(args)
+	fs.Parse(rest)
+	if idStr == "" {
+		idStr = fs.Arg(0)
+	}
+	if idStr == "" {
 		return fmt.Errorf("usage: recap show <id> [--stat]")
 	}
-	id, err := parseID(fs.Arg(0))
+	id, err := parseID(idStr)
 	if err != nil {
 		return err
 	}
@@ -289,11 +337,15 @@ func cmdComment(args []string) error {
 	fs := flag.NewFlagSet("comment", flag.ExitOnError)
 	who := fs.String("who", "", "you|agent")
 	body := fs.String("body", "", "comment text")
-	fs.Parse(args)
-	if fs.NArg() < 1 {
+	idStr, rest := splitID(args)
+	fs.Parse(rest)
+	if idStr == "" {
+		idStr = fs.Arg(0)
+	}
+	if idStr == "" {
 		return fmt.Errorf("usage: recap comment <id> --who you|agent --body TEXT")
 	}
-	id, err := parseID(fs.Arg(0))
+	id, err := parseID(idStr)
 	if err != nil {
 		return err
 	}
@@ -312,6 +364,268 @@ func cmdComment(args []string) error {
 		return err
 	}
 	fmt.Printf("commented on #%d\n", id)
+	return nil
+}
+
+// --- review --------------------------------------------------------------
+
+func cmdReview(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: recap review comment|submit|show|resolve|discard|ls …")
+	}
+	sub, rest := args[0], args[1:]
+	switch sub {
+	case "comment":
+		return cmdReviewComment(rest)
+	case "submit":
+		return cmdReviewSubmit(rest)
+	case "show":
+		return cmdReviewShow(rest)
+	case "resolve":
+		return cmdReviewResolve(rest)
+	case "discard":
+		return cmdReviewDiscard(rest)
+	case "ls", "list":
+		return cmdReviewLs(rest)
+	default:
+		return fmt.Errorf("recap review: unknown subcommand %q", sub)
+	}
+}
+
+func cmdReviewComment(args []string) error {
+	fs := flag.NewFlagSet("review comment", flag.ExitOnError)
+	file := fs.String("file", "", "file the comment anchors to")
+	line := fs.Int("line", 0, "line within the diff")
+	anchor := fs.String("anchor", "", "hunk header for context")
+	snippet := fs.String("snippet", "", "the diff line(s) commented on")
+	body := fs.String("body", "", "comment text (required)")
+	idStr, rest := splitID(args)
+	fs.Parse(rest)
+	if idStr == "" {
+		idStr = fs.Arg(0)
+	}
+	if idStr == "" {
+		return fmt.Errorf("usage: recap review comment <task> --body TEXT [--file F --line N --anchor H --snippet S]")
+	}
+	id, err := parseID(idStr)
+	if err != nil {
+		return err
+	}
+	if *body == "" {
+		return fmt.Errorf("--body is required")
+	}
+	st, err := Open()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	if _, err := st.AddReviewComment(id, "you", *body, *file, *line, *anchor, *snippet); err != nil {
+		return err
+	}
+	where := "general"
+	if *file != "" {
+		where = fmt.Sprintf("%s:%d", *file, *line)
+	}
+	fmt.Printf("draft comment on #%d (%s)\n", id, where)
+	return nil
+}
+
+func cmdReviewSubmit(args []string) error {
+	fs := flag.NewFlagSet("review submit", flag.ExitOnError)
+	verdict := fs.String("verdict", "", "request_changes|approve|comment (required)")
+	summary := fs.String("summary", "", "overall note — what to change")
+	idStr, rest := splitID(args)
+	fs.Parse(rest)
+	if idStr == "" {
+		idStr = fs.Arg(0)
+	}
+	if idStr == "" {
+		return fmt.Errorf("usage: recap review submit <task> --verdict request_changes|approve|comment [--summary TEXT]")
+	}
+	id, err := parseID(idStr)
+	if err != nil {
+		return err
+	}
+	if *verdict == "" {
+		return fmt.Errorf("--verdict is required (request_changes|approve|comment)")
+	}
+	st, err := Open()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	rv, res, err := submitReview(st, id, *verdict, *summary)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("submitted review #%d on task #%d  [%s]\n", rv.ID, id, rv.Verdict)
+	if res.line != "" {
+		if res.wrote {
+			fmt.Printf("queued in %s:\n  %s\n", res.path, res.line)
+		} else {
+			if res.err != nil {
+				fmt.Fprintf(os.Stderr, "recap: could not write TODO (%v)\n", res.err)
+			}
+			fmt.Printf("add to your TODO:\n  %s\n", res.line)
+		}
+	}
+	return nil
+}
+
+// todoResult reports what submitReview did with the TODO breadcrumb.
+type todoResult struct {
+	line  string // the breadcrumb (empty if none was due, e.g. approve/comment)
+	path  string // resolved TODO path (empty if no template configured)
+	wrote bool   // whether the line was appended
+	err   error  // write error, if any
+}
+
+// submitReview publishes the task's draft review and, for request_changes, drops
+// the TODO breadcrumb into the repo's human-owned TODO. Shared by the CLI and
+// the TUI so both behave identically.
+func submitReview(st *Store, taskID int64, verdict, summary string) (Review, todoResult, error) {
+	rv, err := st.SubmitReview(taskID, verdict, summary)
+	if err != nil {
+		return Review{}, todoResult{}, err
+	}
+	var res todoResult
+	if rv.Verdict == VerdictRequestChanges {
+		t, _ := st.Get(taskID)
+		res.line = todoBreadcrumb(rv, t)
+		cfg, cerr := LoadConfig()
+		path, perr := cfg.todoPathFor(t.RepoPath)
+		if cerr == nil && perr == nil && path != "" {
+			res.path = path
+			if e := appendTODO(path, res.line); e != nil {
+				res.err = e
+			} else {
+				res.wrote = true
+			}
+		}
+	}
+	return rv, res, nil
+}
+
+func cmdReviewShow(args []string) error {
+	idStr, _ := splitID(args)
+	if idStr == "" {
+		return fmt.Errorf("usage: recap review show <review-id>")
+	}
+	id, err := parseID(idStr)
+	if err != nil {
+		return err
+	}
+	st, err := Open()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	rv, err := st.GetReview(id)
+	if err != nil {
+		return err
+	}
+	t, err := st.Get(rv.TaskID)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("review #%d on task #%d  ·  %s  ·  %s  ·  sha %s\n",
+		rv.ID, t.ID, strings.ToUpper(strings.ReplaceAll(rv.Verdict, "_", " ")), t.Repo, t.SHA)
+	fmt.Printf("task:      %s\n", t.Title)
+	if t.Criterion != "" {
+		fmt.Printf("criterion: %s   [original]\n", t.Criterion)
+	}
+	if rv.Summary != "" {
+		fmt.Printf("\nsummary (what to change):\n  %s\n", rv.Summary)
+	}
+
+	comments, _ := st.ReviewComments(rv.ID)
+	if len(comments) > 0 {
+		fmt.Printf("\ncomments (%d):\n", len(comments))
+		for _, c := range comments {
+			if c.File != "" {
+				loc := c.File
+				if c.Anchor != "" {
+					loc += "  " + c.Anchor
+				}
+				if c.Line > 0 {
+					loc += fmt.Sprintf("  (line %d)", c.Line)
+				}
+				fmt.Printf("  ┌ %s\n", loc)
+				if c.Snippet != "" {
+					fmt.Printf("  │   %s\n", c.Snippet)
+				}
+				fmt.Printf("  └ %s\n\n", c.Body)
+			} else {
+				fmt.Printf("  • %s\n", c.Body)
+			}
+		}
+	}
+	return nil
+}
+
+func cmdReviewResolve(args []string) error {
+	idStr, _ := splitID(args)
+	if idStr == "" {
+		return fmt.Errorf("usage: recap review resolve <review-id>")
+	}
+	id, err := parseID(idStr)
+	if err != nil {
+		return err
+	}
+	st, err := Open()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	if err := st.ResolveReview(id); err != nil {
+		return err
+	}
+	fmt.Printf("review #%d resolved\n", id)
+	return nil
+}
+
+func cmdReviewDiscard(args []string) error {
+	idStr, _ := splitID(args)
+	if idStr == "" {
+		return fmt.Errorf("usage: recap review discard <task>")
+	}
+	id, err := parseID(idStr)
+	if err != nil {
+		return err
+	}
+	st, err := Open()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	if err := st.DiscardReview(id); err != nil {
+		return err
+	}
+	fmt.Printf("discarded draft review on #%d\n", id)
+	return nil
+}
+
+func cmdReviewLs(args []string) error {
+	fs := flag.NewFlagSet("review ls", flag.ExitOnError)
+	state := fs.String("state", "", "filter by state (draft|submitted|resolved)")
+	fs.Parse(args)
+	st, err := Open()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	reviews, err := st.ListReviews(*state)
+	if err != nil {
+		return err
+	}
+	if len(reviews) == 0 {
+		fmt.Println("(no reviews)")
+		return nil
+	}
+	for _, rv := range reviews {
+		fmt.Printf("#%-4d task #%-4d %-16s %-10s %s\n", rv.ID, rv.TaskID, rv.State, rv.Verdict, rv.Summary)
+	}
 	return nil
 }
 
