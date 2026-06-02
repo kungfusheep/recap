@@ -86,6 +86,18 @@ type taskVM struct {
 	GroupLabel string
 }
 
+// draftCommentVM is one row in the draft-review overview pane: the location
+// line (file:line), the captured snippet, and the reviewer's note. File/Line
+// keep the raw anchor so selecting a row can scroll the diff to it.
+type draftCommentVM struct {
+	Location string // "file · line N" or "general"
+	Snippet  string // the diff line commented on (may be empty)
+	Body     string
+	File     string
+	Line     int
+	Selected bool // updated each frame like the inbox rows, drives the fill
+}
+
 var (
 	uiStore *Store
 	uiApp   *App
@@ -122,6 +134,12 @@ var (
 	pcSnippetView string
 
 	draftNote string // e.g. "✎ 2 draft" when the current task has draft comments
+
+	// draft review pane (conditional): shows the selected task's accumulated
+	// draft comments in one place, like a PR's conversation overview. Only
+	// rendered when hasDraft is true, so it costs no width otherwise.
+	hasDraft      bool
+	draftComments []draftCommentVM
 
 	countText, filterText string
 	detailTitle           string
@@ -255,6 +273,20 @@ func refreshDetail() {
 	for i := range vmRows {
 		vmRows[i].Selected = i == sel
 	}
+	// draft rows mirror the inbox: per-frame Selected flag + a focus-aware fill,
+	// and moving the draft selection scrolls the diff to the commented line.
+	for i := range draftComments {
+		draftComments[i].Selected = i == draftSel
+	}
+	if pane == paneList {
+		draftSelBG = cFloat // dim while the draft pane isn't focused
+	} else if pane == paneDraft {
+		draftSelBG = cSelBG // bright while it is
+	}
+	if draftSel != lastDraftSel {
+		lastDraftSel = draftSel
+		syncDiffToDraft()
+	}
 	filterText = "all"
 	if repoFltr != "" {
 		filterText = repoFltr
@@ -269,6 +301,7 @@ func refreshDetail() {
 	if len(tasks) == 0 || sel < 0 || sel >= len(tasks) {
 		detailTitle, metaRepo, metaWhen, metaCheck, metaResult = "no tasks", "", "", "", ""
 		filesText, diffFiles, draftNote = "", nil, ""
+		hasDraft, draftComments = false, nil
 		setDiff()
 		return
 	}
@@ -278,11 +311,7 @@ func refreshDetail() {
 	metaCheck = "check: " + dash(t.Criterion)
 	metaResult = dash(t.Result)
 	metaResultColor = resultColor(t.Result)
-	if _, n, ok := uiStore.DraftInfo(t.ID); ok && n > 0 {
-		draftNote = fmt.Sprintf("✎ %d draft", n)
-	} else {
-		draftNote = ""
-	}
+	loadDraftPane(t.ID)
 
 	if t.SHA == "" || t.RepoPath == "" {
 		filesText, diffFiles = "no diff — task has no sha", nil
@@ -297,6 +326,41 @@ func refreshDetail() {
 		diffFiles = parseUnifiedDiff(full)
 	}
 	setDiff()
+}
+
+// loadDraftPane refreshes the draft-review overview for a task: the ✎ N hint and
+// the conditional pane's comment rows, sourced from the open draft review.
+func loadDraftPane(taskID int64) {
+	draftComments = nil
+	rid, n, ok := uiStore.DraftInfo(taskID)
+	if !ok || n == 0 {
+		hasDraft, draftNote = false, ""
+		return
+	}
+	hasDraft = true
+	draftNote = fmt.Sprintf("✎ %d draft", n)
+	if draftSel >= int(n) {
+		draftSel = int(n) - 1
+	}
+	if draftSel < 0 {
+		draftSel = 0
+	}
+	cs, _ := uiStore.ReviewComments(rid)
+	for _, c := range cs {
+		vm := draftCommentVM{Body: c.Body, File: c.File, Line: c.Line}
+		if c.File != "" {
+			vm.Location = c.File
+			if c.Line > 0 {
+				vm.Location += fmt.Sprintf(" · line %d", c.Line)
+			}
+		} else {
+			vm.Location = "general"
+		}
+		if c.Snippet != "" {
+			vm.Snippet = cleanLine(c.Snippet)
+		}
+		draftComments = append(draftComments, vm)
+	}
 }
 
 func resultColor(r string) Color {
@@ -496,8 +560,8 @@ func buildMain() Component {
 		On(
 			Key("q", uiApp.Stop),
 			Key("<Tab>", togglePane),
-			Key("h", func() { setPane(paneList) }),
-			Key("l", func() { setPane(paneDiff) }),
+			Key("h", focusPrev),
+			Key("l", focusNext),
 			Key("f", cycleFilter),
 			Key("S", openVerdict),
 		),
@@ -564,10 +628,47 @@ func buildMain() Component {
 					Key("<Esc>", func() { setPane(paneList) }),
 				)),
 			),
+			// far right — draft review overview (only when the task has a draft)
+			If(&hasDraft).Then(
+				VBox.Grow(2).PaddingTRBL(0, 0, 0, 2)(
+					HBox(Text("review draft").FG(cBright).Bold(), Space(), Text(&draftNote).FG(cHunk), SpaceW(1)),
+					SpaceH(1),
+					List(&draftComments).
+						Selection(&draftSel).
+						Style(Style{BG: cBG}).
+						SelectedStyle(Style{BG: cBG}).
+						Marker("").
+						Render(draftRow),
+					If(&pane).Eq(paneDraft).Then(On(
+						Key("j", func() { moveDraft(1) }),
+						Key("k", func() { moveDraft(-1) }),
+						Key("<Enter>", func() { setPane(paneList) }),
+						Key("<Esc>", func() { setPane(paneList) }),
+					)),
+				),
+			),
 		),
 		SpaceH(1),
 		HBox(Text(&statusMsg).FG(cSubtle), Space(), Text(keybar).FG(cMuted)),
 	)
+}
+
+// draftRow renders one draft comment in the inbox's visual style: a filled card
+// (selection-aware, accent bar) with the location, the snippet, then the note.
+func draftRow(c *draftCommentVM) Component {
+	itemBG := If(&c.Selected).Then(&draftSelBG).Else(&cBG)
+	body := VBox.Fill(itemBG).PaddingVH(1, 2)(
+		HBox(
+			Text("▌").FG(cHunk),
+			SpaceW(1),
+			HBox.Grow(1)(Text(&c.Location).FG(cSubtle)),
+		),
+		If(&c.Snippet).Then(
+			HBox(SpaceW(2), Text(&c.Snippet).FG(cMuted)),
+		),
+		HBox(SpaceW(2), HBox.Grow(1)(Text(&c.Body).FG(cFG))),
+	)
+	return VBox.Fill(cBG).PaddingTRBL(0, 1, 0, 0)(body)
 }
 
 func taskRow(r *taskVM) Component {
@@ -602,34 +703,91 @@ func taskRow(r *taskVM) Component {
 
 // --- focus & keys ----------------------------------------------------------
 //
-// Two focusable panes (list, diff). h/l/Tab move focus; within a pane hjkl and
-// the actions are contextual, bound via On(Key) in buildMain behind
-// If(&pane).Eq(...) — no global ^* shortcuts.
+// Focusable panes (list, diff, and the conditional draft overview). h/l/Tab move
+// focus; within a pane hjkl and the actions are contextual, bound via On(Key) in
+// buildMain behind If(&pane).Eq(...) — no global ^* shortcuts. The draft pane is
+// only reachable while hasDraft is true.
 
 const (
-	paneList = "list"
-	paneDiff = "diff"
+	paneList  = "list"
+	paneDiff  = "diff"
+	paneDraft = "draft"
 )
 
 var (
-	pane     = paneList
-	curSelBG = cSelBG
+	pane         = paneList
+	curSelBG     = cSelBG
+	draftSelBG   = cSelBG
+	draftSel     int
+	lastDraftSel = -1
 )
 
+// syncDiffToDraft scrolls the diff pane to the line the selected draft comment
+// is anchored to (GitHub-style: click a comment, jump to its code). Native
+// layer scroll, so no re-render.
+func syncDiffToDraft() {
+	if draftSel < 0 || draftSel >= len(draftComments) {
+		return
+	}
+	c := draftComments[draftSel]
+	if c.File == "" {
+		return
+	}
+	for y, m := range diffMeta {
+		if m.File == c.File && (c.Line == 0 || m.Line == c.Line) && m.Commentable {
+			diffLayer.ScrollTo(y)
+			return
+		}
+	}
+}
+
 func setPane(p string) {
+	if p == paneDraft && !hasDraft {
+		p = paneList // can't focus a pane that isn't shown
+	}
+	if p == paneDraft && pane != paneDraft {
+		lastDraftSel = -1 // force a diff sync to the current comment on focus-in
+	}
 	pane = p
 	if p == paneList {
 		curSelBG = cSelBG // selection reads bright while the list is focused
 	} else {
-		curSelBG = cFloat // …and dims while you're in the diff
+		curSelBG = cFloat // …and dims while you're elsewhere
 	}
 }
 
-func togglePane() {
-	if pane == paneList {
-		setPane(paneDiff)
-	} else {
-		setPane(paneList)
+// panes returns the focus ring in left-to-right order, including the draft pane
+// only when it's visible.
+func panes() []string {
+	if hasDraft {
+		return []string{paneList, paneDiff, paneDraft}
+	}
+	return []string{paneList, paneDiff}
+}
+
+func togglePane() { focusNext() }
+
+func focusNext() { stepFocus(1) }
+func focusPrev() { stepFocus(-1) }
+
+func stepFocus(d int) {
+	ring := panes()
+	for i, p := range ring {
+		if p == pane {
+			setPane(ring[(i+d+len(ring))%len(ring)])
+			return
+		}
+	}
+	setPane(paneList)
+}
+
+func moveDraft(d int) {
+	draftSel += d
+	if draftSel >= len(draftComments) {
+		draftSel = len(draftComments) - 1
+	}
+	if draftSel < 0 {
+		draftSel = 0
 	}
 }
 
