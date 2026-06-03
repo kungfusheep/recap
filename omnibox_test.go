@@ -9,7 +9,7 @@ func TestOmniCommandsCoverActions(t *testing.T) {
 
 	want := []string{
 		"approve", "comment", "submit (amends)", "unsubmit → inbox",
-		"re-run check", "filter repo", "next pane", "previous pane", "help", "quit",
+		"re-run verification (--check)", "filter repo", "next pane", "previous pane", "help", "quit",
 	}
 	have := map[string]omniItem{}
 	for _, c := range cmds {

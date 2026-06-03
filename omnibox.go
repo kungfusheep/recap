@@ -30,7 +30,7 @@ func omniCommands() []omniItem {
 		{Label: "comment", Description: "add a comment to the selected task", Section: "review", Action: openComment},
 		{Label: "submit (amends)", Description: "submit the draft review → request changes", Section: "review", Action: submitSelected},
 		{Label: "unsubmit → inbox", Description: "move the selected task from amends back to the inbox", Section: "review", Action: unsubmitSelected},
-		{Label: "re-run check", Description: "re-run the selected task's verification command", Section: "review", Action: rerun},
+		{Label: "re-run verification (--check)", Description: "run the task's recorded --check command and show PASS/FAIL", Section: "review", Action: rerun},
 		// view actions
 		{Label: "filter repo", Description: "cycle the inbox filter through repos", Section: "view", Action: cycleFilter},
 		{Label: "next pane", Description: "move focus to the next column", Section: "view", Action: focusNext},
