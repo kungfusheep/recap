@@ -19,16 +19,25 @@ func omniSearchText(it *omniItem) string {
 	return it.Label + " " + it.Description + " " + it.Section
 }
 
-// omniCommands is recap's command palette contents. One item for now (quit);
-// theme commands (task 5) will be appended here.
+// omniCommands is recap's command palette contents: every action the keybindings
+// expose, so the palette is a discoverable home for them (no need to memorise the
+// keys). Each Action reuses the same handler the key binding calls. Theme commands
+// (task 5) will be appended here.
 func omniCommands() []omniItem {
 	return []omniItem{
-		{
-			Label:       "quit",
-			Description: "exit recap",
-			Section:     "app",
-			Action:      func() { uiApp.Stop() },
-		},
+		// review actions — operate on the selected task
+		{Label: "approve", Description: "approve the selected task (submits an approve review)", Section: "review", Action: approveSelected},
+		{Label: "comment", Description: "add a comment to the selected task", Section: "review", Action: openComment},
+		{Label: "submit (amends)", Description: "submit the draft review → request changes", Section: "review", Action: submitSelected},
+		{Label: "unsubmit → inbox", Description: "move the selected task from amends back to the inbox", Section: "review", Action: unsubmitSelected},
+		{Label: "re-run check", Description: "re-run the selected task's verification command", Section: "review", Action: rerun},
+		// view actions
+		{Label: "filter repo", Description: "cycle the inbox filter through repos", Section: "view", Action: cycleFilter},
+		{Label: "next pane", Description: "move focus to the next column", Section: "view", Action: focusNext},
+		{Label: "previous pane", Description: "move focus to the previous column", Section: "view", Action: focusPrev},
+		{Label: "help", Description: "toggle the keyboard cheatsheet", Section: "view", Action: toggleHelp},
+		// app actions
+		{Label: "quit", Description: "exit recap", Section: "app", Action: func() { uiApp.Stop() }},
 	}
 }
 
