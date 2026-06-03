@@ -335,9 +335,19 @@ func cmdRedo(args []string) error {
 		return err
 	}
 	defer st.Close()
-	tasks, err := st.List(StatusRedo, "")
+	// the rework queue is derived, not flag-driven: a task needs rework only while
+	// its newest *submitted* review is request_changes and unresolved. Reading the
+	// stale `status` field instead let resolved tasks linger here forever (and made
+	// the CLI disagree with the TUI, which already uses ReviewState).
+	all, err := st.List("", "")
 	if err != nil {
 		return err
+	}
+	var tasks []Task
+	for i := len(all) - 1; i >= 0; i-- { // List is id DESC; drain oldest first
+		if st.ReviewState(all[i].ID) == StateRework {
+			tasks = append(tasks, all[i])
+		}
 	}
 	if len(tasks) == 0 {
 		fmt.Println("(no rework queued)")

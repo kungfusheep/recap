@@ -238,6 +238,39 @@ func TestReviewStateDerivation(t *testing.T) {
 	}
 }
 
+// the rework queue must be DERIVED from ReviewState, never read off the stale
+// `status` flag. Resolving a review leaves status=='redo' behind (the flag is
+// only set, never cleared), so a flag-driven `recap redo` showed resolved tasks
+// forever — the "why does this keep coming back to me?" phantom. This pins the
+// divergence: after resolve, the flag still says redo but the derived state is
+// pending, so the queue (which filters on ReviewState) excludes it.
+func TestReworkQueueIsDerivedNotFlagged(t *testing.T) {
+	st := testStore(t)
+	defer st.Close()
+	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	st.AddReviewComment(id, "you", "fix this", "a.go", 1, "@@", "x")
+	st.SubmitReview(id, VerdictRequestChanges, "")
+
+	// while submitted: both agree it needs rework.
+	if got, _ := st.Get(id); got.Status != StatusRedo {
+		t.Fatalf("submit should set the legacy flag to redo, got %q", got.Status)
+	}
+	if got := st.ReviewState(id); got != StateRework {
+		t.Fatalf("submitted request_changes: want rework, got %s", got)
+	}
+
+	rv, _ := st.ListReviews(ReviewSubmitted, "")
+	st.ResolveReview(rv[0].ID)
+
+	// the divergence: the flag is stale, the derived state is the truth.
+	if got, _ := st.Get(id); got.Status != StatusRedo {
+		t.Fatalf("resolve intentionally leaves the legacy flag at redo, got %q", got.Status)
+	}
+	if got := st.ReviewState(id); got != StatePending {
+		t.Fatalf("resolved task must derive to pending (out of the rework queue), got %s", got)
+	}
+}
+
 // ListReviews can scope to a repo, so the loop only drains its own reviews.
 func TestListReviewsByRepo(t *testing.T) {
 	st := testStore(t)
