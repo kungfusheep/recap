@@ -128,9 +128,10 @@ var (
 	// (every span carries BG so cells never fall back to terminal default);
 	// renderDiffLayer builds the buffer on content/size change, then the
 	// framework blits the visible window each frame — scroll is free.
-	diffLayer *Layer
-	diffLines [][]Span
-	diffMeta  []diffLineMeta // parallel to diffLines: anchor info per row
+	diffLayer  *Layer
+	diffLines  [][]Span
+	diffMeta   []diffLineMeta // parallel to diffLines: anchor info per row
+	diffBanner [][]Span       // optional context rows prepended to the diff
 
 	// line-comment "pick a line" mode: renderDiffLayer draws label chars in the
 	// gutter of visible commentable rows; diffLabelByRow maps label → row.
@@ -306,11 +307,16 @@ func reloadTasks() {
 	for _, t := range tasks {
 		state[t.ID] = uiStore.ReviewState(t.ID)
 	}
-	// inbox order: pending, then rework, then approved; newest first within each.
+	// sections: inbox, then amends, then done. Within inbox, oldest-first (work
+	// the queue front-to-back); amends/done newest-first (most recent activity).
 	sort.SliceStable(tasks, func(i, j int) bool {
-		pi, pj := statePriority(state[tasks[i].ID]), statePriority(state[tasks[j].ID])
+		si, sj := state[tasks[i].ID], state[tasks[j].ID]
+		pi, pj := statePriority(si), statePriority(sj)
 		if pi != pj {
 			return pi < pj
+		}
+		if si == StatePending {
+			return tasks[i].ID < tasks[j].ID // oldest first in the inbox
 		}
 		return tasks[i].ID > tasks[j].ID
 	})
@@ -430,6 +436,15 @@ func refreshDetail() {
 	metaResult = dash(t.Result)
 	metaResultColor = resultColor(t.Result)
 	loadDraftPane(t.ID)
+	diffBanner = buildBanner(t)
+
+	// AMENDS: the task's own diff is the stale, already-reviewed commit — lead
+	// with the review instead (buildBanner has produced it); show no diff.
+	if uiStore.ReviewState(t.ID) == StateRework {
+		diffFiles = nil
+		setDiff()
+		return
+	}
 
 	if t.SHA == "" || t.RepoPath == "" {
 		filesText, diffFiles = "no diff — task has no sha", nil
@@ -444,6 +459,68 @@ func refreshDetail() {
 		diffFiles = parseUnifiedDiff(full)
 	}
 	setDiff()
+}
+
+// buildBanner produces the context rows shown above the diff:
+//   - AMENDS task (latest submitted review is request_changes): the review I
+//     submitted — summary + anchored comments (what I asked for).
+//   - fix-forward task (has a parent) awaiting re-review: a "↩ amends review #N"
+//     header + that review's summary, above the new commit's diff.
+//
+// Returns nil for ordinary inbox items.
+func buildBanner(t Task) [][]Span {
+	if uiStore.ReviewState(t.ID) == StateRework {
+		// the active request_changes review on this task.
+		for _, rv := range latestSubmitted(t.ID) {
+			return reviewBanner("changes requested", rv, true)
+		}
+	}
+	if t.ParentID != 0 {
+		// the review that prompted this fix lives on the parent.
+		for _, rv := range latestSubmitted(t.ParentID) {
+			return reviewBanner(fmt.Sprintf("↩ amends review #%d", rv.ID), rv, false)
+		}
+	}
+	return nil
+}
+
+// latestSubmitted returns the newest submitted/resolved review for a task as a
+// 0-or-1 slice (so callers can range without a nil check).
+func latestSubmitted(taskID int64) []Review {
+	revs, _ := uiStore.Reviews(taskID)
+	for i := len(revs) - 1; i >= 0; i-- {
+		if revs[i].State == ReviewSubmitted || revs[i].State == ReviewResolved {
+			return revs[i : i+1]
+		}
+	}
+	return nil
+}
+
+// reviewBanner renders a review's summary (+ optional anchored comments) as
+// banner rows. withComments lists the line comments (used for the AMENDS view).
+func reviewBanner(title string, rv Review, withComments bool) [][]Span {
+	var rows [][]Span
+	add := func(s ...Span) { rows = append(rows, s) }
+	add(span(title, cHunk, true))
+	if rv.Summary != "" {
+		add(span("  "+cleanLine(rv.Summary), cFG, false))
+	}
+	if withComments {
+		cs, _ := uiStore.ReviewComments(rv.ID)
+		for _, c := range cs {
+			loc := "general"
+			if c.File != "" {
+				loc = c.File
+				if c.Line > 0 {
+					loc = fmt.Sprintf("%s:%d", c.File, c.Line)
+				}
+			}
+			add(span("  · "+loc, cSubtle, false))
+			add(span("    "+cleanLine(c.Body), cFG, false))
+		}
+	}
+	rows = append(rows, []Span{}) // blank separator before the diff (or end)
+	return rows
 }
 
 // loadDraftPane refreshes the draft-review overview for a task: the ✎ N hint and
@@ -543,7 +620,16 @@ type diffLineMeta struct {
 // setDiff rebuilds the diff content and resets scroll. Invalidate tells the
 // layer to re-run renderDiffLayer on the next display pass (content changed).
 func setDiff() {
-	diffLines, diffMeta = buildDiffLines(diffFiles)
+	lines, meta := buildDiffLines(diffFiles)
+	// prepend the context banner (amends summary / re-review header) if any;
+	// banner rows carry empty meta so they're never commentable / labelled.
+	if len(diffBanner) > 0 {
+		bMeta := make([]diffLineMeta, len(diffBanner))
+		diffLines = append(append([][]Span{}, diffBanner...), lines...)
+		diffMeta = append(append([]diffLineMeta{}, bMeta...), meta...)
+	} else {
+		diffLines, diffMeta = lines, meta
+	}
 	// note: comment mode is owned by openDiffLineComment/pickDiffLine/
 	// cancelDiffPick, never reset here — setDiff can run mid-pick (via the
 	// OnBeforeRender refresh) and would otherwise clobber the labels.

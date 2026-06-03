@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	. "github.com/kungfusheep/glyph"
@@ -197,6 +199,54 @@ func TestReReviewFlag(t *testing.T) {
 		}
 	}
 }
+
+// the preview banner: an AMENDS task leads with the submitted review (summary +
+// comments); a fix-forward task gets an "amends review #N" header.
+func TestBuildBanner(t *testing.T) {
+	st := testStore(t)
+	uiStore = st
+	t.Cleanup(func() { uiStore = nil })
+
+	orig, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "orig", Status: StatusPending})
+	st.AddReviewComment(orig, "you", "tighten this", "a.go", 5, "@@", "x")
+	rv, _ := st.SubmitReview(orig, VerdictRequestChanges, "needs work on a.go")
+
+	// AMENDS task → banner leads with the review (summary + comment), withComments.
+	ot, _ := st.Get(orig)
+	b := buildBanner(ot)
+	flat := flattenSpans(b)
+	if !contains2(flat, "changes requested") || !contains2(flat, "needs work on a.go") || !contains2(flat, "tighten this") {
+		t.Fatalf("amends banner missing summary/comment: %q", flat)
+	}
+
+	// fix-forward task → "↩ amends review #N" + summary, no per-comment list.
+	fix, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "fix", Status: StatusPending, ParentID: orig})
+	ft, _ := st.Get(fix)
+	fb := buildBanner(ft)
+	ff := flattenSpans(fb)
+	if !contains2(ff, fmt.Sprintf("amends review #%d", rv.ID)) || !contains2(ff, "needs work on a.go") {
+		t.Fatalf("fix banner missing header/summary: %q", ff)
+	}
+
+	// ordinary inbox item → no banner.
+	plain, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "plain", Status: StatusPending})
+	pt, _ := st.Get(plain)
+	if b := buildBanner(pt); b != nil {
+		t.Fatalf("plain task should have no banner, got %d rows", len(b))
+	}
+}
+
+func flattenSpans(rows [][]Span) string {
+	var b strings.Builder
+	for _, r := range rows {
+		for _, s := range r {
+			b.WriteString(s.Text)
+		}
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+func contains2(hay, needle string) bool { return strings.Contains(hay, needle) }
 
 func TestWrapText(t *testing.T) {
 	got := wrapText("the quick brown fox jumps", 9)
