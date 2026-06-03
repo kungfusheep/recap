@@ -15,6 +15,11 @@ var (
 	todoSel   int
 	todoPath  string
 	todoTitle string
+
+	// the shared add/edit prompt: editingTodoIdx is -1 for add (append a new task),
+	// or the index of the line being edited; todoPromptTitle labels the prompt.
+	editingTodoIdx  = -1
+	todoPromptTitle = "add todo"
 )
 
 // openTodoEditor resolves the selected task's repo TODO path (via the config
@@ -90,8 +95,49 @@ func todoToggle() {
 }
 
 func todoAdd() {
+	editingTodoIdx = -1
+	todoPromptTitle = "add todo"
 	setCommentText("")
-	uiApp.PushView("todoadd")
+	uiApp.PushView("todoprompt")
+}
+
+// applyTodoPromptText commits the prompt text: in edit mode it rewrites the line
+// being edited (task body or raw), otherwise it appends a new task. Empty input is
+// ignored. Writes back to disk. Extracted from the prompt save so it's testable.
+func applyTodoPromptText(text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	if editingTodoIdx >= 0 && editingTodoIdx < len(todoItems) {
+		if todoItems[editingTodoIdx].IsTask {
+			todoItems[editingTodoIdx].Text = text
+		} else {
+			todoItems[editingTodoIdx].Raw = text
+		}
+	} else {
+		todoItems = addTodoItem(todoItems, text)
+		todoSel = len(todoItems) - 1
+	}
+	todoPrep()
+	todoSave()
+}
+
+// todoEditLine opens the prompt pre-filled with the selected line's text; saving
+// rewrites that line (its task body, or the raw text for a non-task line).
+func todoEditLine() {
+	if todoSel < 0 || todoSel >= len(todoItems) {
+		return
+	}
+	it := todoItems[todoSel]
+	editingTodoIdx = todoSel
+	todoPromptTitle = "edit todo"
+	if it.IsTask {
+		setCommentText(it.Text)
+	} else {
+		setCommentText(it.Raw)
+	}
+	uiApp.PushView("todoprompt")
 }
 
 // todoRow renders one TODO line. The checkbox/branch is pointer-bound (If(&...))
@@ -128,13 +174,14 @@ func setupTodoView() {
 				Key("<Space>", todoToggle),
 				Key("x", todoToggle),
 				Key("a", todoAdd),
+				Key("e", todoEditLine),
 				Key("<Esc>", func() { uiApp.PopView() }),
 				Key("q", func() { uiApp.PopView() }),
 			),
 			HBox(
 				Text(&todoTitle).FG(cBright).Bold(),
 				Space(),
-				Text("space toggle · a add · esc close").FG(cMuted),
+				Text("space toggle · a add · e edit · esc close").FG(cMuted),
 			),
 			SpaceH(1),
 			List(&todoItems).
@@ -145,30 +192,26 @@ func setupTodoView() {
 		),
 	).NoCounts()
 
-	// add-line prompt (reuses the comment input machinery).
+	// shared add/edit prompt (reuses the comment input machinery). editingTodoIdx
+	// decides whether enter appends a new task or rewrites the edited line.
 	save := func() {
-		text := strings.TrimSpace(commentText)
+		text := commentText
 		setCommentText("")
 		uiApp.PopView()
-		if text != "" {
-			todoItems = addTodoItem(todoItems, text)
-			todoSel = len(todoItems) - 1
-			todoPrep()
-			todoSave()
-		}
+		applyTodoPromptText(text)
 	}
 	cancel := func() { setCommentText(""); uiApp.PopView() }
-	uiApp.View("todoadd",
+	uiApp.View("todoprompt",
 		VBox.Fill(cBG)(
 			promptKeys(save, cancel),
 			Space(),
 			HBox(Space(), VBox.Fill(cFloat).PaddingVH(1, 2).Width(72)(
-				HBox(Text("add todo").FG(cBright).Bold(), Space(), Text("esc cancel · enter add").FG(cMuted)),
+				HBox(Text(&todoPromptTitle).FG(cBright).Bold(), Space(), Text("esc cancel · enter save").FG(cMuted)),
 				SpaceH(1),
 				commentInput(),
 			), Space()),
 			Space(),
 		),
 	).NoCounts()
-	wireTyping("todoadd")
+	wireTyping("todoprompt")
 }

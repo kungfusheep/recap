@@ -109,6 +109,57 @@ func TestTodoEditRoundTrip(t *testing.T) {
 	}
 }
 
+// the editor can add new tasks and edit existing lines, writing back to disk
+// (review #151). Add appends; edit rewrites the targeted line's text.
+func TestTodoAddAndEdit(t *testing.T) {
+	dir := t.TempDir()
+	prevPath, prevItems, prevSel, prevIdx := todoPath, todoItems, todoSel, editingTodoIdx
+	todoPath = dir + "/TODO.md"
+	todoItems = []todoItem{
+		{IsTask: false, Raw: "# TODO"},
+		{IsTask: true, Done: false, Text: "first"},
+	}
+	todoSel = 1
+	t.Cleanup(func() {
+		todoPath, todoItems, todoSel, editingTodoIdx = prevPath, prevItems, prevSel, prevIdx
+	})
+
+	// add mode: append a new task
+	editingTodoIdx = -1
+	applyTodoPromptText("second task")
+	if len(todoItems) != 3 || !todoItems[2].IsTask || todoItems[2].Text != "second task" {
+		t.Fatalf("add failed: %+v", todoItems)
+	}
+
+	// edit mode: rewrite the first task's body
+	editingTodoIdx = 1
+	applyTodoPromptText("first (edited)")
+	if todoItems[1].Text != "first (edited)" {
+		t.Fatalf("edit task failed: %q", todoItems[1].Text)
+	}
+
+	// edit a non-task line rewrites its Raw
+	editingTodoIdx = 0
+	applyTodoPromptText("# TASKS")
+	if todoItems[0].IsTask || todoItems[0].Raw != "# TASKS" {
+		t.Fatalf("edit header failed: %+v", todoItems[0])
+	}
+
+	// empty input is a no-op
+	editingTodoIdx = 1
+	applyTodoPromptText("   ")
+	if todoItems[1].Text != "first (edited)" {
+		t.Fatalf("empty edit should be ignored: %q", todoItems[1].Text)
+	}
+
+	// it all persisted to disk
+	got, _ := os.ReadFile(todoPath)
+	want := "# TASKS\n- [ ] first (edited)\n- [ ] second task\n"
+	if string(got) != want {
+		t.Fatalf("disk mismatch:\n got %q\nwant %q", string(got), want)
+	}
+}
+
 // indented and mixed-case checkboxes are recognised, and re-rendered normalised.
 func TestTodoParseVariants(t *testing.T) {
 	cases := map[string]struct {
