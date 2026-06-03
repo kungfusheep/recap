@@ -881,7 +881,9 @@ func taskRow(r *taskVM) Component {
 			Text(&r.Glyph).FG(r.GlyphColor),
 			SpaceW(1),
 			HBox.Grow(1)(
-				Text(&r.Title).Style(If(&r.Pending).Then(Style{Attr: AttrBold}).Else(Style{})),
+				// FG must live inside Style: .Style() replaces the whole style, so a
+				// separate .FG() would be wiped — which left the title untinted/cyan.
+				Text(&r.Title).Style(If(&r.Pending).Then(Style{FG: cBright, Attr: AttrBold}).Else(Style{FG: cBright})),
 			),
 			SpaceW(2),
 			Text(&r.When).FG(cSubtle),
