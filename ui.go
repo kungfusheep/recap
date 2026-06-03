@@ -196,6 +196,7 @@ var (
 	draftComments []draftCommentVM
 
 	countText, filterText string
+	inboxCount            int // number of pending (inbox) tasks — shown in the header
 	detailTitle           string
 	metaRepo, metaWhen    string
 	metaResult            string
@@ -328,8 +329,12 @@ func reloadTasks() {
 	tasks, _ = uiStore.List("", repoFltr)
 	// derived state per task (computed from reviews, never a stale flag).
 	state := make(map[int64]string, len(tasks))
+	inboxCount = 0
 	for _, t := range tasks {
 		state[t.ID] = uiStore.ReviewState(t.ID)
+		if state[t.ID] == StatePending {
+			inboxCount++ // the header count is the inbox, not the whole task set
+		}
 	}
 	// sections: inbox, then amends, then done. Within inbox, oldest-first (work
 	// the queue front-to-back); amends/done newest-first (most recent activity).
@@ -536,7 +541,7 @@ func refreshDetail() {
 	if repoFltr != "" {
 		filterText = repoFltr
 	}
-	countText = fmt.Sprintf("%d", len(tasks))
+	countText = fmt.Sprintf("%d", inboxCount)
 
 	if sel == lastSel && len(tasks) == lastLen && repoFltr == lastFltr && !detailDirty {
 		return

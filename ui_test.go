@@ -325,6 +325,33 @@ func TestSelectedRowHasNoCaretMarker(t *testing.T) {
 	}
 }
 
+// the header count is the INBOX (pending) count, not the whole task set
+// (review/TODO: "rework (count) at the top should just be the inbox count").
+func TestInboxCount(t *testing.T) {
+	st := testStore(t)
+	uiStore = st
+	prevFltr := repoFltr
+	repoFltr = ""
+	t.Cleanup(func() { uiStore = nil; vmRows = nil; sel = 0; repoFltr = prevFltr; inboxCount = 0 })
+
+	// 3 pending (inbox), 1 amends (request_changes), 1 done (approved)
+	st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "p1", Status: StatusPending})
+	st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "p2", Status: StatusPending})
+	st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "p3", Status: StatusPending})
+	amends, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "a", Status: StatusPending})
+	st.SubmitReview(amends, VerdictRequestChanges, "fix")
+	done, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "d", Status: StatusPending})
+	st.SubmitReview(done, VerdictApprove, "")
+
+	reloadTasks()
+	if inboxCount != 3 {
+		t.Fatalf("inbox count = %d, want 3 (only pending); total tasks = %d", inboxCount, len(tasks))
+	}
+	if len(tasks) != 5 {
+		t.Fatalf("sanity: want 5 total tasks, got %d", len(tasks))
+	}
+}
+
 // regression (review #28): a long comment in the draft pane must WRAP to the
 // column width, not truncate at one line. Verified by render: a long body in a
 // narrow column produces several non-empty body rows and keeps its trailing text.
