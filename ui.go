@@ -843,7 +843,7 @@ func taskRow(r *taskVM) Component {
 		),
 		HBox(
 			SpaceW(2),
-			Text(&r.Repo).FG(r.RepoColor),
+			Text(&r.Repo).FG(cSubtle), // match the right column's muted meta, not a cyan tint
 		),
 	)
 	return VBox(
