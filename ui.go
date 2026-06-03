@@ -869,7 +869,7 @@ func buildMain() Component {
 					Selection(&sel).
 					Style(&listBaseStyle).
 					SelectedStyle(Style{}). // band painted per-row, excludes group headers
-					Marker("").
+					Marker("  ").           // blank gutter: Marker("") falls back to the default "> "
 					Render(taskRow),
 				// list-focused keys. status is review-derived, so there are no direct
 				// redo/pending flips — rework happens only via S → request_changes.
@@ -932,7 +932,7 @@ func buildMain() Component {
 						Selection(&draftSel).
 						Style(&listBaseStyle).
 						SelectedStyle(Style{}). // band painted per-row
-						Marker("").
+						Marker("  ").           // blank gutter: Marker("") falls back to the default "> "
 						Render(draftRow),
 					If(&pane).Eq(paneDraft).Then(On(
 						Key("j", func() { moveDraft(1) }),

@@ -279,6 +279,52 @@ func TestBuildBanner(t *testing.T) {
 	}
 }
 
+// regression (review #25): the selected inbox row must NOT show a "> " marker —
+// the full-width selection band is the only selection cue (mail style). The trap
+// is that glyph's List treats Marker("") as "unset" and falls back to the default
+// "> ", so suppression needs a non-empty blank marker. This verifies by RENDER
+// (build → execute → read the buffer), not by trusting the marker string: it
+// renders the real taskRow list both ways and asserts the production marker hides
+// the ">" while the buggy Marker("") would show it (so the test can actually fail).
+func TestSelectedRowHasNoCaretMarker(t *testing.T) {
+	prevRows, prevSel := vmRows, sel
+	t.Cleanup(func() { vmRows = prevRows; sel = prevSel })
+
+	vmRows = []taskVM{
+		{ID: 1, IDText: "#1", Title: "first task", When: "10:00", Repo: "recap", Glyph: "●", GlyphColor: cSubtle, Selected: true},
+		{ID: 2, IDText: "#2", Title: "second task", When: "10:01", Repo: "recap", Glyph: "●", GlyphColor: cSubtle},
+	}
+	sel = 0
+
+	render := func(marker string) string {
+		node := List(&vmRows).
+			Selection(&sel).
+			Style(&listBaseStyle).
+			SelectedStyle(Style{}).
+			Marker(marker).
+			Render(taskRow)
+		tmpl := Build(node)
+		buf := NewBuffer(48, 10)
+		tmpl.Execute(buf, 48, 10)
+		var b strings.Builder
+		for y := 0; y < 10; y++ {
+			b.WriteString(buf.GetLine(y))
+			b.WriteByte('\n')
+		}
+		return b.String()
+	}
+
+	// sanity: the buggy form (what Marker("") compiles to) DOES render the caret,
+	// so this assertion proves the test is capable of catching the regression.
+	if !strings.Contains(render(""), ">") {
+		t.Fatal("precondition failed: Marker(\"\") should fall back to the default \"> \" caret")
+	}
+	// the production form must NOT render a caret anywhere.
+	if got := render("  "); strings.Contains(got, ">") {
+		t.Fatalf("selected row still shows a \">\" marker:\n%s", got)
+	}
+}
+
 func flattenSpans(rows [][]Span) string {
 	var b strings.Builder
 	for _, r := range rows {
