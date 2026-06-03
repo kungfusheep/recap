@@ -1071,6 +1071,7 @@ func buildMain() Component {
 						Key("<Enter>", openCommentView),
 						Key("e", editDraftComment),
 						Key("d", deleteDraftComment),
+						Key("O", openDraftLinks), // open [[file]] refs (e.g. screenshots)
 						Key("<Esc>", func() { setPane(paneList) }),
 					)),
 				),
@@ -1102,6 +1103,7 @@ var helpActionRows = []helpRow{
 	{"t", "edit TODO"},
 	{"c", "comment"},
 	{"e / d", "edit / delete"},
+	{"O", "open [[file]] link"},
 	{"a", "approve"},
 	{"S", "submit (amends)"},
 	{"U", "unsubmit → inbox"},
@@ -1424,6 +1426,23 @@ func deleteDraftComment() {
 	detailDirty = true
 }
 
+// openDraftLinks opens any [[file]] references in the selected comment (e.g. a
+// screenshot path the reviewer or agent attached). recap can't render images
+// inline, so this hands them to the OS opener.
+func openDraftLinks() {
+	c := selectedDraft()
+	if c == nil {
+		return
+	}
+	links := extractLinks(c.Body)
+	if len(links) == 0 {
+		statusMsg = "no [[file]] links in this comment"
+		return
+	}
+	n := openLinks(c.Body)
+	statusMsg = fmt.Sprintf("opened %d/%d link(s)", n, len(links))
+}
+
 func openComment() {
 	if _, ok := selectedTask(); ok {
 		setCommentText("")
@@ -1592,7 +1611,33 @@ func promptKeys(save, cancel func()) OnC {
 		Key("<Esc>", cancel),
 		Key("<BS>", backspaceComment),
 		Key("<Space>", func() { setCommentText(commentText + " ") }),
+		Key("<C-v>", pasteImageIntoComment), // paste a clipboard screenshot as a [[path]] link
 	)
+}
+
+// insertCommentLink appends a [[path]] reference to the prompt text (space-
+// separated when needed). Pure — the testable half of pasteImageIntoComment.
+func insertCommentLink(path string) {
+	ref := "[[" + path + "]]"
+	if commentText != "" && !strings.HasSuffix(commentText, " ") {
+		ref = " " + ref
+	}
+	setCommentText(commentText + ref)
+}
+
+// pasteImageIntoComment grabs a clipboard screenshot to a temp PNG and inserts a
+// [[path]] link to it (recap can't render images inline, so the link is opened
+// with O / the OS opener). No-op with a clear message if the clipboard has no image.
+func pasteImageIntoComment() {
+	path, err := pasteClipboardImage()
+	if err != nil {
+		statusMsg = "paste: " + err.Error()
+		uiApp.RequestRender()
+		return
+	}
+	insertCommentLink(path)
+	statusMsg = "pasted screenshot → " + path
+	uiApp.RequestRender()
 }
 
 // wireTyping routes printable keystrokes into commentText for a prompt view

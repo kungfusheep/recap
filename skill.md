@@ -68,6 +68,14 @@ A `request_changes` review also drops a breadcrumb line into the repo's TODO
 (`address recap review #<id> (recap review show <id>)`); treat that TODO line and the
 `recap review show` work order as two views of the same item — `revise` completes it.
 
+## Attaching files / screenshots to comments
+
+Comments can embed `[[/path/to/file]]` references — e.g. `[[/tmp/shot.png]]` to point at
+a screenshot. recap can't render images inline (terminal), so a referenced file is opened
+externally with `O` on the selected comment in the TUI. In the comment box, `Ctrl-V`
+pastes a clipboard image: it writes a temp PNG and inserts the `[[path]]` link for you. You
+can also type any `[[path]]` by hand to attach a log, file, or screenshot to feedback.
+
 ## Boundaries
 
 - Recording and reading reviews is local and reversible — safe inside the deadman loop.
