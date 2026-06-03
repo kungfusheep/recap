@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	. "github.com/kungfusheep/glyph"
+	"github.com/kungfusheep/riffkey"
 )
 
 // The TODO editor: a modal view over the selected task's repo TODO file. Toggle
@@ -17,9 +18,8 @@ var (
 	todoTitle string
 
 	// the shared add/edit prompt: editingTodoIdx is -1 for add (append a new task),
-	// or the index of the line being edited; todoPromptTitle labels the prompt.
-	editingTodoIdx  = -1
-	todoPromptTitle = "add todo"
+	// or the index of the line being edited.
+	editingTodoIdx = -1
 )
 
 // openTodoEditor resolves the selected task's repo TODO path (via the config
@@ -96,9 +96,7 @@ func todoToggle() {
 
 func todoAdd() {
 	editingTodoIdx = -1
-	todoPromptTitle = "add todo"
-	setCommentText("")
-	uiApp.PushView("todoprompt")
+	openInputPrompt("add todo", "", "", "", func() { applyTodoPromptText(commentText) })
 }
 
 // applyTodoPromptText commits the prompt text: in edit mode it rewrites the line
@@ -131,13 +129,11 @@ func todoEditLine() {
 	}
 	it := todoItems[todoSel]
 	editingTodoIdx = todoSel
-	todoPromptTitle = "edit todo"
+	prefill := it.Raw
 	if it.IsTask {
-		setCommentText(it.Text)
-	} else {
-		setCommentText(it.Raw)
+		prefill = it.Text
 	}
-	uiApp.PushView("todoprompt")
+	openInputPrompt("edit todo", "", "", prefill, func() { applyTodoPromptText(commentText) })
 }
 
 // todoRow renders one TODO line. The checkbox/branch is pointer-bound (If(&...))
@@ -189,29 +185,21 @@ func setupTodoView() {
 				Marker("  ").
 				SelectedStyle(Style{}). // band painted per-row (todoRow Fill)
 				Render(todoRow),
+			// the add/edit prompt floats over the TODO list (overlay, not PushView).
+			inputPromptOverlay(),
 		),
 	).NoCounts()
 
-	// shared add/edit prompt (reuses the comment input machinery). editingTodoIdx
-	// decides whether enter appends a new task or rewrites the edited line.
-	save := func() {
-		text := commentText
-		setCommentText("")
-		uiApp.PopView()
-		applyTodoPromptText(text)
+	// route printable typing into the prompt while it's open over the TODO list
+	// (its On.Modal captures the bound keys; runes fall through to here).
+	if r, ok := uiApp.ViewRouter("todoedit"); ok {
+		r.HandleUnmatched(func(k riffkey.Key) bool {
+			if promptOpen && k.Rune != 0 && k.Mod == 0 {
+				setCommentText(commentText + string(k.Rune))
+				uiApp.RequestRender()
+				return true
+			}
+			return false
+		})
 	}
-	cancel := func() { setCommentText(""); uiApp.PopView() }
-	uiApp.View("todoprompt",
-		VBox.Fill(cBG)(
-			promptKeys(save, cancel),
-			Space(),
-			HBox(Space(), VBox.Fill(cFloat).PaddingVH(1, 2).Width(72)(
-				HBox(Text(&todoPromptTitle).FG(cBright).Bold(), Space(), Text("esc cancel · enter save").FG(cMuted)),
-				SpaceH(1),
-				commentInput(),
-			), Space()),
-			Space(),
-		),
-	).NoCounts()
-	wireTyping("todoprompt")
 }
