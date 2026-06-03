@@ -95,6 +95,46 @@ func TestThemePersistence(t *testing.T) {
 	}
 }
 
+// the command palette exposes every theme, and selecting one applies + persists
+// it (here with uiApp nil so applyTheme just sets vars — no rebuild).
+func TestThemeCommandsInPalette(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RECAP_DB", dir+"/recap.db")
+	prevApp, prevName := uiApp, currentThemeName
+	uiApp = nil
+	t.Cleanup(func() { uiApp = prevApp; currentThemeName = prevName; setThemeVars(themeDark) })
+
+	cmds := omniCommands()
+	var amberCmd *omniItem
+	count := 0
+	for i := range cmds {
+		if cmds[i].Section == "theme" {
+			count++
+			if cmds[i].Label == "theme: MFD Amber" {
+				amberCmd = &cmds[i]
+			}
+		}
+	}
+	if count != 20 {
+		t.Fatalf("want 20 theme commands in the palette, got %d", count)
+	}
+	if amberCmd == nil || amberCmd.Action == nil {
+		t.Fatal("MFD Amber theme command missing or unwired")
+	}
+
+	amberCmd.Action()
+	amber, _ := themeByName("mfd-amber")
+	if currentThemeName != "mfd-amber" {
+		t.Fatalf("selecting the theme command did not switch: %q", currentThemeName)
+	}
+	if cBG != amber.BG {
+		t.Fatalf("palette colour not applied: cBG=%v want %v", cBG, amber.BG)
+	}
+	if got := loadSettings().Theme; got != "mfd-amber" {
+		t.Fatalf("theme not persisted: settings.Theme=%q", got)
+	}
+}
+
 // applying a theme must actually repaint: recap bakes colours at build time, so
 // this verifies by RENDER that rebuilding buildMain after setThemeVars changes a
 // background cell's colour to the new palette's BG (a re-render alone wouldn't).

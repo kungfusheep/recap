@@ -24,7 +24,7 @@ func omniSearchText(it *omniItem) string {
 // keys). Each Action reuses the same handler the key binding calls. Theme commands
 // (task 5) will be appended here.
 func omniCommands() []omniItem {
-	return []omniItem{
+	cmds := []omniItem{
 		// review actions — operate on the selected task
 		{Label: "approve", Description: "approve the selected task (submits an approve review)", Section: "review", Action: approveSelected},
 		{Label: "comment", Description: "add a comment to the selected task", Section: "review", Action: openComment},
@@ -39,6 +39,25 @@ func omniCommands() []omniItem {
 		// app actions
 		{Label: "quit", Description: "exit recap", Section: "app", Action: func() { uiApp.Stop() }},
 	}
+	// theme commands — one per palette. Selecting applies + persists it. Applied on
+	// Enter (the omnibox closes first), since applyTheme rebuilds the view tree.
+	for _, nt := range allThemes() {
+		nt := nt // capture per iteration
+		cmds = append(cmds, omniItem{
+			Label:       "theme: " + nt.Label,
+			Description: "apply and save the " + nt.Name + " theme",
+			Section:     "theme",
+			Action: func() {
+				applyTheme(nt.Name, nt.Palette)
+				if err := saveThemeName(nt.Name); err != nil {
+					statusMsg = "theme save failed: " + err.Error()
+				} else {
+					statusMsg = "theme: " + nt.Label
+				}
+			},
+		})
+	}
+	return cmds
 }
 
 // OmniBox is recap's command palette: a fuzzy-filtered command list rendered as a
