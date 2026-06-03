@@ -219,13 +219,24 @@ func TestBuildBanner(t *testing.T) {
 		t.Fatalf("amends banner missing summary/comment: %q", flat)
 	}
 
-	// fix-forward task → "↩ amends review #N" + summary, no per-comment list.
-	fix, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "fix", Status: StatusPending, ParentID: orig})
+	// fix-forward task → stacks BOTH the original review (header + summary +
+	// original comments, so you can recontextualise) AND "what changed" (my fix
+	// summary), above the new diff.
+	fix, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "fix", Status: StatusPending, ParentID: orig,
+		Summary: "rewrote a.go to use the slice form"})
 	ft, _ := st.Get(fix)
-	fb := buildBanner(ft)
-	ff := flattenSpans(fb)
-	if !contains2(ff, fmt.Sprintf("amends review #%d", rv.ID)) || !contains2(ff, "needs work on a.go") {
-		t.Fatalf("fix banner missing header/summary: %q", ff)
+	ff := flattenSpans(buildBanner(ft))
+	if !contains2(ff, fmt.Sprintf("amends review #%d", rv.ID)) {
+		t.Fatalf("fix banner missing the ↩ header: %q", ff)
+	}
+	if !contains2(ff, "needs work on a.go") {
+		t.Fatalf("fix banner missing the original review summary: %q", ff)
+	}
+	if !contains2(ff, "tighten this") {
+		t.Fatalf("fix banner missing the ORIGINAL comments (needed to recontextualise): %q", ff)
+	}
+	if !contains2(ff, "what changed") || !contains2(ff, "slice form") {
+		t.Fatalf("fix banner missing my 'what changed' summary: %q", ff)
 	}
 
 	// ordinary inbox item with no summary → no banner.

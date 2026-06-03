@@ -468,22 +468,34 @@ func buildBanner(t Task) [][]Span {
 		}
 	}
 	if t.ParentID != 0 {
-		// the review that prompted this fix lives on the parent.
+		// re-review: show BOTH why it's back (the parent's review) and what I
+		// changed about it (this fix task's summary), so the reviewer doesn't have
+		// to reverse-engineer the fix.
+		var rows [][]Span
 		for _, rv := range latestSubmitted(t.ParentID) {
-			return reviewBanner(fmt.Sprintf("↩ amends review #%d", rv.ID), rv, false)
+			// withComments=true: show the original line comments so the reviewer can
+			// recontextualise what they asked for when re-reviewing the fix.
+			rows = append(rows, reviewBanner(fmt.Sprintf("↩ amends review #%d", rv.ID), rv, true)...)
+		}
+		if strings.TrimSpace(t.Summary) != "" {
+			rows = append(rows, summaryBanner("what changed", t.Summary)...)
+		}
+		if len(rows) > 0 {
+			return rows
 		}
 	}
 	// plain inbox/done item: lead with the reviewer briefing if there is one.
 	if strings.TrimSpace(t.Summary) != "" {
-		return summaryBanner(t.Summary)
+		return summaryBanner("summary", t.Summary)
 	}
 	return nil
 }
 
-// summaryBanner renders the agent's reviewer briefing as wrapped banner rows.
-func summaryBanner(summary string) [][]Span {
+// summaryBanner renders an agent-written summary as wrapped banner rows under a
+// titled header.
+func summaryBanner(title, summary string) [][]Span {
 	var rows [][]Span
-	rows = append(rows, []Span{span("summary", cHunk, true)})
+	rows = append(rows, []Span{span(title, cHunk, true)})
 	for _, line := range wrapText(summary, 72) {
 		rows = append(rows, []Span{span("  "+line, cFG, false)})
 	}
