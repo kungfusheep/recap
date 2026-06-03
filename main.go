@@ -146,6 +146,14 @@ func gitShortHead(repo string) (string, error) {
 	return git(repo, "rev-parse", "--short", "HEAD")
 }
 
+// resolveSHA turns any commit-ish (a ref like HEAD, a branch, or a short hash)
+// into a concrete short hash, so a recorded review pins the EXACT commit. Without
+// this, `--sha HEAD` stored the literal "HEAD" and `git show HEAD` always rendered
+// the current tip — making every recorded diff drift to whatever HEAD is now.
+func resolveSHA(repo, ref string) (string, error) {
+	return git(repo, "rev-parse", "--short", ref)
+}
+
 // --- commands --------------------------------------------------------------
 
 func cmdAdd(args []string) error {
@@ -177,9 +185,12 @@ func cmdAdd(args []string) error {
 		*repo = filepath.Base(*repoPath)
 	}
 	if *sha == "" {
-		if h, err := gitShortHead(*repoPath); err == nil {
-			*sha = h
-		}
+		*sha = "HEAD"
+	}
+	// resolve whatever ref was given (incl. the "HEAD" default) to a concrete hash,
+	// so the recorded diff is pinned and doesn't drift as new commits land.
+	if h, err := resolveSHA(*repoPath, *sha); err == nil {
+		*sha = h
 	}
 
 	st, err := Open()
@@ -473,11 +484,13 @@ func cmdRevise(args []string) error {
 		return err
 	}
 	if *sha == "" {
-		if h, err := gitShortHead(t.RepoPath); err == nil {
-			*sha = h
-		}
+		*sha = "HEAD"
 	}
-	if *sha == "" {
+	// pin the ref to a concrete hash (see resolveSHA) so the revision diff is fixed.
+	if h, err := resolveSHA(t.RepoPath, *sha); err == nil {
+		*sha = h
+	}
+	if *sha == "" || *sha == "HEAD" {
 		return fmt.Errorf("--sha required (could not resolve HEAD for %s)", t.RepoPath)
 	}
 	if _, err := st.AddRevision(id, *sha, *summary); err != nil {

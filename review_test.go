@@ -271,6 +271,44 @@ func TestReworkQueueIsDerivedNotFlagged(t *testing.T) {
 	}
 }
 
+// resolveSHA must pin a ref (HEAD, branch, short hash) to a concrete commit hash,
+// so a recorded review never stores the literal "HEAD" (which `git show` would
+// always resolve to the current tip, making every diff drift to the latest commit).
+func TestResolveSHA(t *testing.T) {
+	dir := t.TempDir()
+	git(dir, "init")
+	git(dir, "config", "user.email", "t@t")
+	git(dir, "config", "user.name", "t")
+	if err := writeFileT(dir+"/a.txt", "a\n"); err != nil {
+		t.Fatal(err)
+	}
+	git(dir, "add", "-A")
+	git(dir, "commit", "-m", "first")
+
+	got, err := resolveSHA(dir, "HEAD")
+	if err != nil {
+		t.Fatalf("resolveSHA: %v", err)
+	}
+	if got == "" || got == "HEAD" {
+		t.Fatalf("HEAD not resolved to a concrete hash, got %q", got)
+	}
+	// it equals the real short head, and stays fixed when a new commit lands
+	head, _ := gitShortHead(dir)
+	if got != head {
+		t.Fatalf("resolveSHA(HEAD)=%q, want %q", got, head)
+	}
+	if err := writeFileT(dir+"/b.txt", "b\n"); err != nil {
+		t.Fatal(err)
+	}
+	git(dir, "add", "-A")
+	git(dir, "commit", "-m", "second")
+	if again, _ := resolveSHA(dir, got); again != got {
+		t.Fatalf("a pinned hash should resolve to itself, got %q want %q", again, got)
+	}
+}
+
+func writeFileT(path, content string) error { return os.WriteFile(path, []byte(content), 0o644) }
+
 // a task accumulates revisions (fix-forward diffs) instead of spawning child
 // tasks: Revisions returns the synthetic base (the task's own SHA) first, then
 // each appended revision oldest-first, with the latest diff last.
