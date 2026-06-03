@@ -25,7 +25,7 @@ func TestReviewLifecycle(t *testing.T) {
 		t.Fatalf("comment 2: %v", err)
 	}
 
-	drafts, _ := st.ListReviews(ReviewDraft)
+	drafts, _ := st.ListReviews(ReviewDraft, "")
 	if len(drafts) != 1 {
 		t.Fatalf("want 1 draft review, got %d", len(drafts))
 	}
@@ -156,6 +156,28 @@ func TestEditDeleteComment(t *testing.T) {
 	}
 }
 
+// ListReviews can scope to a repo, so the loop only drains its own reviews.
+func TestListReviewsByRepo(t *testing.T) {
+	st := testStore(t)
+	defer st.Close()
+	a, _ := st.Add(Task{Repo: "alpha", RepoPath: "/tmp/alpha", Title: "a", Status: StatusPending})
+	b, _ := st.Add(Task{Repo: "beta", RepoPath: "/tmp/beta", Title: "b", Status: StatusPending})
+	st.SubmitReview(a, VerdictRequestChanges, "fix a")
+	st.SubmitReview(b, VerdictRequestChanges, "fix b")
+
+	all, _ := st.ListReviews(ReviewSubmitted, "")
+	if len(all) != 2 {
+		t.Fatalf("unscoped: want 2 reviews, got %d", len(all))
+	}
+	onlyAlpha, _ := st.ListReviews(ReviewSubmitted, "alpha")
+	if len(onlyAlpha) != 1 || onlyAlpha[0].TaskID != a {
+		t.Fatalf("repo scope alpha = %+v, want just task %d", onlyAlpha, a)
+	}
+	if none, _ := st.ListReviews(ReviewSubmitted, "gamma"); len(none) != 0 {
+		t.Fatalf("repo scope gamma: want 0, got %d", len(none))
+	}
+}
+
 // discarding a draft removes it and its comments.
 func TestDiscardReview(t *testing.T) {
 	st := testStore(t)
@@ -165,7 +187,7 @@ func TestDiscardReview(t *testing.T) {
 	if err := st.DiscardReview(id); err != nil {
 		t.Fatalf("discard: %v", err)
 	}
-	if drafts, _ := st.ListReviews(ReviewDraft); len(drafts) != 0 {
+	if drafts, _ := st.ListReviews(ReviewDraft, ""); len(drafts) != 0 {
 		t.Fatalf("want 0 drafts after discard, got %d", len(drafts))
 	}
 	// the comment went with it (review comments are scoped to the review)

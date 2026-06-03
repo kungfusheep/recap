@@ -506,6 +506,10 @@ func (s *Store) ResolveReview(id int64) error {
 
 const reviewCols = `id, task_id, COALESCE(verdict,''), COALESCE(summary,''), state, created_at, COALESCE(submitted_at,'')`
 
+// reviewColsR is reviewCols qualified to the reviews alias "r", for queries that
+// join tasks (so the column names aren't ambiguous).
+const reviewColsR = `r.id, r.task_id, COALESCE(r.verdict,''), COALESCE(r.summary,''), r.state, r.created_at, COALESCE(r.submitted_at,'')`
+
 func scanReview(row interface{ Scan(...any) error }) (Review, error) {
 	var r Review
 	err := row.Scan(&r.ID, &r.TaskID, &r.Verdict, &r.Summary, &r.State, &r.CreatedAt, &r.SubmittedAt)
@@ -558,15 +562,30 @@ func (s *Store) Reviews(taskID int64) ([]Review, error) {
 	return out, rows.Err()
 }
 
-// ListReviews returns reviews in a given state (empty = all), newest first.
-func (s *Store) ListReviews(state string) ([]Review, error) {
-	q := `SELECT ` + reviewCols + ` FROM reviews`
+// ListReviews returns reviews filtered by optional state and repo (empty = no
+// filter), newest first. repo matches the parent task's repo, so the loop can
+// scope review draining to the repo it's working in.
+func (s *Store) ListReviews(state, repo string) ([]Review, error) {
+	q := `SELECT ` + reviewColsR + ` FROM reviews r`
 	var args []any
+	var conds []string
+	if repo != "" {
+		q += ` JOIN tasks t ON t.id = r.task_id`
+		conds = append(conds, `t.repo = ?`)
+		args = append(args, repo)
+	}
 	if state != "" {
-		q += ` WHERE state = ?`
+		conds = append(conds, `r.state = ?`)
 		args = append(args, state)
 	}
-	q += ` ORDER BY id DESC`
+	for i, c := range conds {
+		if i == 0 {
+			q += ` WHERE ` + c
+		} else {
+			q += ` AND ` + c
+		}
+	}
+	q += ` ORDER BY r.id DESC`
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err

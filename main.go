@@ -5,6 +5,7 @@
 package main
 
 import (
+	_ "embed"
 	"flag"
 	"fmt"
 	"os"
@@ -13,6 +14,13 @@ import (
 	"strconv"
 	"strings"
 )
+
+// skillGuide is the agent loop guide, embedded so it ships (and versions) with
+// the binary. `recap skill` prints it; the on-disk skill is a thin wrapper that
+// loads this, so the instructions can never drift from the installed version.
+//
+//go:embed skill.md
+var skillGuide string
 
 func main() {
 	if len(os.Args) < 2 {
@@ -42,6 +50,8 @@ func main() {
 		err = cmdReview(args)
 	case "set":
 		err = cmdSet(args)
+	case "skill":
+		fmt.Print(skillGuide)
 	case "help", "-h", "--help":
 		usage(os.Stdout)
 	default:
@@ -99,8 +109,10 @@ usage:
   recap review resolve <review-id>
                          mark a review addressed (after a fix-forward commit)
   recap review discard <task>      drop the draft
-  recap review ls [--state S]      inspect reviews
+  recap review ls [--state S] [--repo NAME] [--all]
+                         inspect reviews (default: current repo only)
 
+  recap skill            print the agent loop guide (for tododo/deadman-todo)
   recap help
 
 db: $RECAP_DB or ~/.config/recap/recap.db
@@ -609,13 +621,29 @@ func cmdReviewDiscard(args []string) error {
 func cmdReviewLs(args []string) error {
 	fs := flag.NewFlagSet("review ls", flag.ExitOnError)
 	state := fs.String("state", "", "filter by state (draft|submitted|resolved)")
+	repo := fs.String("repo", "", "filter by repo (default: current repo)")
+	all := fs.Bool("all", false, "show reviews across all repos")
 	fs.Parse(args)
+
+	// scope to the current repo by default, so a loop draining reviews only sees
+	// its own. --repo overrides; --all shows everything.
+	if !*all && *repo == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			if top, err := gitTopLevel(cwd); err == nil {
+				*repo = filepath.Base(top)
+			}
+		}
+	}
+	if *all {
+		*repo = ""
+	}
+
 	st, err := Open()
 	if err != nil {
 		return err
 	}
 	defer st.Close()
-	reviews, err := st.ListReviews(*state)
+	reviews, err := st.ListReviews(*state, *repo)
 	if err != nil {
 		return err
 	}

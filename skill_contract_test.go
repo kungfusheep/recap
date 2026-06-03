@@ -71,6 +71,23 @@ func TestSkillContract_HelpListsLoopVerbs(t *testing.T) {
 	}
 }
 
+// the on-disk wrapper skill loads the embedded guide via `recap skill`; it must
+// print and name the loop's verbs (this is the source of truth the agent reads).
+func TestSkillContract_SkillGuide(t *testing.T) {
+	db := contractDB(t)
+	out := mustRun(t, db, "skill")
+	if !strings.Contains(out, "recap add") || !strings.Contains(out, "recap review show") {
+		t.Errorf("recap skill missing the loop verbs:\n%s", out)
+	}
+	if strings.TrimSpace(out) == "" {
+		t.Error("recap skill printed nothing — embed broken")
+	}
+	// help should advertise the skill command so it's discoverable
+	if h := mustRun(t, db, "help"); !strings.Contains(h, "skill") {
+		t.Errorf("recap help does not mention the skill command:\n%s", h)
+	}
+}
+
 // loop record verb: commit then `recap add --sha HEAD`.
 func TestSkillContract_AddWithSHA(t *testing.T) {
 	db := contractDB(t)
@@ -110,7 +127,7 @@ func TestSkillContract_ReviewDrainAndResolve(t *testing.T) {
 	mustRun(t, db, "review", "submit", "1", "--verdict", "request_changes", "--summary", "do the thing")
 
 	// loop step: drain submitted reviews
-	drained := mustRun(t, db, "review", "ls", "--state", "submitted")
+	drained := mustRun(t, db, "review", "ls", "--all", "--state", "submitted")
 	if !strings.Contains(drained, "request_changes") {
 		t.Fatalf("review ls --state submitted did not surface the review:\n%s", drained)
 	}
@@ -128,7 +145,27 @@ func TestSkillContract_ReviewDrainAndResolve(t *testing.T) {
 	if !strings.Contains(resolved, "resolved") {
 		t.Fatalf("review resolve did not confirm:\n%s", resolved)
 	}
-	if after := mustRun(t, db, "review", "ls", "--state", "submitted"); strings.Contains(after, "request_changes") {
+	if after := mustRun(t, db, "review", "ls", "--all", "--state", "submitted"); strings.Contains(after, "request_changes") {
 		t.Fatalf("resolved review still appears as submitted:\n%s", after)
+	}
+}
+
+// review ls scopes to a repo via --repo, so the loop only drains its own work.
+func TestSkillContract_ReviewLsRepoScope(t *testing.T) {
+	db := contractDB(t)
+	mustRun(t, db, "add", "--repo", "alpha", "--repo-path", "/tmp/alpha", "--title", "a", "--sha", "a1")
+	mustRun(t, db, "add", "--repo", "beta", "--repo-path", "/tmp/beta", "--title", "b", "--sha", "b1")
+	mustRun(t, db, "review", "comment", "1", "--body", "x")
+	mustRun(t, db, "review", "submit", "1", "--verdict", "request_changes")
+	mustRun(t, db, "review", "comment", "2", "--body", "y")
+	mustRun(t, db, "review", "submit", "2", "--verdict", "request_changes")
+
+	alpha := mustRun(t, db, "review", "ls", "--repo", "alpha", "--state", "submitted")
+	if !strings.Contains(alpha, "task #1") || strings.Contains(alpha, "task #2") {
+		t.Fatalf("--repo alpha should show only task #1:\n%s", alpha)
+	}
+	all := mustRun(t, db, "review", "ls", "--all", "--state", "submitted")
+	if !strings.Contains(all, "task #1") || !strings.Contains(all, "task #2") {
+		t.Fatalf("--all should show both:\n%s", all)
 	}
 }
