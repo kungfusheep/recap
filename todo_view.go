@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	. "github.com/kungfusheep/glyph"
-	"github.com/kungfusheep/riffkey"
 )
 
 // The TODO editor: a modal view over the selected task's repo TODO file. Toggle
@@ -18,8 +17,9 @@ var (
 	todoTitle string
 
 	// the shared add/edit prompt: editingTodoIdx is -1 for add (append a new task),
-	// or the index of the line being edited.
-	editingTodoIdx = -1
+	// or the index of the line being edited; todoPromptTitle labels the prompt.
+	editingTodoIdx  = -1
+	todoPromptTitle = "add todo"
 )
 
 // openTodoEditor resolves the selected task's repo TODO path (via the config
@@ -96,7 +96,9 @@ func todoToggle() {
 
 func todoAdd() {
 	editingTodoIdx = -1
-	openInputPrompt("add todo", "", "", "", func() { applyTodoPromptText(commentText) })
+	todoPromptTitle = "add todo"
+	setCommentText("")
+	uiApp.PushView("todoprompt")
 }
 
 // applyTodoPromptText commits the prompt text: in edit mode it rewrites the line
@@ -129,11 +131,13 @@ func todoEditLine() {
 	}
 	it := todoItems[todoSel]
 	editingTodoIdx = todoSel
-	prefill := it.Raw
+	todoPromptTitle = "edit todo"
 	if it.IsTask {
-		prefill = it.Text
+		setCommentText(it.Text)
+	} else {
+		setCommentText(it.Raw)
 	}
-	openInputPrompt("edit todo", "", "", prefill, func() { applyTodoPromptText(commentText) })
+	uiApp.PushView("todoprompt")
 }
 
 // todoRow renders one TODO line. The checkbox/branch is pointer-bound (If(&...))
@@ -185,21 +189,29 @@ func setupTodoView() {
 				Marker("  ").
 				SelectedStyle(Style{}). // band painted per-row (todoRow Fill)
 				Render(todoRow),
-			// the add/edit prompt floats over the TODO list (overlay, not PushView).
-			inputPromptOverlay(),
 		),
 	).NoCounts()
 
-	// route printable typing into the prompt while it's open over the TODO list
-	// (its On.Modal captures the bound keys; runes fall through to here).
-	if r, ok := uiApp.ViewRouter("todoedit"); ok {
-		r.HandleUnmatched(func(k riffkey.Key) bool {
-			if promptOpen && k.Rune != 0 && k.Mod == 0 {
-				setCommentText(commentText + string(k.Rune))
-				uiApp.RequestRender()
-				return true
-			}
-			return false
-		})
+	// shared add/edit prompt (reuses the comment input machinery). editingTodoIdx
+	// decides whether enter appends a new task or rewrites the edited line.
+	save := func() {
+		text := commentText
+		setCommentText("")
+		uiApp.PopView()
+		applyTodoPromptText(text)
 	}
+	cancel := func() { setCommentText(""); uiApp.PopView() }
+	uiApp.View("todoprompt",
+		VBox.Fill(cBG)(
+			promptKeys(save, cancel),
+			Space(),
+			HBox(Space(), VBox.Fill(cFloat).PaddingVH(1, 2).Width(72)(
+				HBox(Text(&todoPromptTitle).FG(cBright).Bold(), Space(), Text("esc cancel · enter save").FG(cMuted)),
+				SpaceH(1),
+				commentInput(),
+			), Space()),
+			Space(),
+		),
+	).NoCounts()
+	wireTyping("todoprompt")
 }
