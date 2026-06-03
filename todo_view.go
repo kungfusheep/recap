@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	. "github.com/kungfusheep/glyph"
+	"github.com/kungfusheep/riffkey"
 )
 
 // The TODO editor: a modal view over the selected task's repo TODO file. Toggle
@@ -184,9 +185,21 @@ func setupTodoView() {
 				Marker("  ").
 				SelectedStyle(Style{}). // band painted per-row (todoRow Fill)
 				Render(todoRow),
-			// the add/edit prompt floats over the TODO list (overlay, not PushView);
-			// typing is handled by the pushed prompt router (see prompt.go).
+			// the add/edit prompt floats over the TODO list (overlay, not PushView).
 			inputPromptOverlay(),
 		),
 	).NoCounts()
+
+	// route printable typing into the prompt while it's open over the TODO list
+	// (its On.Modal captures the bound keys; runes fall through to here).
+	if r, ok := uiApp.ViewRouter("todoedit"); ok {
+		r.HandleUnmatched(func(k riffkey.Key) bool {
+			if promptOpen && k.Rune != 0 && k.Mod == 0 {
+				setCommentText(commentText + string(k.Rune))
+				uiApp.RequestRender()
+				return true
+			}
+			return false
+		})
+	}
 }
