@@ -2,9 +2,13 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"os/signal"
 	"sort"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"unicode"
 
 	. "github.com/kungfusheep/glyph"
@@ -179,6 +183,10 @@ var (
 	lastSel, lastLen int
 	lastFltr         string
 	detailDirty      bool
+
+	// set by the SIGUSR1 handler; consumed on the render thread to reload the
+	// inbox when another process (e.g. `recap add`) changes the db.
+	reloadRequested atomic.Bool
 )
 
 func runUI() error {
@@ -197,6 +205,22 @@ func runUI() error {
 	reloadTasks()
 	setupCommentView()
 	setupReviewViews()
+
+	// live refresh: register this TUI so `recap add` can SIGUSR1 us to reload the
+	// inbox without a restart. The handler only flags + requests a render; the
+	// actual reload runs on the render thread (refreshDetail) to avoid races.
+	cleanup := registerUIPID()
+	defer cleanup()
+	sigReload := make(chan os.Signal, 1)
+	signal.Notify(sigReload, syscall.SIGUSR1)
+	defer signal.Stop(sigReload)
+	go func() {
+		for range sigReload {
+			reloadRequested.Store(true)
+			uiApp.RequestRender()
+		}
+	}()
+
 	// SetView once — glyph re-layouts the template against the new terminal size
 	// every frame, so no SetView-on-resize is needed (and rebuilding the tree on
 	// resize would discard the diff layer's scroll state). The diff layer itself
@@ -311,6 +335,12 @@ func glyphColor(status string) Color {
 // refreshDetail updates selection fill + the right-hand detail when selection,
 // filter, or task set changes — never per-frame git calls.
 func refreshDetail() {
+	// a SIGUSR1 from another process (e.g. `recap add`) requests an inbox reload;
+	// do it here on the render thread, then force the detail to rebuild.
+	if reloadRequested.CompareAndSwap(true, false) {
+		reloadTasks()
+		detailDirty = true
+	}
 	for i := range vmRows {
 		vmRows[i].Selected = i == sel
 	}

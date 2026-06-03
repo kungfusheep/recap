@@ -190,6 +190,7 @@ func cmdAdd(args []string) error {
 	} else {
 		fmt.Printf("recorded #%d  %s  %s  [%s]\n", id, *repo, *title, *status)
 	}
+	notifyReload() // nudge any open TUI to refresh its inbox
 	return nil
 }
 
@@ -481,6 +482,7 @@ func cmdReviewSubmit(args []string) error {
 			fmt.Printf("add to your TODO:\n  %s\n", res.line)
 		}
 	}
+	notifyReload()
 	return nil
 }
 
@@ -594,6 +596,7 @@ func cmdReviewResolve(args []string) error {
 		return err
 	}
 	fmt.Printf("review #%d resolved\n", id)
+	notifyReload()
 	return nil
 }
 
@@ -674,5 +677,6 @@ func cmdSet(args []string) error {
 		return err
 	}
 	fmt.Printf("#%d -> %s\n", id, args[1])
+	notifyReload()
 	return nil
 }
