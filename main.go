@@ -580,6 +580,23 @@ func cmdReviewShow(args []string) error {
 			}
 		}
 	}
+
+	// also surface any loose thread comments on the task (review_id NULL). These
+	// were historically invisible here — never hide a comment again.
+	if thread, _ := st.Comments(t.ID); len(thread) > 0 {
+		var loose []Comment
+		for _, c := range thread {
+			if c.ReviewID == 0 {
+				loose = append(loose, c)
+			}
+		}
+		if len(loose) > 0 {
+			fmt.Printf("\nthread (%d):\n", len(loose))
+			for _, c := range loose {
+				fmt.Printf("  • %s (%s): %s\n", c.Who, c.CreatedAt, c.Body)
+			}
+		}
+	}
 	return nil
 }
 
