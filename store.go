@@ -321,6 +321,10 @@ func (s *Store) AddComment(taskID int64, who, body string) (int64, error) {
 
 const commentCols = `id, task_id, COALESCE(review_id,0), who, body, COALESCE(file,''), COALESCE(line,0), COALESCE(anchor,''), COALESCE(snippet,''), created_at`
 
+// commentColsC is commentCols qualified to the comments alias "c", for queries
+// that join reviews (so column names aren't ambiguous).
+const commentColsC = `c.id, c.task_id, COALESCE(c.review_id,0), c.who, c.body, COALESCE(c.file,''), COALESCE(c.line,0), COALESCE(c.anchor,''), COALESCE(c.snippet,''), c.created_at`
+
 func scanComment(row interface{ Scan(...any) error }) (Comment, error) {
 	var c Comment
 	err := row.Scan(&c.ID, &c.TaskID, &c.ReviewID, &c.Who, &c.Body, &c.File, &c.Line, &c.Anchor, &c.Snippet, &c.CreatedAt)
@@ -341,6 +345,39 @@ func (s *Store) Comments(taskID int64) ([]Comment, error) {
 			return nil, err
 		}
 		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// TaskComment is a review comment plus whether it sits on the task's open draft
+// (editable) versus a submitted/resolved review (read-only record).
+type TaskComment struct {
+	Comment
+	Draft bool
+}
+
+// TaskReviewComments returns every review comment on a task (across all its
+// reviews), oldest first, each flagged Draft if it's on the open draft review.
+// This is what the comments pane shows so feedback stays visible after submit.
+func (s *Store) TaskReviewComments(taskID int64) ([]TaskComment, error) {
+	rows, err := s.db.Query(
+		`SELECT `+commentColsC+`, r.state
+		   FROM comments c JOIN reviews r ON r.id = c.review_id
+		  WHERE c.task_id = ? AND c.review_id IS NOT NULL
+		  ORDER BY c.id`, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TaskComment
+	for rows.Next() {
+		var c Comment
+		var state string
+		if err := rows.Scan(&c.ID, &c.TaskID, &c.ReviewID, &c.Who, &c.Body,
+			&c.File, &c.Line, &c.Anchor, &c.Snippet, &c.CreatedAt, &state); err != nil {
+			return nil, err
+		}
+		out = append(out, TaskComment{Comment: c, Draft: state == ReviewDraft})
 	}
 	return out, rows.Err()
 }

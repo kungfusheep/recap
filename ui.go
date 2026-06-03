@@ -110,6 +110,7 @@ type draftCommentVM struct {
 	Body     string
 	File     string
 	Line     int
+	Draft    bool // on the open draft (editable); else submitted (read-only)
 	Selected bool // updated each frame like the inbox rows, drives the fill
 }
 
@@ -549,22 +550,20 @@ func loadDraftPane(taskID int64) {
 	for k := range commentedLines {
 		delete(commentedLines, k)
 	}
-	rid, n, ok := uiStore.DraftInfo(taskID)
-	if !ok || n == 0 {
+	// show ALL review comments on the task — not just the open draft — so feedback
+	// stays visible after submit. Each row knows if it's still an editable draft.
+	cs, _ := uiStore.TaskReviewComments(taskID)
+	if len(cs) == 0 {
 		hasDraft, draftNote = false, ""
 		return
 	}
 	hasDraft = true
-	draftNote = fmt.Sprintf("✎ %d draft", n)
-	if draftSel >= int(n) {
-		draftSel = int(n) - 1
-	}
-	if draftSel < 0 {
-		draftSel = 0
-	}
-	cs, _ := uiStore.ReviewComments(rid)
+	drafts := 0
 	for _, c := range cs {
-		vm := draftCommentVM{ID: c.ID, Body: c.Body, File: c.File, Line: c.Line}
+		if c.Draft {
+			drafts++
+		}
+		vm := draftCommentVM{ID: c.ID, Body: c.Body, File: c.File, Line: c.Line, Draft: c.Draft}
 		if c.File != "" {
 			vm.Location = c.File
 			if c.Line > 0 {
@@ -579,6 +578,18 @@ func loadDraftPane(taskID int64) {
 		}
 		draftComments = append(draftComments, vm)
 	}
+	// header reflects draft-in-progress vs settled comments.
+	if drafts > 0 {
+		draftNote = fmt.Sprintf("✎ %d draft", drafts)
+	} else {
+		draftNote = fmt.Sprintf("%d comment%s", len(cs), plural(len(cs)))
+	}
+	if draftSel >= len(draftComments) {
+		draftSel = len(draftComments) - 1
+	}
+	if draftSel < 0 {
+		draftSel = 0
+	}
 	// group by file, then line — general (unanchored) comments sort to the end.
 	sort.SliceStable(draftComments, func(i, j int) bool {
 		a, b := draftComments[i], draftComments[j]
@@ -590,6 +601,13 @@ func loadDraftPane(taskID int64) {
 		}
 		return a.Line < b.Line
 	})
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 func lineKey(file string, line int) string { return fmt.Sprintf("%s:%d", file, line) }
@@ -903,10 +921,10 @@ func buildMain() Component {
 					Key("<Esc>", func() { setPane(paneList) }),
 				))),
 			),
-			// right — draft review overview (only when the task has a draft)
+			// right — comments overview (shown whenever the task has any comments)
 			If(&hasDraft).Then(
 				VBox.Grow(2).Fill(cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0)(
-					HBox(SpaceW(3), Text("review draft").FG(cBright).Bold(), Space(), Text(&draftNote).FG(cSubtle), SpaceW(2)),
+					HBox(SpaceW(3), Text("comments").FG(cBright).Bold(), Space(), Text(&draftNote).FG(cSubtle), SpaceW(2)),
 					SpaceH(2),
 					List(&draftComments).
 						Selection(&draftSel).
@@ -1203,6 +1221,10 @@ func editDraftComment() {
 	if c == nil {
 		return
 	}
+	if !c.Draft {
+		statusMsg = "submitted comments are read-only (unsubmit with U to edit)"
+		return
+	}
 	editingCommentID = c.ID
 	commentText = c.Body
 	uiApp.PushView("editcomment")
@@ -1230,6 +1252,10 @@ func saveEditedComment() {
 func deleteDraftComment() {
 	c := selectedDraft()
 	if c == nil {
+		return
+	}
+	if !c.Draft {
+		statusMsg = "submitted comments are read-only (unsubmit with U to edit)"
 		return
 	}
 	if err := uiStore.DeleteComment(c.ID); err != nil {

@@ -102,13 +102,27 @@ func TestLoadDraftPane(t *testing.T) {
 		t.Errorf("row1 = %+v, want general/no-snippet", draftComments[1])
 	}
 
-	// after submit the draft is gone → pane hides again
+	// the two are draft (editable) before submit
+	if !draftComments[0].Draft {
+		t.Fatalf("comments should be Draft before submit")
+	}
+
+	// after submit the comments PERSIST (read-only) — the pane stays, feedback
+	// remains visible, but rows are no longer Draft.
 	if _, err := st.SubmitReview(id, VerdictComment, "fyi"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
 	loadDraftPane(id)
-	if hasDraft || len(draftComments) != 0 {
-		t.Fatalf("expected pane hidden after submit, got hasDraft=%v rows=%d", hasDraft, len(draftComments))
+	if !hasDraft || len(draftComments) != 2 {
+		t.Fatalf("comments should persist after submit, got hasDraft=%v rows=%d", hasDraft, len(draftComments))
+	}
+	for _, c := range draftComments {
+		if c.Draft {
+			t.Fatalf("submitted comments should not be Draft: %+v", c)
+		}
+	}
+	if draftNote != "2 comments" {
+		t.Fatalf("settled note = %q, want \"2 comments\"", draftNote)
 	}
 }
 
