@@ -265,13 +265,8 @@ func runUI() error {
 	// at the root, taking priority over nothing else once those scopes are off.
 	if r := uiApp.Router(); r != nil {
 		r.HandleUnmatched(func(k riffkey.Key) bool {
-			// printable typing into the floating prompt overlay (its On.Modal
-			// captures the bound keys; runes fall through here).
-			if promptOpen && k.Rune != 0 && k.Mod == 0 {
-				setCommentText(commentText + string(k.Rune))
-				uiApp.RequestRender()
-				return true
-			}
+			// prompt typing is handled by the pushed prompt router (see prompt.go);
+			// here we only route diff-line label picks.
 			if diffCommentMode && k.Rune != 0 && k.Mod == 0 {
 				pickDiffLine(k.Rune)
 				uiApp.RequestRender()
@@ -1363,8 +1358,7 @@ func openCommentView() {
 	cvLocation = c.Location
 	cvSnippet = c.Snippet
 	cvBodyLines = wrapText(c.Body, 66)
-	commentViewOpen = true
-	uiApp.RequestRender()
+	openReadComment()
 }
 
 // wrapText word-wraps s to width columns, returning the lines.

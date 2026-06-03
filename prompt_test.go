@@ -5,7 +5,35 @@ import (
 	"testing"
 
 	. "github.com/kungfusheep/glyph"
+	"github.com/kungfusheep/riffkey"
 )
+
+// regression: typing must reach commentText through the prompt's PUSHED router.
+// The overlay's keys can't live in an On.Modal tree scope — that swallows
+// unmatched runes — so openInputPrompt pushes a router whose HandleUnmatched
+// routes runes into the text. This dispatches keystrokes through the input stack
+// and asserts they land (the "prompt change broke text input" bug).
+func TestPromptTypingReachesText(t *testing.T) {
+	prevApp := uiApp
+	uiApp = NewApp()
+	t.Cleanup(func() { uiApp = prevApp; promptOpen = false; promptRouter = nil; setCommentText("") })
+
+	openInputPrompt("comment", "", "", "", func() {})
+	if promptRouter == nil {
+		t.Fatal("openInputPrompt should push an input router")
+	}
+	for _, r := range "fix this" {
+		uiApp.Input().Dispatch(riffkey.Key{Rune: r})
+	}
+	if commentText != "fix this" {
+		t.Fatalf("typing did not reach commentText through the pushed router: %q", commentText)
+	}
+	// backspace binding deletes the last rune
+	uiApp.Input().Dispatch(riffkey.Key{Special: riffkey.SpecialBackspace})
+	if commentText != "fix thi" {
+		t.Fatalf("backspace not handled: %q", commentText)
+	}
+}
 
 // the comment/todo prompts are OVERLAYS (review #152): they float over the current
 // view with the content still visible behind, not a full-screen PushView takeover.
