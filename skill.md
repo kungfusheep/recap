@@ -34,6 +34,13 @@ real commit and its diff. Record every completed task — the inbox is the audit
 `recap add` derives `--repo`/`--repo-path` from the cwd's git root, so run it inside the
 repo.
 
+**Pace for the reviewer, not yourself.** recap is an *async* queue: finish a task, record
+it, and let the reviewer take it at their pace. When the reviewer is actively engaged
+(replying, reviewing), do NOT sprint through many tasks back-to-back and dump a wall of
+items on them at once — that defeats the steady-trickle point of the loop. Prefer the
+loop's wakeup cadence between tasks over barrelling task→task→task in one go. A reviewer
+should be able to review item N while you work on N+1, not face a backlog of nine at once.
+
 ## Picking up review feedback (inbox → fix-forward work)
 
 At the **start of each loop cycle**, before reading the TODO, check for reviews the human
