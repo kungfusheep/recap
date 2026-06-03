@@ -98,6 +98,14 @@ func applyTheme(name string, t Theme) {
 		setupReviewViews()
 		setupTodoView()
 		uiApp.SetView(buildMain())
+		// the diff pane is a native-scroll Layer whose spans bake their colours at
+		// build time; forcing a detail refresh rebuilds those spans with the new
+		// palette and re-invalidates the layer (otherwise it keeps the old colours,
+		// even while scrolling).
+		detailDirty = true
+		if diffLayer != nil {
+			diffLayer.Invalidate()
+		}
 		uiApp.RequestRender()
 	}
 }

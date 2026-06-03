@@ -1,10 +1,82 @@
 package main
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	. "github.com/kungfusheep/glyph"
 )
+
+// regression (review #49): the diff pane is a native-scroll Layer whose spans bake
+// their colours at build time, so a theme switch must REBUILD the diff content —
+// otherwise it keeps the old palette even while scrolling. This drives the real
+// path (refreshDetail) against a git diff and asserts an added line's colour
+// changes from one theme's add-colour to the next's.
+func TestThemeRepaintsDiffLayer(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RECAP_DB", dir+"/recap.db")
+	g := func(a ...string) { git(dir, a...) }
+	g("init")
+	g("config", "user.email", "t@t")
+	g("config", "user.name", "t")
+	os.WriteFile(dir+"/a.txt", []byte("line one\n"), 0o644)
+	g("add", "-A")
+	g("commit", "-m", "add a.txt")
+	sha, _ := git(dir, "rev-parse", "--short", "HEAD")
+
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	expandedTasks = map[int64]bool{}
+	t.Cleanup(func() {
+		uiStore = nil
+		uiApp = nil
+		omni = nil
+		vmRows = nil
+		setThemeVars(themeDark)
+	})
+	st.Add(Task{Repo: "r", RepoPath: dir, SHA: sha, Title: "t", Status: StatusPending})
+	setThemeVars(themeDark)
+	reloadTasks()
+	sel = 0
+
+	addLineFG := func() (Color, bool) {
+		detailDirty = true
+		lastSel = -99
+		refreshDetail()
+		for _, row := range diffLines {
+			for _, s := range row {
+				if strings.HasPrefix(s.Text, "+ ") {
+					return s.Style.FG, true
+				}
+			}
+		}
+		return Color{}, false
+	}
+
+	darkFG, ok := addLineFG()
+	if !ok {
+		t.Fatal("no added line found in diff")
+	}
+	if darkFG != themeDark.Success {
+		t.Fatalf("dark add-line colour = %v, want %v", darkFG, themeDark.Success)
+	}
+
+	amber, _ := themeByName("mfd-amber")
+	applyTheme("mfd-amber", amber)
+	amberFG, ok := addLineFG()
+	if !ok {
+		t.Fatal("no added line after theme switch")
+	}
+	if amberFG != amber.Success {
+		t.Fatalf("after switch: add-line colour = %v, want amber %v", amberFG, amber.Success)
+	}
+	if amberFG == darkFG {
+		t.Fatal("diff colour did not change on theme switch (the layer-repaint bug)")
+	}
+}
 
 // the theme pack is the full set (dark, light, + the mfd pack), every theme has a
 // unique name + non-empty label, lookups work, and unknown names fail cleanly.
