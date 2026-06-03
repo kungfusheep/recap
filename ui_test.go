@@ -325,6 +325,58 @@ func TestSelectedRowHasNoCaretMarker(t *testing.T) {
 	}
 }
 
+// regression (review #28): a long comment in the draft pane must WRAP to the
+// column width, not truncate at one line. Verified by render: a long body in a
+// narrow column produces several non-empty body rows and keeps its trailing text.
+func TestDraftCommentBodyWraps(t *testing.T) {
+	prev, prevSel := draftComments, draftSel
+	t.Cleanup(func() { draftComments = prev; draftSel = prevSel })
+
+	long := "this is a deliberately long top-level comment that should wrap across several lines inside the narrow draft column instead of truncating at a single line in the available space"
+	draftComments = []draftCommentVM{{ID: 1, Location: "general", Body: long, Selected: true}}
+	draftSel = 0
+	node := List(&draftComments).Selection(&draftSel).Style(&listBaseStyle).
+		SelectedStyle(Style{}).Marker("  ").Render(draftRow)
+	tmpl := Build(node)
+	buf := NewBuffer(34, 16) // narrow, like the Grow(2) column — forces wrapping
+	tmpl.Execute(buf, 34, 16)
+
+	bodyLines, full := 0, ""
+	for y := 0; y < 16; y++ {
+		line := strings.TrimSpace(buf.GetLine(y))
+		full += " " + line
+		if line != "" && !strings.Contains(line, "general") {
+			bodyLines++
+		}
+	}
+	if bodyLines < 3 {
+		t.Fatalf("body did not wrap: %d body lines (want >=3)", bodyLines)
+	}
+	if !strings.Contains(full, "available space") {
+		t.Fatalf("wrapped body lost trailing text: %q", full)
+	}
+}
+
+// regression (review #28): the comment prompt must show a cursor at the insertion
+// point, and the caret must never leak into the saved text.
+func TestCommentInputCaret(t *testing.T) {
+	prev, prevLines := commentText, commentLines
+	t.Cleanup(func() { commentText = prev; commentLines = prevLines })
+
+	setCommentText("hello world")
+	if commentText != "hello world" {
+		t.Fatalf("caret leaked into saved text: %q", commentText)
+	}
+	if last := commentLines[len(commentLines)-1]; !strings.HasSuffix(last, inputCaret) {
+		t.Fatalf("no caret on the input line: %q", last)
+	}
+	// empty input still shows a lone caret so the box reads as focused/editable
+	setCommentText("")
+	if commentLines[0] != inputCaret {
+		t.Fatalf("empty input should show a lone caret, got %q", commentLines[0])
+	}
+}
+
 func flattenSpans(rows [][]Span) string {
 	var b strings.Builder
 	for _, r := range rows {

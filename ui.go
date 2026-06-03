@@ -1026,7 +1026,9 @@ func draftRow(c *draftCommentVM) Component {
 	return VBox.Fill(itemBG).PaddingVH(1, 1)(
 		Text(&c.Location).FG(cSubtle),
 		If(&c.Snippet).Then(Text(&c.Snippet).FG(cMuted)),
-		Text(&c.Body).FG(cFG),
+		// TextBlock re-wraps to the column width, so a long comment flows onto
+		// several lines instead of truncating at one (Text clips to a single line).
+		TextBlock(&c.Body).FG(cFG),
 	)
 }
 
@@ -1419,9 +1421,19 @@ func commentInput() Component {
 
 // setCommentText updates the input and its wrapped display mirror together, so a
 // long comment line-wraps in the prompt instead of truncating off-screen.
+// the block caret appended to the input's display mirror so the prompt shows a
+// cursor at the insertion point. Display-only: commentText (what gets saved) never
+// carries it.
+const inputCaret = "▌"
+
 func setCommentText(s string) {
 	commentText = s
-	commentLines = wrapText(s+" ", commentWrapW) // nbsp keeps a trailing caret line visible
+	lines := wrapText(s, commentWrapW)
+	if len(lines) == 0 {
+		lines = []string{""}
+	}
+	lines[len(lines)-1] += inputCaret // visible caret at the insertion point
+	commentLines = lines
 }
 
 // promptKeys is the standard text-prompt binding scope: enter/esc/backspace/
