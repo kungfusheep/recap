@@ -522,6 +522,30 @@ func (s *Store) SubmitReview(taskID int64, verdict, summary string) (Review, err
 	return s.GetReview(rid)
 }
 
+// UnsubmitReview reverses the task's most recent submitted review back to a
+// draft, so it leaves AMENDS and returns to the INBOX with its comments editable
+// again. A resolved review is left alone (it's already been addressed).
+func (s *Store) UnsubmitReview(taskID int64) error {
+	var rid int64
+	err := s.db.QueryRow(
+		`SELECT id FROM reviews WHERE task_id = ? AND state = ? ORDER BY id DESC LIMIT 1`,
+		taskID, ReviewSubmitted).Scan(&rid)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("no submitted review to unsubmit on #%d", taskID)
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(
+		`UPDATE reviews SET state = ?, verdict = '', submitted_at = NULL WHERE id = ?`,
+		ReviewDraft, rid); err != nil {
+		return err
+	}
+	// derived state recomputes from reviews; also clear the legacy status flag so
+	// CLI views (which still read tasks.status) agree.
+	return s.SetStatus(taskID, StatusPending)
+}
+
 // DiscardReview deletes the task's open draft review and its comments.
 func (s *Store) DiscardReview(taskID int64) error {
 	rid, err := s.draftReview(taskID)

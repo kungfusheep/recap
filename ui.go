@@ -155,10 +155,6 @@ var (
 	pcFile, pcAnchor, pcSnippet string
 	pcLine                      int
 
-	// in-flight submit-review verdict (chosen before the summary prompt).
-	reviewVerdict string
-	verdictLabel  string
-
 	// display strings for the line-comment prompt
 	pcLocation    string
 	pcSnippetView string
@@ -798,7 +794,8 @@ func buildMain() Component {
 			Key("h", focusPrev),
 			Key("l", focusNext),
 			Key("f", cycleFilter),
-			Key("S", openVerdict),
+			Key("S", submitSelected),
+			Key("U", unsubmitSelected),
 		)),
 		// pick-a-line scope: Esc cancels. The label letters themselves are caught
 		// by the main router's unmatched handler (see runUI) since they overlap
@@ -923,9 +920,9 @@ var helpNavRows = []helpRow{
 var helpActionRows = []helpRow{
 	{"c", "comment"},
 	{"e / d", "edit / delete"},
-	{"S", "submit review"},
 	{"a", "approve"},
-	{"r", "rework"},
+	{"S", "submit (amends)"},
+	{"U", "unsubmit → inbox"},
 	{"?", "help"},
 	{"q", "quit"},
 }
@@ -1447,42 +1444,40 @@ func saveLineComment() {
 	detailDirty = true
 }
 
-func openVerdict() {
+// submitSelected publishes the selected task's draft review as request_changes
+// straight away — no verdict picker, no summary prompt. The comments (line +
+// general) you've already left carry the detail; approve is handled by `a`,
+// done by the same. Moves the task into AMENDS.
+func submitSelected() {
 	if len(tasks) == 0 {
 		return
 	}
-	uiApp.PushView("verdict")
-}
-
-func chooseVerdict(v string) {
-	reviewVerdict = v
-	verdictLabel = strings.ToUpper(strings.ReplaceAll(v, "_", " "))
-	commentText = ""
-	uiApp.PopView() // leave verdict picker
-	uiApp.PushView("reviewsummary")
-}
-
-func saveReviewSummary() {
-	summary := strings.TrimSpace(commentText)
-	commentText = ""
-	uiApp.PopView()
-	if len(tasks) == 0 {
-		return
-	}
-	rv, res, err := submitReview(uiStore, tasks[sel].ID, reviewVerdict, summary)
+	t := tasks[sel]
+	_, res, err := submitReview(uiStore, t.ID, VerdictRequestChanges, "")
 	if err != nil {
 		statusMsg = "error: " + err.Error()
 		return
 	}
-	msg := fmt.Sprintf("review #%d submitted [%s]", rv.ID, rv.Verdict)
-	if res.line != "" {
-		if res.wrote {
-			msg += " · queued in TODO"
-		} else {
-			msg += " · set todo_template to auto-queue"
-		}
+	msg := fmt.Sprintf("#%d submitted → amends", t.ID)
+	if res.line != "" && res.wrote {
+		msg += " · queued in TODO"
 	}
 	statusMsg = msg
+	reloadTasks()
+}
+
+// unsubmitSelected reverses a submitted review, moving the task from AMENDS back
+// to INBOX (its comments return to draft so you can keep editing).
+func unsubmitSelected() {
+	if len(tasks) == 0 {
+		return
+	}
+	t := tasks[sel]
+	if err := uiStore.UnsubmitReview(t.ID); err != nil {
+		statusMsg = "error: " + err.Error()
+		return
+	}
+	statusMsg = fmt.Sprintf("#%d unsubmitted → inbox", t.ID)
 	reloadTasks()
 }
 
@@ -1505,46 +1500,6 @@ func setupReviewViews() {
 		),
 	).NoCounts()
 	wireTyping("linecomment")
-
-	// verdict picker
-	uiApp.View("verdict",
-		VBox.Fill(cBG)(
-			On(
-				Key("r", func() { chooseVerdict(VerdictRequestChanges) }),
-				Key("a", func() { chooseVerdict(VerdictApprove) }),
-				Key("c", func() { chooseVerdict(VerdictComment) }),
-				Key("<Esc>", func() { uiApp.PopView() }),
-			),
-			Space(),
-			HBox(Space(), VBox.Fill(cFloat).PaddingVH(1, 2).Width(60)(
-				Text("submit review").FG(cBright).Bold(),
-				SpaceH(1),
-				Text("r   request changes   → rework + TODO").FG(cFG),
-				Text("a   approve").FG(cFG),
-				Text("c   comment           note, no status change").FG(cFG),
-				SpaceH(1),
-				Text("esc cancel").FG(cMuted),
-			), Space()),
-			Space(),
-		),
-	).NoCounts()
-
-	// review summary prompt
-	uiApp.View("reviewsummary",
-		VBox.Fill(cBG)(
-			promptKeys(saveReviewSummary, cancel),
-			Space(),
-			HBox(Space(), VBox.Fill(cFloat).PaddingVH(1, 2).Width(72)(
-				HBox(Text("summary").FG(cBright).Bold(), Space(), Text(&verdictLabel).FG(cSubtle)),
-				SpaceH(1),
-				HBox(Text("> ").FG(cSubtle), Text(&commentText).FG(cBright)),
-				SpaceH(1),
-				Text("enter submit · esc cancel").FG(cMuted),
-			), Space()),
-			Space(),
-		),
-	).NoCounts()
-	wireTyping("reviewsummary")
 
 	// comment read view — the full comment, wrapped; e edits, d deletes.
 	uiApp.View("commentview",

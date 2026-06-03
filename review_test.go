@@ -156,6 +156,38 @@ func TestEditDeleteComment(t *testing.T) {
 	}
 }
 
+// unsubmit reverses a submitted review: AMENDS → INBOX, comments preserved and
+// editable again.
+func TestUnsubmitReview(t *testing.T) {
+	st := testStore(t)
+	defer st.Close()
+	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	cid, _ := st.AddReviewComment(id, "you", "fix this", "a.go", 1, "@@", "x")
+	st.SubmitReview(id, VerdictRequestChanges, "")
+	if got := st.ReviewState(id); got != StateRework {
+		t.Fatalf("after submit: want rework, got %s", got)
+	}
+
+	if err := st.UnsubmitReview(id); err != nil {
+		t.Fatalf("unsubmit: %v", err)
+	}
+	if got := st.ReviewState(id); got != StatePending {
+		t.Fatalf("after unsubmit: want pending(inbox), got %s", got)
+	}
+	// the comment is back on a draft and editable again
+	if _, n, ok := st.DraftInfo(id); !ok || n != 1 {
+		t.Fatalf("comment not returned to draft: ok=%v n=%d", ok, n)
+	}
+	if err := st.UpdateComment(cid, "fix this properly"); err != nil {
+		t.Fatalf("comment should be editable after unsubmit: %v", err)
+	}
+
+	// nothing to unsubmit when there's no submitted review
+	if err := st.UnsubmitReview(id); err == nil {
+		t.Fatal("expected error unsubmitting with no submitted review")
+	}
+}
+
 // derived state is the truth: drafts don't move a task, submit→rework,
 // resolve→back to pending, approve→approved, and a direct approval is honoured.
 func TestReviewStateDerivation(t *testing.T) {
