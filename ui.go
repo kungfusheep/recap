@@ -183,6 +183,7 @@ var (
 	diffFiles             []DiffFile
 	statusMsg             string
 	commentText           string
+	commentLines          []string // commentText wrapped for the prompt display
 
 	lastSel, lastLen int
 	lastFltr         string
@@ -590,11 +591,11 @@ func loadDraftPane(taskID int64) {
 	if draftSel < 0 {
 		draftSel = 0
 	}
-	// group by file, then line — general (unanchored) comments sort to the end.
+	// general (top-level) comments first, then anchored ones grouped by file:line.
 	sort.SliceStable(draftComments, func(i, j int) bool {
 		a, b := draftComments[i], draftComments[j]
 		if (a.File == "") != (b.File == "") {
-			return a.File != "" // anchored before general
+			return a.File == "" // general (unanchored) before anchored
 		}
 		if a.File != b.File {
 			return a.File < b.File
@@ -1226,13 +1227,13 @@ func editDraftComment() {
 		return
 	}
 	editingCommentID = c.ID
-	commentText = c.Body
+	setCommentText(c.Body)
 	uiApp.PushView("editcomment")
 }
 
 func saveEditedComment() {
 	body := strings.TrimSpace(commentText)
-	commentText = ""
+	setCommentText("")
 	uiApp.PopView()
 	if editingCommentID == 0 {
 		return
@@ -1271,7 +1272,7 @@ func deleteDraftComment() {
 
 func openComment() {
 	if len(tasks) > 0 {
-		commentText = ""
+		setCommentText("")
 		uiApp.PushView("comment")
 	}
 }
@@ -1361,17 +1362,20 @@ func rerun() {
 func setupCommentView() {
 	save := func() {
 		body := strings.TrimSpace(commentText)
-		commentText = ""
+		setCommentText("")
 		uiApp.PopView()
 		if body != "" && len(tasks) > 0 {
-			if _, err := uiStore.AddComment(tasks[sel].ID, "you", body); err != nil {
+			// a general (unanchored) review comment — same draft as line comments,
+			// so it shows in the comments pane and submits with the review (a loose
+			// thread comment would be invisible to the pane and get "lost").
+			if _, err := uiStore.AddReviewComment(tasks[sel].ID, "you", body, "", 0, "", ""); err != nil {
 				statusMsg = "error: " + err.Error()
 			} else {
 				statusMsg = fmt.Sprintf("commented on #%d", tasks[sel].ID)
 			}
 		}
 	}
-	cancel := func() { commentText = ""; uiApp.PopView() }
+	cancel := func() { setCommentText(""); uiApp.PopView() }
 	uiApp.View("comment",
 		VBox.Fill(cBG)(
 			promptKeys(save, cancel),
@@ -1379,7 +1383,7 @@ func setupCommentView() {
 			HBox(Space(), VBox.Fill(cFloat).PaddingVH(1, 2).Width(72)(
 				HBox(Text("comment").FG(cBright).Bold(), Space(), Text("esc cancel · enter save").FG(cMuted)),
 				SpaceH(1),
-				HBox(Text("> ").FG(cSubtle), Text(&commentText).FG(cBright)),
+				commentInput(),
 			), Space()),
 			Space(),
 		),
@@ -1392,8 +1396,27 @@ func setupCommentView() {
 func backspaceComment() {
 	if len(commentText) > 0 {
 		rs := []rune(commentText)
-		commentText = string(rs[:len(rs)-1])
+		setCommentText(string(rs[:len(rs)-1]))
 	}
+}
+
+// the comment prompt's input width (panel Width(72) minus padding/"> " gutter).
+const commentWrapW = 66
+
+// commentInput renders the wrapped comment text as the prompt body: a "> " gutter
+// on the first line, the rest hanging-indented, so long comments wrap instead of
+// truncating off-screen.
+func commentInput() Component {
+	return ForEach(&commentLines, func(line *string) Component {
+		return HBox(Text("  ").FG(cSubtle), Text(line).FG(cBright))
+	})
+}
+
+// setCommentText updates the input and its wrapped display mirror together, so a
+// long comment line-wraps in the prompt instead of truncating off-screen.
+func setCommentText(s string) {
+	commentText = s
+	commentLines = wrapText(s+" ", commentWrapW) // nbsp keeps a trailing caret line visible
 }
 
 // promptKeys is the standard text-prompt binding scope: enter/esc/backspace/
@@ -1404,7 +1427,7 @@ func promptKeys(save, cancel func()) OnC {
 		Key("<CR>", save),
 		Key("<Esc>", cancel),
 		Key("<BS>", backspaceComment),
-		Key("<Space>", func() { commentText += " " }),
+		Key("<Space>", func() { setCommentText(commentText + " ") }),
 	)
 }
 
@@ -1414,7 +1437,7 @@ func wireTyping(view string) {
 	if r, ok := uiApp.ViewRouter(view); ok {
 		r.HandleUnmatched(func(k riffkey.Key) bool {
 			if k.Rune != 0 && k.Mod == 0 {
-				commentText += string(k.Rune)
+				setCommentText(commentText + string(k.Rune))
 				uiApp.RequestRender()
 				return true
 			}
@@ -1480,13 +1503,13 @@ func pickDiffLine(r rune) {
 	}
 	setPickMode(false)
 	diffLayer.Invalidate()
-	commentText = ""
+	setCommentText("")
 	uiApp.PushView("linecomment")
 }
 
 func saveLineComment() {
 	body := strings.TrimSpace(commentText)
-	commentText = ""
+	setCommentText("")
 	uiApp.PopView()
 	if body == "" || len(tasks) == 0 {
 		return
@@ -1538,7 +1561,7 @@ func unsubmitSelected() {
 
 func setupReviewViews() {
 	// line-comment body prompt
-	cancel := func() { commentText = ""; uiApp.PopView() }
+	cancel := func() { setCommentText(""); uiApp.PopView() }
 	uiApp.View("linecomment",
 		VBox.Fill(cBG)(
 			promptKeys(saveLineComment, cancel),
@@ -1549,7 +1572,7 @@ func setupReviewViews() {
 				Text(&pcLocation).FG(cSubtle),
 				Text(&pcSnippetView).FG(cMuted),
 				SpaceH(1),
-				HBox(Text("> ").FG(cSubtle), Text(&commentText).FG(cBright)),
+				commentInput(),
 			), Space()),
 			Space(),
 		),
@@ -1586,7 +1609,7 @@ func setupReviewViews() {
 			HBox(Space(), VBox.Fill(cFloat).PaddingVH(1, 2).Width(72)(
 				HBox(Text("edit comment").FG(cBright).Bold(), Space(), Text("esc cancel · enter save").FG(cMuted)),
 				SpaceH(1),
-				HBox(Text("> ").FG(cSubtle), Text(&commentText).FG(cBright)),
+				commentInput(),
 			), Space()),
 			Space(),
 		),

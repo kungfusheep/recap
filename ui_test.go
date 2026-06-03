@@ -90,16 +90,16 @@ func TestLoadDraftPane(t *testing.T) {
 	if len(draftComments) != 2 {
 		t.Fatalf("want 2 draft rows, got %d", len(draftComments))
 	}
-	// line-anchored row carries location + snippet
-	if draftComments[0].Location != "calc.go · line 3" {
-		t.Errorf("row0 location = %q", draftComments[0].Location)
+	// general (unanchored) row sorts first, falls back to "general", no snippet
+	if draftComments[0].Location != "general" || draftComments[0].Snippet != "" {
+		t.Errorf("row0 = %+v, want general/no-snippet", draftComments[0])
 	}
-	if draftComments[0].Snippet != "func sub(){}" || draftComments[0].Body != "needs a test" {
-		t.Errorf("row0 snippet/body = %q / %q", draftComments[0].Snippet, draftComments[0].Body)
+	// the line-anchored row follows, carrying location + snippet
+	if draftComments[1].Location != "calc.go · line 3" {
+		t.Errorf("row1 location = %q", draftComments[1].Location)
 	}
-	// general (unanchored) row falls back to "general", no snippet
-	if draftComments[1].Location != "general" || draftComments[1].Snippet != "" {
-		t.Errorf("row1 = %+v, want general/no-snippet", draftComments[1])
+	if draftComments[1].Snippet != "func sub(){}" || draftComments[1].Body != "needs a test" {
+		t.Errorf("row1 snippet/body = %q / %q", draftComments[1].Snippet, draftComments[1].Body)
 	}
 
 	// the two are draft (editable) before submit
@@ -144,12 +144,21 @@ func TestCommentedLinesCue(t *testing.T) {
 	if len(commentedLines) != 1 {
 		t.Fatalf("only anchored comments should mark lines, got %d", len(commentedLines))
 	}
-	if draftComments[0].ID != cid {
-		t.Fatalf("VM should carry comment id %d, got %d", cid, draftComments[0].ID)
+	// general sorts first, so the anchored comment (cid) is row 1; assert the VM
+	// carries the right id regardless of position.
+	var found bool
+	for _, c := range draftComments {
+		if c.ID == cid {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("VM should carry comment id %d, got %+v", cid, draftComments)
 	}
 }
 
-// the draft pane is ordered by file, then line; general comments sort last.
+// the draft pane lists general (top-level) comments first, then anchored ones
+// grouped by file, then line.
 func TestDraftPaneOrdering(t *testing.T) {
 	st := testStore(t)
 	uiStore = st
@@ -167,7 +176,7 @@ func TestDraftPaneOrdering(t *testing.T) {
 	for i, c := range draftComments {
 		got[i] = c.Location
 	}
-	want := []string{"a.go · line 5", "b.go · line 9", "b.go · line 40", "general"}
+	want := []string{"general", "a.go · line 5", "b.go · line 9", "b.go · line 40"}
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("order[%d] = %q, want %q (full: %v)", i, got[i], want[i], got)
