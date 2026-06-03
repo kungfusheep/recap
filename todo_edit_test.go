@@ -16,25 +16,27 @@ func TestTodoRowRendersPerItem(t *testing.T) {
 	t.Cleanup(func() { todoItems = prev; todoSel = prevSel })
 	todoItems = []todoItem{
 		{IsTask: false, Raw: "# Heading"},
-		{IsTask: true, Done: false, Text: "undone one"},
+		{IsTask: true, Done: false, Text: "undone task line that is long enough to reveal truncation bugs"},
 		{IsTask: true, Done: true, Text: "done two"},
 	}
 	todoSel = 0
+	todoPrep() // precomputes Display/FGColor/Selected used by todoRow
 	node := List(&todoItems).Selection(&todoSel).Marker("  ").
-		SelectedStyle(Style{BG: cSelBG}).Render(todoRow)
+		SelectedStyle(Style{}).Render(todoRow)
 	tmpl := Build(node)
-	buf := NewBuffer(60, 12)
-	tmpl.Execute(buf, 60, 12)
+	buf := NewBuffer(80, 12)
+	tmpl.Execute(buf, 80, 12)
 	full := ""
 	for y := 0; y < 12; y++ {
 		full += buf.GetLine(y) + "\n"
 	}
-	for _, want := range []string{"# Heading", "[ ] undone one", "[x] done two"} {
+	// full text (no truncation) + correct per-row checkbox state
+	for _, want := range []string{"# Heading", "[ ] undone task line that is long enough to reveal truncation bugs", "[x] done two"} {
 		if !strings.Contains(full, want) {
 			t.Fatalf("todo render missing %q:\n%s", want, full)
 		}
 	}
-	if strings.Contains(full, "[ ] done two") || strings.Contains(full, "[x] undone one") {
+	if strings.Contains(full, "[ ] done two") || strings.Contains(full, "[x] undone") {
 		t.Fatalf("per-row checkbox state baked wrong:\n%s", full)
 	}
 }

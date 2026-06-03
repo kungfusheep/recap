@@ -44,7 +44,26 @@ func openTodoEditor() {
 	todoItems = items
 	todoSel = 0
 	todoTitle = "TODO · " + t.Repo
+	todoPrep()
 	uiApp.PushView("todoedit")
+}
+
+// todoPrep recomputes the per-row UI fields (selection band + the display text and
+// colour). The display text is precomputed into one field so the row can render a
+// plain Text in a Grow(1) box — a Then/Else conditional over pointer-bound Texts
+// measures the empty placeholder branch at build time and clips every row (the
+// truncation bug). Called after any change to todoSel/todoItems.
+func todoPrep() {
+	for i := range todoItems {
+		todoItems[i].Selected = i == todoSel
+		if todoItems[i].IsTask {
+			todoItems[i].Display = todoItems[i].Text
+			todoItems[i].FGColor = cFG
+		} else {
+			todoItems[i].Display = todoItems[i].Raw
+			todoItems[i].FGColor = cMuted
+		}
+	}
 }
 
 func todoMove(d int) {
@@ -55,6 +74,7 @@ func todoMove(d int) {
 	if todoSel < 0 {
 		todoSel = 0
 	}
+	todoPrep()
 }
 
 func todoSave() {
@@ -65,6 +85,7 @@ func todoSave() {
 
 func todoToggle() {
 	toggleTodo(todoItems, todoSel)
+	todoPrep()
 	todoSave()
 }
 
@@ -77,12 +98,24 @@ func todoAdd() {
 // so each row reflects its own item — a Go if would bake the placeholder element's
 // branch into the single compiled row template (the List-builds-once trap).
 func todoRow(it *todoItem) Component {
-	return HBox(
-		SpaceW(1),
-		If(&it.Done).Then(Text("[x] ").FG(&cAdd)).Else(
-			If(&it.IsTask).Then(Text("[ ] ").FG(&cSubtle)).Else(Text("")),
+	// per-row Fill claims the FULL row width — without it the List measures the row
+	// from the empty placeholder element and clips every line to that tiny width
+	// (the truncation bug). The Fill also paints the selection band. Grow(1) lets
+	// the text occupy the remaining width.
+	bg := If(&it.Selected).Then(&cSelBG).Else(&cBG)
+	return VBox.Fill(bg).PaddingVH(0, 1)(
+		HBox(
+			// fixed-string checkbox conditionals are fine (they measure to their
+			// literal width); only the variable text needed precomputing.
+			If(&it.Done).Then(Text("[x] ").FG(&cAdd)).Else(
+				If(&it.IsTask).Then(Text("[ ] ").FG(&cSubtle)).Else(Text("")),
+			),
+			// plain pointer Text (Display/FGColor precomputed in todoPrep) so the
+			// Grow(1) slot measures full width instead of clipping to a placeholder.
+			HBox.Grow(1)(
+				Text(&it.Display).FG(&it.FGColor),
+			),
 		),
-		If(&it.IsTask).Then(Text(&it.Text).FG(&cFG)).Else(Text(&it.Raw).FG(&cMuted)),
 	)
 }
 
@@ -107,7 +140,7 @@ func setupTodoView() {
 			List(&todoItems).
 				Selection(&todoSel).
 				Marker("  ").
-				SelectedStyle(Style{BG: cSelBG}).
+				SelectedStyle(Style{}). // band painted per-row (todoRow Fill)
 				Render(todoRow),
 		),
 	).NoCounts()
@@ -120,6 +153,7 @@ func setupTodoView() {
 		if text != "" {
 			todoItems = addTodoItem(todoItems, text)
 			todoSel = len(todoItems) - 1
+			todoPrep()
 			todoSave()
 		}
 	}

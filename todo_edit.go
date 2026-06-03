@@ -4,16 +4,21 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	. "github.com/kungfusheep/glyph"
 )
 
 // todoItem is one line of a repo's plain-text TODO. Task lines ("- [ ] …" / "- [x]
 // …") are toggleable; everything else (headers, blanks, prose) is carried through
 // verbatim as Raw so writing back never reformats the file.
 type todoItem struct {
-	IsTask bool
-	Done   bool
-	Text   string // task body without the "- [ ] " prefix (task lines only)
-	Raw    string // the original line (non-task lines, and the source of truth otherwise)
+	IsTask   bool
+	Done     bool
+	Text     string // task body without the "- [ ] " prefix (task lines only)
+	Raw      string // the original line (non-task lines, and the source of truth otherwise)
+	Selected bool   // UI only (drives the row band); never persisted
+	Display  string // UI only: precomputed row text (Text or Raw) — see todoPrep
+	FGColor  Color  // UI only: precomputed row colour
 }
 
 // parseTodoLine recognises a markdown checkbox line, tolerating leading
