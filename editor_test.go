@@ -3,6 +3,8 @@ package main
 import (
 	"reflect"
 	"testing"
+
+	. "github.com/kungfusheep/glyph"
 )
 
 // editorArgs builds +line argv for vim-family editors, splits EDITOR flags, and
@@ -26,44 +28,47 @@ func TestEditorArgs(t *testing.T) {
 	}
 }
 
-// diffTarget picks the first code row (file + real line) at or after the diff
-// scroll position, using the selected task's repo path.
-func TestDiffTarget(t *testing.T) {
-	st := testStore(t)
-	prevStore, prevRows, prevSel := uiStore, vmRows, sel
-	prevMeta, prevLayer := diffMeta, diffLayer
-	uiStore = st
-	diffLayer = nil // no scroll → start at 0
+// the jump-pick flow (review #148): openEditorPick arms pick mode with the editor
+// action, and picking a labelled line runs that action with the picked row's meta
+// (here a spy, so no editor is launched), then leaves pick mode.
+func TestEditorPickFlow(t *testing.T) {
+	prevLayer, prevAction := diffLayer, pickAction
+	diffLayer = NewLayer()
+	diffLayer.Render = func() {}
 	t.Cleanup(func() {
-		uiStore = prevStore
-		vmRows = prevRows
-		sel = prevSel
-		diffMeta = prevMeta
 		diffLayer = prevLayer
-		taskByID = map[int64]Task{}
+		pickAction = prevAction
+		setPickMode(false)
+		diffMeta = nil
+		clear(diffLabelByRow)
 	})
-	st.Add(Task{Repo: "r", RepoPath: "/repo/path", SHA: "abc", Title: "t", Status: StatusPending})
-	reloadTasks()
-	sel = 0
 
-	// banner + file header (no line) then a real code row
 	diffMeta = []diffLineMeta{
-		{},                         // banner
-		{File: "main.go"},          // file header, Line 0
-		{File: "main.go", Line: 0}, // deletion, Line 0
-		{File: "main.go", Line: 42, Commentable: true}, // the target
-	}
-	file, line, repo := diffTarget()
-	if file != "main.go" || line != 42 {
-		t.Fatalf("diffTarget = %s:%d, want main.go:42", file, line)
-	}
-	if repo != "/repo/path" {
-		t.Fatalf("repo = %q, want /repo/path", repo)
+		{}, // banner (not commentable)
+		{File: "main.go", Line: 42, Commentable: true}, // labelled row 1
+		{File: "util.go", Line: 7, Commentable: true},  // labelled row 2
 	}
 
-	// no code rows → empty file (caller shows a message, doesn't launch)
-	diffMeta = []diffLineMeta{{}, {File: "x.go"}}
-	if f, _, _ := diffTarget(); f != "" {
-		t.Fatalf("no code row should yield empty file, got %q", f)
+	// arming: openEditorPick enters pick mode with the editor action
+	openEditorPick()
+	if pickMode != "on" {
+		t.Fatalf("openEditorPick should enter pick mode, got %q", pickMode)
+	}
+	if pickAction == nil {
+		t.Fatal("openEditorPick should set the editor pickAction")
+	}
+
+	// swap in a spy so picking doesn't launch a real editor, then pick label 'b'→row2
+	var got diffLineMeta
+	pickAction = func(m diffLineMeta) { got = m }
+	diffLabelByRow['a'] = 1
+	diffLabelByRow['b'] = 2
+	pickDiffLine('b')
+
+	if got.File != "util.go" || got.Line != 7 {
+		t.Fatalf("picked the wrong line: %+v", got)
+	}
+	if pickMode != "off" {
+		t.Fatal("pick mode should clear after a pick")
 	}
 }

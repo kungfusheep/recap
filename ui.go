@@ -159,6 +159,9 @@ var (
 	diffCommentMode bool
 	pickMode        = "off"
 	diffLabelByRow  = map[rune]int{}
+	// pickAction is what to do with the picked diff line (comment on it, or open it
+	// in $EDITOR). Set when entering pick mode; pickDiffLine calls it with the row.
+	pickAction func(diffLineMeta)
 
 	// commentedLines marks diff rows that already carry a draft comment, keyed by
 	// "file:line", so renderDiffLayer can draw a visual cue in the gutter.
@@ -1050,7 +1053,7 @@ func buildMain() Component {
 					Key("g", diffTop),
 					Key("G", diffBottom),
 					Key("c", openDiffLineComment),
-					Key("e", openInEditor), // open this file:line in $EDITOR
+					Key("e", openEditorPick), // jump-pick a line → open it in $EDITOR
 					Key("<Enter>", func() { setPane(paneList) }),
 					Key("<Esc>", func() { setPane(paneList) }),
 				))),
@@ -1675,8 +1678,21 @@ func openDiffLineComment() {
 		statusMsg = "(no diff lines to comment on)"
 		return
 	}
+	pickAction = commentOnDiffLine
 	setPickMode(true)
 	diffLayer.Invalidate()
+}
+
+// commentOnDiffLine captures the picked line's anchor and opens the body prompt.
+func commentOnDiffLine(m diffLineMeta) {
+	pcFile, pcAnchor, pcSnippet, pcLine = m.File, m.Anchor, m.Text, m.Line
+	pcLocation = fmt.Sprintf("%s · line %d", m.File, m.Line)
+	pcSnippetView = "  " + m.Text
+	if len(pcSnippetView) > 68 {
+		pcSnippetView = pcSnippetView[:67] + "…"
+	}
+	setCommentText("")
+	uiApp.PushView("linecomment")
 }
 
 // setPickMode toggles in-place label mode, keeping the bool and the conditional
@@ -1695,8 +1711,8 @@ func cancelDiffPick() {
 	diffLayer.Invalidate()
 }
 
-// pickDiffLine resolves a label to its row, captures the anchor, leaves pick
-// mode, and opens the body prompt.
+// pickDiffLine resolves a label to its row, leaves pick mode, and runs the action
+// chosen when pick mode was entered (comment on the line, or open it in $EDITOR).
 func pickDiffLine(r rune) {
 	if !diffCommentMode {
 		return
@@ -1706,16 +1722,11 @@ func pickDiffLine(r rune) {
 		return
 	}
 	m := diffMeta[row]
-	pcFile, pcAnchor, pcSnippet, pcLine = m.File, m.Anchor, m.Text, m.Line
-	pcLocation = fmt.Sprintf("%s · line %d", m.File, m.Line)
-	pcSnippetView = "  " + m.Text
-	if len(pcSnippetView) > 68 {
-		pcSnippetView = pcSnippetView[:67] + "…"
-	}
 	setPickMode(false)
 	diffLayer.Invalidate()
-	setCommentText("")
-	uiApp.PushView("linecomment")
+	if pickAction != nil {
+		pickAction(m)
+	}
 }
 
 func saveLineComment() {
