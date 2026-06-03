@@ -35,6 +35,7 @@ func omniCommands() []omniItem {
 		{Label: "filter repo", Description: "cycle the inbox filter through repos", Section: "view", Action: cycleFilter},
 		{Label: "next pane", Description: "move focus to the next column", Section: "view", Action: focusNext},
 		{Label: "previous pane", Description: "move focus to the previous column", Section: "view", Action: focusPrev},
+		{Label: "edit TODO", Description: "open the selected task's repo TODO file for editing", Section: "view", Action: openTodoEditor},
 		{Label: "help", Description: "toggle the keyboard cheatsheet", Section: "view", Action: toggleHelp},
 		// app actions
 		{Label: "quit", Description: "exit recap", Section: "app", Action: func() { uiApp.Stop() }},

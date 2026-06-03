@@ -234,6 +234,7 @@ func runUI() error {
 	reloadTasks()
 	setupCommentView()
 	setupReviewViews()
+	setupTodoView()
 
 	// live refresh: register this TUI so `recap add` can SIGUSR1 us to reload the
 	// inbox without a restart. The handler only flags + requests a render; the
@@ -969,6 +970,7 @@ func buildMain() Component {
 			Key("f", cycleFilter),
 			Key("S", submitSelected),
 			Key("U", unsubmitSelected),
+			Key("t", openTodoEditor),
 		)),
 		// pick-a-line scope: Esc cancels. The label letters themselves are caught
 		// by the main router's unmatched handler (see runUI) since they overlap
@@ -1097,6 +1099,7 @@ var helpNavRows = []helpRow{
 
 var helpActionRows = []helpRow{
 	{"o", "expand revisions"},
+	{"t", "edit TODO"},
 	{"c", "comment"},
 	{"e / d", "edit / delete"},
 	{"a", "approve"},

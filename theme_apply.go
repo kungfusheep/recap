@@ -96,6 +96,7 @@ func applyTheme(name string, t Theme) {
 	if uiApp != nil {
 		setupCommentView()
 		setupReviewViews()
+		setupTodoView()
 		uiApp.SetView(buildMain())
 		uiApp.RequestRender()
 	}
