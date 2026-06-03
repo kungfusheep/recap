@@ -99,6 +99,16 @@ type taskVM struct {
 	Selected     bool
 	HasGroup     bool
 	GroupLabel   string
+
+	// revision threading (mail-style): a task with >1 diff is expandable with `o`.
+	// A header row (RevIdx < 0) shows the latest diff by default; expanding splices
+	// one child row per revision (RevIdx >= 0) beneath it, each loading its own diff.
+	RevIdx     int    // -1 = task header row; >=0 = revision child (index into Revisions, latest first)
+	DiffSHA    string // the commit this row's diff shows (header = latest revision)
+	Expanded   bool   // header only: its revisions are spliced in below
+	Grouped    bool   // child only: drives the indented, distinct-bg rendering
+	ExpandPill string // header only: revision-count cue, e.g. "▸ 3" / "▾ 3"
+	RevLabel   string // child only: e.g. "rev 2 · a1b2c3 · added line two"
 }
 
 // draftCommentVM is one row in the draft-review overview pane: the location
@@ -121,10 +131,17 @@ var (
 	omni    *OmniBox
 
 	tasks    []Task
-	vmRows   []taskVM
-	sel      int
+	vmRows   []taskVM // flattened: task headers + (when expanded) their revision children
+	sel      int      // index into vmRows, NOT tasks (a row may be a revision child)
 	repoFltr string
 	repos    []string
+
+	// expandedTasks tracks which tasks are expanded into their revision children
+	// (mail's thread-expand). Keyed by task id so it survives vmRows rebuilds.
+	expandedTasks = map[int64]bool{}
+	// taskByID resolves the selected row's task without re-querying (rebuilt each
+	// reloadTasks). Rows carry only a task ID; this maps back to the full Task.
+	taskByID = map[int64]Task{}
 
 	// diff pane: a native-scroll Layer. diffLines is the full styled content
 	// (every span carries BG so cells never fall back to terminal default);
@@ -319,11 +336,9 @@ func reloadTasks() {
 		}
 		return tasks[i].ID > tasks[j].ID
 	})
-	if sel >= len(tasks) {
-		sel = len(tasks) - 1
-	}
-	if sel < 0 {
-		sel = 0
+	taskByID = make(map[int64]Task, len(tasks))
+	for _, t := range tasks {
+		taskByID[t.ID] = t
 	}
 
 	vmRows = vmRows[:0]
@@ -339,6 +354,7 @@ func reloadTasks() {
 			GlyphColor: stateColor(st),
 			RepoColor:  repoColor(t.Repo),
 			Pending:    st == StatePending,
+			RevIdx:     -1, // task header row
 		}
 		if len(t.CreatedAt) >= 16 {
 			vm.When = t.CreatedAt[11:16]
@@ -354,12 +370,46 @@ func reloadTasks() {
 			vm.ReReview = true
 			vm.ReReviewPill = fmt.Sprintf("↩ #%d", t.ParentID)
 		}
+		// revision history: the header shows the latest diff by default; a task with
+		// more than one diff is expandable (`o`) into one child row per revision.
+		revs, _ := uiStore.Revisions(t.ID)
+		if len(revs) > 0 {
+			vm.DiffSHA = revs[len(revs)-1].SHA // latest
+		}
+		if len(revs) > 1 {
+			vm.Expanded = expandedTasks[t.ID]
+			if vm.Expanded {
+				vm.ExpandPill = fmt.Sprintf("▾ %d", len(revs))
+			} else {
+				vm.ExpandPill = fmt.Sprintf("▸ %d", len(revs))
+			}
+		}
 		if st != prev {
 			vm.HasGroup = true
 			vm.GroupLabel = stateLabel(st)
 			prev = st
 		}
 		vmRows = append(vmRows, vm)
+
+		// expanded → splice a child row per revision, latest first (mail's order).
+		if vm.Expanded {
+			for j := len(revs) - 1; j >= 0; j-- {
+				r := revs[j]
+				vmRows = append(vmRows, taskVM{
+					ID:       t.ID,
+					RevIdx:   j,
+					DiffSHA:  r.SHA,
+					Grouped:  true,
+					RevLabel: revLabel(j, r),
+				})
+			}
+		}
+	}
+	if sel >= len(vmRows) {
+		sel = len(vmRows) - 1
+	}
+	if sel < 0 {
+		sel = 0
 	}
 
 	// distinct repos for the filter cycle (from the unfiltered set)
@@ -370,6 +420,69 @@ func reloadTasks() {
 		if !seen[t.Repo] {
 			seen[t.Repo] = true
 			repos = append(repos, t.Repo)
+		}
+	}
+	detailDirty = true
+}
+
+// revLabel is a revision child row's caption: "original" for the base diff (the
+// task's own commit), "rev N" for each fix-forward, plus the short sha and the
+// revision summary when present.
+func revLabel(idx int, r Revision) string {
+	head := fmt.Sprintf("rev %d", idx)
+	if r.Base {
+		head = "original"
+	}
+	sha := r.SHA
+	if len(sha) > 7 {
+		sha = sha[:7]
+	}
+	if r.Summary != "" {
+		return fmt.Sprintf("%s · %s · %s", head, sha, r.Summary)
+	}
+	if sha != "" {
+		return fmt.Sprintf("%s · %s", head, sha)
+	}
+	return head
+}
+
+// selectedRow returns the currently selected flattened row (header or revision
+// child), or nil when the list is empty.
+func selectedRow() *taskVM {
+	if sel < 0 || sel >= len(vmRows) {
+		return nil
+	}
+	return &vmRows[sel]
+}
+
+// selectedTask resolves the task behind the selected row — the same task whether a
+// header or one of its revision children is selected. Actions operate on this.
+func selectedTask() (Task, bool) {
+	r := selectedRow()
+	if r == nil {
+		return Task{}, false
+	}
+	t, ok := taskByID[r.ID]
+	return t, ok
+}
+
+// toggleExpand expands/collapses the selected row's task into its revisions, then
+// parks the selection on that task's header so navigation stays oriented.
+func toggleExpand() {
+	t, ok := selectedTask()
+	if !ok {
+		return
+	}
+	revs, _ := uiStore.Revisions(t.ID)
+	if len(revs) < 2 {
+		return // nothing to expand — only the base diff
+	}
+	expandedTasks[t.ID] = !expandedTasks[t.ID]
+	reloadTasks()
+	for i := range vmRows {
+		if vmRows[i].ID == t.ID && vmRows[i].RevIdx < 0 {
+			sel = i
+			break
 		}
 	}
 	detailDirty = true
@@ -422,15 +535,19 @@ func refreshDetail() {
 	}
 	lastSel, lastLen, lastFltr, detailDirty = sel, len(tasks), repoFltr, false
 
-	if len(tasks) == 0 || sel < 0 || sel >= len(tasks) {
+	row := selectedRow()
+	t, ok := selectedTask()
+	if !ok || row == nil {
 		detailTitle, metaRepo, metaWhen, metaResult = "no tasks", "", "", ""
 		filesText, diffFiles, draftNote = "", nil, ""
 		hasDraft, draftComments = false, nil
 		setDiff()
 		return
 	}
-	t := tasks[sel]
 	detailTitle = t.Title
+	if row.RevIdx >= 0 { // a revision child: title it so the diff in view is clear
+		detailTitle = t.Title + "  ·  " + row.RevLabel
+	}
 	metaRepo, metaWhen = t.Repo, t.CreatedAt
 	metaResult = dash(t.Result)
 	metaResultColor = resultColor(t.Result)
@@ -439,13 +556,16 @@ func refreshDetail() {
 	// task's own diff, which still shows for context.
 	diffBanner = buildBanner(t)
 
-	if t.SHA == "" || t.RepoPath == "" {
+	// the diff shown follows the selected row: a header shows the latest revision,
+	// a revision child shows its own commit.
+	sha := row.DiffSHA
+	if sha == "" || t.RepoPath == "" {
 		filesText, diffFiles = "no diff — task has no sha", nil
 		setDiff()
 		return
 	}
-	filesText = changedFiles(t)
-	full, err := git(t.RepoPath, "show", "--format=", t.SHA)
+	filesText = changedFiles(t.RepoPath, sha)
+	full, err := git(t.RepoPath, "show", "--format=", sha)
 	if err != nil {
 		diffFiles = nil
 	} else {
@@ -626,8 +746,8 @@ func resultColor(r string) Color {
 }
 
 // changedFiles renders a clean dim file list (status + path), no --stat graph.
-func changedFiles(t Task) string {
-	out, err := git(t.RepoPath, "show", "--name-status", "--format=", t.SHA)
+func changedFiles(repoPath, sha string) string {
+	out, err := git(repoPath, "show", "--name-status", "--format=", sha)
 	if err != nil {
 		return ""
 	}
@@ -881,6 +1001,7 @@ func buildMain() Component {
 					Key("a", approveSelected),
 					Key("c", openComment),
 					Key("v", rerun),
+					Key("o", toggleExpand), // expand a task into its revision diffs
 				)),
 			),
 			// middle — detail + diff (no side padding; scrollbar flush right).
@@ -971,6 +1092,7 @@ var helpNavRows = []helpRow{
 }
 
 var helpActionRows = []helpRow{
+	{"o", "expand revisions"},
 	{"c", "comment"},
 	{"e / d", "edit / delete"},
 	{"a", "approve"},
@@ -1043,7 +1165,7 @@ func taskRow(r *taskVM) Component {
 	// one icon system: the status dot (● pending / ↻ rework / ✓ approved); the
 	// repo is shown plainly, tinted by its identity colour.
 	itemBG := If(&r.Selected).Then(&curSelBG).Else(&cPaneBG)
-	body := VBox.Fill(itemBG).PaddingVH(1, 1)(
+	headerBody := VBox.Fill(itemBG).PaddingVH(1, 1)(
 		HBox(
 			// FG must be a *Color, not a value: List builds the row template once
 			// from a placeholder element, so a by-value .FG() bakes the zero colour
@@ -1057,6 +1179,8 @@ func taskRow(r *taskVM) Component {
 				Text(&r.Title).Style(If(&r.Pending).Then(Style{FG: cBright, Attr: AttrBold}).Else(Style{FG: cBright})),
 			),
 			SpaceW(2),
+			// revision-count cue (▸ collapsed / ▾ expanded), only when >1 diff.
+			If(&r.ExpandPill).Eq("").Then(Text("")).Else(HBox(Text(&r.ExpandPill).FG(cSubtle), SpaceW(2))),
 			// re-review pill: this is a resubmitted fix for a kicked-back task.
 			If(&r.ReReview).Then(HBox(Text(&r.ReReviewPill).FG(cAdd), SpaceW(2))),
 			// draft-feedback pill: unsubmitted comments in progress on this task.
@@ -1071,13 +1195,25 @@ func taskRow(r *taskVM) Component {
 			SpaceW(1),
 		),
 	)
+	// revision child row: indented, distinct fill, one line per diff in the history.
+	childBG := If(&r.Selected).Then(&curSelBG).Else(&cGroupBG)
+	childBody := VBox.Fill(childBG).PaddingVH(0, 1)(
+		HBox(
+			SpaceW(3),
+			Text("·").FG(cMuted),
+			SpaceW(1),
+			Text(&r.RevLabel).FG(cSubtle),
+		),
+	)
+	// Grouped is pointer-bound, so each row picks header vs child per frame (a Go
+	// if would bake the placeholder's branch into the one compiled row template).
 	return VBox(
 		If(&r.HasGroup).Then(
 			VBox.PaddingTRBL(1, 0, 0, 0)(
 				Text(&r.GroupLabel).FG(cMuted).Bold(),
 			),
 		),
-		body,
+		If(&r.Grouped).Then(childBody).Else(headerBody),
 	)
 }
 
@@ -1282,7 +1418,7 @@ func deleteDraftComment() {
 }
 
 func openComment() {
-	if len(tasks) > 0 {
+	if _, ok := selectedTask(); ok {
 		setCommentText("")
 		uiApp.PushView("comment")
 	}
@@ -1299,8 +1435,8 @@ func diffBottom()   { diffLayer.ScrollToEnd() }
 
 func moveSel(d int) {
 	sel += d
-	if sel >= len(tasks) {
-		sel = len(tasks) - 1
+	if sel >= len(vmRows) {
+		sel = len(vmRows) - 1
 	}
 	if sel < 0 {
 		sel = 0
@@ -1310,10 +1446,10 @@ func moveSel(d int) {
 // approveSelected quick-approves the selected task by submitting an approve
 // review, so its derived state becomes APPROVED (no direct status flip).
 func approveSelected() {
-	if len(tasks) == 0 {
+	t, ok := selectedTask()
+	if !ok {
 		return
 	}
-	t := tasks[sel]
 	if _, _, err := submitReview(uiStore, t.ID, VerdictApprove, ""); err != nil {
 		statusMsg = "error: " + err.Error()
 		return
@@ -1346,10 +1482,10 @@ func cycleFilter() {
 }
 
 func rerun() {
-	if len(tasks) == 0 {
+	t, ok := selectedTask()
+	if !ok {
 		return
 	}
-	t := tasks[sel]
 	if strings.TrimSpace(t.CheckCmd) == "" {
 		statusMsg = "(no check command)"
 		return
@@ -1375,14 +1511,14 @@ func setupCommentView() {
 		body := strings.TrimSpace(commentText)
 		setCommentText("")
 		uiApp.PopView()
-		if body != "" && len(tasks) > 0 {
+		if t, ok := selectedTask(); body != "" && ok {
 			// a general (unanchored) review comment — same draft as line comments,
 			// so it shows in the comments pane and submits with the review (a loose
 			// thread comment would be invisible to the pane and get "lost").
-			if _, err := uiStore.AddReviewComment(tasks[sel].ID, "you", body, "", 0, "", ""); err != nil {
+			if _, err := uiStore.AddReviewComment(t.ID, "you", body, "", 0, "", ""); err != nil {
 				statusMsg = "error: " + err.Error()
 			} else {
-				statusMsg = fmt.Sprintf("commented on #%d", tasks[sel].ID)
+				statusMsg = fmt.Sprintf("commented on #%d", t.ID)
 			}
 		}
 	}
@@ -1532,10 +1668,11 @@ func saveLineComment() {
 	body := strings.TrimSpace(commentText)
 	setCommentText("")
 	uiApp.PopView()
-	if body == "" || len(tasks) == 0 {
+	t, ok := selectedTask()
+	if body == "" || !ok {
 		return
 	}
-	if _, err := uiStore.AddReviewComment(tasks[sel].ID, "you", body, pcFile, pcLine, pcAnchor, pcSnippet); err != nil {
+	if _, err := uiStore.AddReviewComment(t.ID, "you", body, pcFile, pcLine, pcAnchor, pcSnippet); err != nil {
 		statusMsg = "error: " + err.Error()
 		return
 	}
@@ -1548,10 +1685,10 @@ func saveLineComment() {
 // general) you've already left carry the detail; approve is handled by `a`,
 // done by the same. Moves the task into AMENDS.
 func submitSelected() {
-	if len(tasks) == 0 {
+	t, ok := selectedTask()
+	if !ok {
 		return
 	}
-	t := tasks[sel]
 	_, res, err := submitReview(uiStore, t.ID, VerdictRequestChanges, "")
 	if err != nil {
 		statusMsg = "error: " + err.Error()
@@ -1568,10 +1705,10 @@ func submitSelected() {
 // unsubmitSelected reverses a submitted review, moving the task from AMENDS back
 // to INBOX (its comments return to draft so you can keep editing).
 func unsubmitSelected() {
-	if len(tasks) == 0 {
+	t, ok := selectedTask()
+	if !ok {
 		return
 	}
-	t := tasks[sel]
 	if err := uiStore.UnsubmitReview(t.ID); err != nil {
 		statusMsg = "error: " + err.Error()
 		return

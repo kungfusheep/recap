@@ -421,6 +421,100 @@ func TestColumnHeadersAlign(t *testing.T) {
 	}
 }
 
+// the o-to-expand mechanic: a task with >1 diff shows the latest by default and a
+// ▸ N cue; pressing o (toggleExpand) splices one child row per revision (latest
+// first), each carrying its own DiffSHA so selecting it shows that diff; pressing
+// o again collapses. Single-diff tasks aren't expandable.
+func TestRevisionExpand(t *testing.T) {
+	st := testStore(t)
+	prevStore, prevRows, prevSel := uiStore, vmRows, sel
+	prevExpanded, prevByID, prevTasks, prevFltr := expandedTasks, taskByID, tasks, repoFltr
+	uiStore = st
+	expandedTasks = map[int64]bool{}
+	repoFltr = ""
+	t.Cleanup(func() {
+		uiStore = prevStore
+		vmRows = prevRows
+		sel = prevSel
+		expandedTasks = prevExpanded
+		taskByID = prevByID
+		tasks = prevTasks
+		repoFltr = prevFltr
+	})
+
+	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", SHA: "base000", Title: "fix me", Status: StatusPending})
+	st.AddRevision(id, "fix111", "first fix")
+
+	// collapsed: a single header row showing the latest diff + a ▸ 2 cue
+	reloadTasks()
+	if len(vmRows) != 1 {
+		t.Fatalf("collapsed: want 1 row, got %d", len(vmRows))
+	}
+	h := vmRows[0]
+	if h.RevIdx != -1 {
+		t.Fatalf("header RevIdx should be -1, got %d", h.RevIdx)
+	}
+	if h.ExpandPill != "▸ 2" {
+		t.Fatalf("expand cue = %q, want \"▸ 2\"", h.ExpandPill)
+	}
+	if h.DiffSHA != "fix111" {
+		t.Fatalf("header should show the LATEST diff, got %q", h.DiffSHA)
+	}
+
+	// expand
+	sel = 0
+	toggleExpand()
+	if !expandedTasks[id] {
+		t.Fatal("task should be marked expanded")
+	}
+	if len(vmRows) != 3 {
+		t.Fatalf("expanded: want header + 2 children = 3 rows, got %d", len(vmRows))
+	}
+	if vmRows[0].ExpandPill != "▾ 2" {
+		t.Fatalf("expanded cue = %q, want \"▾ 2\"", vmRows[0].ExpandPill)
+	}
+	// children are latest-first, each with its own diff sha
+	c1, c2 := vmRows[1], vmRows[2]
+	if c1.RevIdx != 1 || c1.DiffSHA != "fix111" || !strings.Contains(c1.RevLabel, "rev 1") || !strings.Contains(c1.RevLabel, "first fix") {
+		t.Fatalf("child 1 wrong: %+v", c1)
+	}
+	if c2.RevIdx != 0 || c2.DiffSHA != "base000" || !strings.Contains(c2.RevLabel, "original") {
+		t.Fatalf("child 2 (base) wrong: %+v", c2)
+	}
+
+	// render shows the child labels (verify the expansion is visible)
+	node := List(&vmRows).Selection(&sel).Style(&listBaseStyle).
+		SelectedStyle(Style{}).Marker("  ").Render(taskRow)
+	tmpl := Build(node)
+	buf := NewBuffer(80, 30)
+	tmpl.Execute(buf, 80, 30)
+	full := ""
+	for y := 0; y < 30; y++ {
+		full += buf.GetLine(y) + "\n"
+	}
+	if !strings.Contains(full, "first fix") || !strings.Contains(full, "original") {
+		t.Fatalf("expanded render missing revision children:\n%s", full)
+	}
+
+	// collapse
+	toggleExpand()
+	if expandedTasks[id] {
+		t.Fatal("task should be collapsed")
+	}
+	if len(vmRows) != 1 {
+		t.Fatalf("collapsed again: want 1 row, got %d", len(vmRows))
+	}
+
+	// a single-diff task is not expandable
+	id2, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", SHA: "solo", Title: "solo", Status: StatusPending})
+	reloadTasks()
+	for _, vm := range vmRows {
+		if vm.ID == id2 && vm.RevIdx < 0 && vm.ExpandPill != "" {
+			t.Fatalf("single-diff task should have no expand cue, got %q", vm.ExpandPill)
+		}
+	}
+}
+
 func flattenSpans(rows [][]Span) string {
 	var b strings.Builder
 	for _, r := range rows {
