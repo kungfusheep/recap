@@ -688,7 +688,7 @@ func buildMain() Component {
 		)),
 		HBox.Grow(1).Gap(4)(
 			// left — review inbox (darker column fill claims the area)
-			VBox.Grow(2).Fill(cPaneBG).PaddingTRBL(1, 0, 0, 0)(
+			VBox.Grow(2).Fill(cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0)(
 				HBox(
 					SpaceW(3),
 					Text("recap").FG(cBright).Bold(),
@@ -759,7 +759,7 @@ func buildMain() Component {
 			),
 			// right — draft review overview (only when the task has a draft)
 			If(&hasDraft).Then(
-				VBox.Grow(2).Fill(cPaneBG).PaddingTRBL(1, 0, 0, 0)(
+				VBox.Grow(2).Fill(cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0)(
 					HBox(SpaceW(3), Text("review draft").FG(cBright).Bold(), Space(), Text(&draftNote).FG(cSubtle), SpaceW(2)),
 					SpaceH(2),
 					List(&draftComments).
@@ -880,6 +880,11 @@ var (
 	// selection band is painted per-row (taskRow/draftRow) so it never covers a
 	// group header. curSelBG/draftSelBG carry the focus-aware band colour.
 	listBaseStyle = Style{BG: cPaneBG}
+
+	// side columns cascade this so header text cells sit on the pane bg (not the
+	// app bg) — without it, text renders on cBG while the fill is cPaneBG, giving
+	// the headers a slightly different background to the rest of the column.
+	paneStyle = Style{Fill: cPaneBG, BG: cPaneBG, FG: cFG}
 )
 
 // syncDiffToDraft scrolls the diff pane to the line the selected draft comment
