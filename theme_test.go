@@ -54,3 +54,87 @@ func TestThemePack(t *testing.T) {
 		t.Fatalf("mfdColor unpack wrong: %+v", c)
 	}
 }
+
+// the persisted theme round-trips through settings.json (beside the db), and
+// initTheme restores it; an unknown/blank name falls back to dark.
+func TestThemePersistence(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RECAP_DB", dir+"/recap.db")
+	prevName := currentThemeName
+	t.Cleanup(func() { currentThemeName = prevName; setThemeVars(themeDark) })
+
+	// nothing saved yet → initTheme falls back to dark
+	initTheme()
+	if currentThemeName != "dark" {
+		t.Fatalf("no settings: want dark, got %q", currentThemeName)
+	}
+
+	if err := saveThemeName("mfd-nerv"); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if got := loadSettings().Theme; got != "mfd-nerv" {
+		t.Fatalf("loaded theme = %q, want mfd-nerv", got)
+	}
+	// initTheme picks it up and applies its palette to the colour vars
+	initTheme()
+	if currentThemeName != "mfd-nerv" {
+		t.Fatalf("after restore: want mfd-nerv, got %q", currentThemeName)
+	}
+	nerv, _ := themeByName("mfd-nerv")
+	if cBG != nerv.BG {
+		t.Fatalf("initTheme did not apply the palette: cBG=%v want %v", cBG, nerv.BG)
+	}
+
+	// a corrupt/unknown saved name falls back to dark
+	if err := saveThemeName("does-not-exist"); err != nil {
+		t.Fatal(err)
+	}
+	initTheme()
+	if currentThemeName != "dark" {
+		t.Fatalf("unknown saved theme should fall back to dark, got %q", currentThemeName)
+	}
+}
+
+// applying a theme must actually repaint: recap bakes colours at build time, so
+// this verifies by RENDER that rebuilding buildMain after setThemeVars changes a
+// background cell's colour to the new palette's BG (a re-render alone wouldn't).
+func TestApplyThemeRepaints(t *testing.T) {
+	st := testStore(t)
+	prevStore, prevApp, prevOmni, prevName := uiStore, uiApp, omni, currentThemeName
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	t.Cleanup(func() {
+		uiStore = prevStore
+		uiApp = prevApp
+		omni = prevOmni
+		currentThemeName = prevName
+		setThemeVars(themeDark) // restore the default palette for other tests
+	})
+	st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	reloadTasks()
+
+	bgCell := func() Color {
+		tmpl := Build(buildMain())
+		buf := NewBuffer(100, 30)
+		tmpl.Execute(buf, 100, 30)
+		// the middle column sits on the app bg (cBG); sample a cell there
+		return buf.Get(60, 5).Style.BG
+	}
+
+	setThemeVars(themeDark)
+	darkBG := bgCell()
+	if darkBG != themeDark.BG {
+		t.Fatalf("dark: bg cell = %v, want %v", darkBG, themeDark.BG)
+	}
+
+	amber, _ := themeByName("mfd-amber")
+	setThemeVars(amber)
+	amberBG := bgCell()
+	if amberBG != amber.BG {
+		t.Fatalf("after theme switch: bg cell = %v, want amber %v", amberBG, amber.BG)
+	}
+	if amberBG == darkBG {
+		t.Fatal("background colour did not change on theme switch")
+	}
+}

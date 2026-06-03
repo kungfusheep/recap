@@ -222,6 +222,10 @@ func runUI() error {
 
 	uiApp = NewApp()
 
+	// load the persisted theme and set the colour vars BEFORE any view is built,
+	// so the compiled templates bake the right palette.
+	initTheme()
+
 	diffLayer = NewLayer()
 	diffLayer.Render = renderDiffLayer
 
