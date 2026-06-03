@@ -325,6 +325,56 @@ func TestRevisions(t *testing.T) {
 	}
 }
 
+// revising an amended task returns it to the inbox as ONE item: appending a
+// revision + resolving the open request_changes review derives the state back to
+// pending, with the new diff in its history — no separate child task.
+func TestReviseReturnsToInbox(t *testing.T) {
+	st := testStore(t)
+	defer st.Close()
+
+	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", SHA: "base000", Title: "t", Status: StatusPending})
+	st.AddReviewComment(id, "you", "fix this", "a.go", 1, "@@", "x")
+	st.SubmitReview(id, VerdictRequestChanges, "needs work")
+	if got := st.ReviewState(id); got != StateRework {
+		t.Fatalf("after submit: want rework, got %s", got)
+	}
+
+	// the revise flow: append the fix-forward diff, then resolve the open review
+	if _, err := st.AddRevision(id, "fix111", "addressed it"); err != nil {
+		t.Fatalf("add revision: %v", err)
+	}
+	resolved, err := st.resolveOpenRequestChanges(id)
+	if err != nil {
+		t.Fatalf("resolve open: %v", err)
+	}
+	if resolved == 0 {
+		t.Fatal("expected an open request_changes review to resolve")
+	}
+
+	// same task, back in the inbox (pending), now carrying two diffs
+	if got := st.ReviewState(id); got != StatePending {
+		t.Fatalf("after revise: want pending(inbox), got %s", got)
+	}
+	// and the legacy status flag tracks, so flag-based `recap ls` agrees
+	if got, _ := st.Get(id); got.Status != StatusPending {
+		t.Fatalf("after revise: legacy status should be pending, got %q", got.Status)
+	}
+	revs, _ := st.Revisions(id)
+	if len(revs) != 2 || revs[1].SHA != "fix111" {
+		t.Fatalf("want base+fix revisions, got %+v", revs)
+	}
+	// the original feedback is still visible (so you can recontextualise)
+	if cs, _ := st.TaskReviewComments(id); len(cs) != 1 || cs[0].Body != "fix this" {
+		t.Fatalf("original comment should persist, got %+v", cs)
+	}
+
+	// with no open request_changes, resolveOpenRequestChanges is a no-op (0)
+	again, err := st.resolveOpenRequestChanges(id)
+	if err != nil || again != 0 {
+		t.Fatalf("second resolve should be a no-op, got id=%d err=%v", again, err)
+	}
+}
+
 // Delete removes a task and everything scoped to it (comments + reviews) and
 // detaches fix-forward children so they don't dangle at a deleted parent.
 func TestDeleteTask(t *testing.T) {

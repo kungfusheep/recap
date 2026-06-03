@@ -54,6 +54,8 @@ func main() {
 		err = cmdSet(args)
 	case "delete", "rm":
 		err = cmdDelete(args)
+	case "revise":
+		err = cmdRevise(args)
 	case "skill":
 		fmt.Print(skillGuide)
 	case "help", "-h", "--help":
@@ -103,6 +105,12 @@ usage:
   recap comment <id> --who you|agent --body TEXT
   recap set <id> pending|approved|redo
   recap delete <id>...   remove task(s) and their reviews/comments (alias: rm)
+
+  recap revise <id> [--sha SHA --summary TEXT]
+                         attach a fix-forward diff to an EXISTING task (instead of
+                         a new task): appends a revision, resolves the open
+                         request_changes review, and returns the item to the inbox
+                         for re-review. View revisions with 'o' in the TUI.
 
   recap review comment <task> --body TEXT [--file F --line N --anchor H --snippet S]
                          add a comment to the task's draft review
@@ -431,6 +439,60 @@ func cmdDelete(args []string) error {
 	if deleted > 0 {
 		notify.Reload() // nudge any open TUI to drop the removed task(s)
 	}
+	return nil
+}
+
+// cmdRevise attaches a fix-forward diff to an existing task instead of recording a
+// separate child task — so one item carries its whole change history rather than
+// the inbox filling with near-duplicate entries. It appends the revision, resolves
+// the open request_changes review (returning the item to the inbox via derived
+// state), and nudges any open TUI.
+func cmdRevise(args []string) error {
+	fs := flag.NewFlagSet("revise", flag.ExitOnError)
+	sha := fs.String("sha", "", "the fix-forward commit (default: short HEAD of the task's repo)")
+	summary := fs.String("summary", "", "what changed in this revision (shown with its diff)")
+	idStr, rest := splitID(args)
+	fs.Parse(rest)
+	if idStr == "" {
+		idStr = fs.Arg(0)
+	}
+	if idStr == "" {
+		return fmt.Errorf("usage: recap revise <id> [--sha SHA --summary TEXT]")
+	}
+	id, err := parseID(idStr)
+	if err != nil {
+		return err
+	}
+	st, err := Open()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	t, err := st.Get(id)
+	if err != nil {
+		return err
+	}
+	if *sha == "" {
+		if h, err := gitShortHead(t.RepoPath); err == nil {
+			*sha = h
+		}
+	}
+	if *sha == "" {
+		return fmt.Errorf("--sha required (could not resolve HEAD for %s)", t.RepoPath)
+	}
+	if _, err := st.AddRevision(id, *sha, *summary); err != nil {
+		return err
+	}
+	resolved, err := st.resolveOpenRequestChanges(id)
+	if err != nil {
+		return err
+	}
+	if resolved != 0 {
+		fmt.Printf("revised #%d  +%s  (review #%d addressed → back to inbox)\n", id, *sha, resolved)
+	} else {
+		fmt.Printf("revised #%d  +%s\n", id, *sha)
+	}
+	notify.Reload()
 	return nil
 }
 

@@ -678,6 +678,33 @@ func (s *Store) Revisions(taskID int64) ([]Revision, error) {
 	return out, rows.Err()
 }
 
+// resolveOpenRequestChanges resolves a task's newest submitted request_changes
+// review — the one a fix-forward addresses — returning its id (0 if none is open).
+// This is what returns a revised task to the inbox: with the blocking review
+// resolved, ReviewState derives back to pending.
+func (s *Store) resolveOpenRequestChanges(taskID int64) (int64, error) {
+	var rid int64
+	err := s.db.QueryRow(
+		`SELECT id FROM reviews WHERE task_id = ? AND state = ? AND verdict = ? ORDER BY id DESC LIMIT 1`,
+		taskID, ReviewSubmitted, VerdictRequestChanges).Scan(&rid)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if err := s.ResolveReview(rid); err != nil {
+		return 0, err
+	}
+	// keep the legacy status flag in sync (like UnsubmitReview) so flag-based CLI
+	// views — `recap ls` — agree with derived state: the task is addressed and back
+	// in the normal queue.
+	if err := s.SetStatus(taskID, StatusPending); err != nil {
+		return 0, err
+	}
+	return rid, nil
+}
+
 // DiscardReview deletes the task's open draft review and its comments.
 func (s *Store) DiscardReview(taskID int64) error {
 	rid, err := s.draftReview(taskID)

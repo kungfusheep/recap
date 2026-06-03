@@ -53,19 +53,26 @@ has submitted and act on them first — they outrank fresh TODO items.
    captured at review time, plus the task's original criterion.
 3. Fix **forward** — never rewrite the reviewed commit. Make the change, satisfy the
    original criterion *and* the reviewer's notes, then commit on the current branch.
-4. Record the fix as a new task linked to the one it fixes:
-   `recap add --parent <original-task-id> --title "fix: <…>" --sha "$(git rev-parse --short HEAD)" …`
-5. Resolve the review: `recap review resolve <review-id>`.
+4. Attach the fix to the **same** task as a new revision — do NOT create a separate
+   task: `recap revise <task-id> --summary "what changed"` (sha defaults to the repo's
+   short HEAD). This appends the fix-forward diff to the existing item and resolves the
+   open `request_changes` review in one step, returning the item to the inbox for
+   re-review. The reviewer cycles its diffs with `o` in the TUI; the original feedback
+   stays attached so they can recontextualise.
+
+Do **not** use `recap add --parent` for amend fixes — that spawns a near-duplicate
+inbox item per fix. One task accumulates its whole change history via `revise`. (`recap
+review resolve <id>` on its own is still fine when there's nothing new to attach.)
 
 A `request_changes` review also drops a breadcrumb line into the repo's TODO
 (`address recap review #<id> (recap review show <id>)`); treat that TODO line and the
-`recap review show` work order as two views of the same item — resolving the review
-completes it.
+`recap review show` work order as two views of the same item — `revise` completes it.
 
 ## Boundaries
 
 - Recording and reading reviews is local and reversible — safe inside the deadman loop.
-- `recap add`, `recap review show`, and `recap review resolve` are the loop's three verbs.
+- `recap add` (new work), `recap review show` (read feedback), and `recap revise`
+  (attach a fix-forward diff + resolve the review) are the loop's core verbs.
   Submitting reviews (`recap review submit`) is the **human reviewer's** action (via the
   TUI or CLI), never the loop's — never self-review.
 - The review db (`$RECAP_DB` or `~/.config/recap/recap.db`) is private to the reviewer and
