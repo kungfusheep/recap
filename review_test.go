@@ -271,6 +271,60 @@ func TestReworkQueueIsDerivedNotFlagged(t *testing.T) {
 	}
 }
 
+// a task accumulates revisions (fix-forward diffs) instead of spawning child
+// tasks: Revisions returns the synthetic base (the task's own SHA) first, then
+// each appended revision oldest-first, with the latest diff last.
+func TestRevisions(t *testing.T) {
+	st := testStore(t)
+	defer st.Close()
+
+	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", SHA: "base000", Title: "t", Summary: "original", Status: StatusPending})
+
+	// a fresh task has exactly the base revision
+	revs, err := st.Revisions(id)
+	if err != nil {
+		t.Fatalf("revisions: %v", err)
+	}
+	if len(revs) != 1 || !revs[0].Base || revs[0].SHA != "base000" {
+		t.Fatalf("want one base revision base000, got %+v", revs)
+	}
+
+	// append two fix-forward revisions
+	if _, err := st.AddRevision(id, "fix111", "first fix"); err != nil {
+		t.Fatalf("add rev 1: %v", err)
+	}
+	if _, err := st.AddRevision(id, "fix222", "second fix"); err != nil {
+		t.Fatalf("add rev 2: %v", err)
+	}
+
+	revs, _ = st.Revisions(id)
+	if len(revs) != 3 {
+		t.Fatalf("want 3 revisions, got %d", len(revs))
+	}
+	// order: base, then appended oldest-first; latest is last
+	if revs[0].SHA != "base000" || !revs[0].Base {
+		t.Fatalf("revs[0] should be the base, got %+v", revs[0])
+	}
+	if revs[1].SHA != "fix111" || revs[2].SHA != "fix222" {
+		t.Fatalf("revision order wrong: %+v", revs)
+	}
+	if revs[2].Base {
+		t.Fatalf("appended revision should not be flagged Base")
+	}
+	// the latest diff is the last element
+	if latest := revs[len(revs)-1]; latest.SHA != "fix222" {
+		t.Fatalf("latest = %q, want fix222", latest.SHA)
+	}
+
+	// an empty sha is rejected; a missing task errors
+	if _, err := st.AddRevision(id, "", "x"); err == nil {
+		t.Fatal("empty sha should be rejected")
+	}
+	if _, err := st.AddRevision(9999, "abc", "x"); err == nil {
+		t.Fatal("revision on a missing task should error")
+	}
+}
+
 // Delete removes a task and everything scoped to it (comments + reviews) and
 // detaches fix-forward children so they don't dangle at a deleted parent.
 func TestDeleteTask(t *testing.T) {

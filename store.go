@@ -87,6 +87,18 @@ type Comment struct {
 	CreatedAt string
 }
 
+// Revision is one diff attached to a task. A task's first diff is its base
+// (Task.SHA + Task.Summary); each fix-forward appends a Revision instead of
+// spawning a separate task, so one item carries the whole change history.
+type Revision struct {
+	ID        int64
+	TaskID    int64
+	SHA       string
+	Summary   string
+	CreatedAt string
+	Base      bool // true for the synthetic revision built from the task's own SHA
+}
+
 type Store struct{ db *sql.DB }
 
 const schema = `
@@ -117,6 +129,13 @@ CREATE TABLE IF NOT EXISTS reviews (
   state        TEXT NOT NULL DEFAULT 'draft',
   created_at   TEXT NOT NULL,
   submitted_at TEXT
+);
+CREATE TABLE IF NOT EXISTS revisions (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id    INTEGER NOT NULL,
+  sha        TEXT NOT NULL,
+  summary    TEXT,
+  created_at TEXT NOT NULL
 );
 `
 
@@ -611,6 +630,52 @@ func (s *Store) Delete(taskID int64) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// AddRevision appends a new diff to a task (a fix-forward commit), so the task
+// accumulates revisions instead of spawning a child task. Returns the revision id.
+func (s *Store) AddRevision(taskID int64, sha, summary string) (int64, error) {
+	if sha == "" {
+		return 0, fmt.Errorf("revision sha is required")
+	}
+	if _, err := s.Get(taskID); err != nil {
+		return 0, err
+	}
+	res, err := s.db.Exec(
+		`INSERT INTO revisions (task_id, sha, summary, created_at) VALUES (?,?,?,?)`,
+		taskID, sha, nullStr(summary), nowStamp())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// Revisions returns a task's full diff history, oldest first: the synthetic base
+// revision (from the task's own SHA + Summary) followed by every appended
+// revision. The last element is always the latest diff.
+func (s *Store) Revisions(taskID int64) ([]Revision, error) {
+	t, err := s.Get(taskID)
+	if err != nil {
+		return nil, err
+	}
+	out := []Revision{{
+		TaskID: taskID, SHA: t.SHA, Summary: t.Summary, CreatedAt: t.CreatedAt, Base: true,
+	}}
+	rows, err := s.db.Query(
+		`SELECT id, task_id, sha, COALESCE(summary,''), created_at
+		   FROM revisions WHERE task_id = ? ORDER BY id`, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var r Revision
+		if err := rows.Scan(&r.ID, &r.TaskID, &r.SHA, &r.Summary, &r.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // DiscardReview deletes the task's open draft review and its comments.
