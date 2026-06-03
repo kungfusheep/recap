@@ -300,3 +300,14 @@ func TestPaneRingRespectsDraftVisibility(t *testing.T) {
 		t.Fatal("setPane(draft) should be refused when hasDraft is false")
 	}
 }
+
+// regression: the task status icon must never use the cyan repo tint (the
+// pre-derived-state bug flagged in review). stateColor governs it now.
+func TestStatusIconNotCyan(t *testing.T) {
+	cyan := repoPalette[0] // 0x6f8fa8, the old cyan tint
+	for _, s := range []string{StatePending, StateRework, StateDone} {
+		if c := stateColor(s); c == cyan || c == cHunk {
+			t.Fatalf("state %s icon is cyan (%v)", s, c)
+		}
+	}
+}
