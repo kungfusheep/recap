@@ -377,6 +377,50 @@ func TestCommentInputCaret(t *testing.T) {
 	}
 }
 
+// regression (TODO: preview title padding): the three column headers must sit on
+// the same row. The middle column is unfilled, so its top padding collapsed and
+// the title rode one row higher than the left/right headers. Verified by render:
+// build the real main view and assert all three title rows are equal.
+func TestColumnHeadersAlign(t *testing.T) {
+	prevApp, prevOmni, prevHasDraft := uiApp, omni, hasDraft
+	prevRows, prevDrafts, prevTitle := vmRows, draftComments, detailTitle
+	t.Cleanup(func() {
+		uiApp = prevApp
+		omni = prevOmni
+		hasDraft = prevHasDraft
+		vmRows = prevRows
+		draftComments = prevDrafts
+		detailTitle = prevTitle
+	})
+
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	detailTitle = "PREVIEWTITLE"
+	hasDraft = true
+	vmRows = []taskVM{{ID: 1, Title: "a task", Repo: "recap", Glyph: "●", GlyphColor: cBright}}
+	draftComments = []draftCommentVM{{Location: "general", Body: "x"}}
+
+	tmpl := Build(buildMain())
+	buf := NewBuffer(120, 40)
+	tmpl.Execute(buf, 120, 40)
+
+	find := func(needle string) int {
+		for y := 0; y < 40; y++ {
+			if strings.Contains(buf.GetLine(y), needle) {
+				return y
+			}
+		}
+		return -1
+	}
+	left, mid, right := find("recap"), find("PREVIEWTITLE"), find("comments")
+	if left < 0 || mid < 0 || right < 0 {
+		t.Fatalf("a header didn't render: left=%d mid=%d right=%d", left, mid, right)
+	}
+	if !(left == mid && mid == right) {
+		t.Fatalf("column headers misaligned: recap=%d preview=%d comments=%d", left, mid, right)
+	}
+}
+
 func flattenSpans(rows [][]Span) string {
 	var b strings.Builder
 	for _, r := range rows {
