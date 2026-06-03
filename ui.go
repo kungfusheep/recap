@@ -111,6 +111,7 @@ type draftCommentVM struct {
 var (
 	uiStore *Store
 	uiApp   *App
+	omni    *OmniBox
 
 	tasks    []Task
 	vmRows   []taskVM
@@ -201,6 +202,8 @@ func runUI() error {
 
 	diffLayer = NewLayer()
 	diffLayer.Render = renderDiffLayer
+
+	omni = newOmniBox(uiApp, omniCommands())
 
 	reloadTasks()
 	setupCommentView()
@@ -674,6 +677,8 @@ func buildMain() Component {
 		If(&pickMode).Eq("off").Then(On(
 			Key("q", uiApp.Stop),
 			Key("?", toggleHelp),
+			Key("<Space>", func() { omni.Open() }),
+			Key("<C-p>", func() { omni.Open() }),
 			Key("<Tab>", togglePane),
 			Key("h", focusPrev),
 			Key("l", focusNext),
@@ -781,32 +786,72 @@ func buildMain() Component {
 		),
 		// transient status (errors/confirmations) only — no permanent keybar
 		If(&statusMsg).Then(HBox(SpaceW(3), Text(&statusMsg).FG(cSubtle))),
-		// keyboard help, toggled with ?
-		If(&helpOpen).Then(On(Key("<Esc>", toggleHelp))),
+		// keyboard help overlay, toggled with ? (modal scope captures esc/?)
 		If(&helpOpen).Then(helpOverlay()),
+		// command palette overlay, opened with <C-p> / <Space>
+		omni.View(),
 	)
 }
 
-// helpOverlay is the ? cheatsheet — keeps shortcuts out of the main chrome.
+// help cheatsheet rows, split into two columns (mail's layout).
+type helpRow struct{ Key, Desc string }
+
+var helpNavRows = []helpRow{
+	{"j / k", "move"},
+	{"h / l", "focus column"},
+	{"tab", "next pane"},
+	{"↵", "open"},
+	{"f", "filter repo"},
+	{"space / ^p", "commands"},
+}
+
+var helpActionRows = []helpRow{
+	{"c", "comment"},
+	{"e / d", "edit / delete"},
+	{"S", "submit review"},
+	{"a", "approve"},
+	{"r", "rework"},
+	{"?", "help"},
+	{"q", "quit"},
+}
+
+var helpRef NodeRef
+
+// helpOverlay is the ? cheatsheet — centred, two-column, mail's dimensions and
+// screen-effect treatment (animated dodged vignette + focused drop shadow).
 func helpOverlay() Component {
-	row := func(k, d string) Component {
-		return HBox(Text(k).FG(cBright).Width(10), Text(d).FG(cSubtle))
-	}
-	return Overlay.BottomRight().Offset(-3, -2).Backdrop()(
-		VBox.Fill(cGroupBG).PaddingVH(1, 3).Gap(0)(
-			Text("keys").FG(cBright).Bold(),
-			SpaceH(1),
-			row("h / l", "focus column"),
-			row("j / k", "move"),
-			row("↵", "open"),
-			row("c", "comment on a line"),
-			row("e / d", "edit / delete comment"),
-			row("S", "submit review"),
-			row("a / r", "approve / rework"),
-			row("f", "filter by repo"),
-			row("?", "toggle this help"),
-			row("q", "quit"),
+	return Overlay.Centered()(
+		VBox.Width(56).Fill(cFloat).CascadeStyle(&Style{Fill: cFloat, BG: cFloat, FG: cFG}).
+			PaddingVH(1, 2).NodeRef(&helpRef).
+			Opacity(In(Animate(1.0)).Out(Animate(0))).
+			Gap(1)(
+			On.Modal(
+				Key("?", toggleHelp),
+				Key("<Esc>", toggleHelp),
+				Key("q", toggleHelp),
+			),
+			Text("keyboard").FG(cBright).Bold(),
+			HBox(
+				helpSection("navigate", 3, 12, &helpNavRows),
+				helpSection("actions", 2, 8, &helpActionRows),
+			),
+			ScreenEffect(
+				SEVignette().Strength(In(Animate.From(0)(0.55)).Out(Animate(0))).Dodge(&helpRef).Smooth(),
+				SEDropShadow().Focus(&helpRef),
+			),
 		),
+	)
+}
+
+func helpSection(title string, grow, keyWidth int, rows *[]helpRow) Component {
+	return VBox.Grow(grow)(
+		Text(title).FG(cSubtle),
+		ForEach(rows, func(r *helpRow) Component {
+			return HBox.Gap(2)(
+				Text(&r.Key).FG(cFG).Width(int16(keyWidth)),
+				Text(&r.Desc).FG(cSubtle),
+			)
+		}),
 	)
 }
 
