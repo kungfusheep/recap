@@ -271,6 +271,46 @@ func TestReworkQueueIsDerivedNotFlagged(t *testing.T) {
 	}
 }
 
+// Delete removes a task and everything scoped to it (comments + reviews) and
+// detaches fix-forward children so they don't dangle at a deleted parent.
+func TestDeleteTask(t *testing.T) {
+	st := testStore(t)
+	defer st.Close()
+
+	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "doomed", Status: StatusPending})
+	st.AddReviewComment(id, "you", "a note", "a.go", 1, "@@", "x")
+	st.SubmitReview(id, VerdictRequestChanges, "fix it")
+	child, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "fix", Status: StatusPending, ParentID: id})
+
+	if err := st.Delete(id); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	// the task is gone
+	if _, err := st.Get(id); err == nil {
+		t.Fatal("task should be gone after delete")
+	}
+	// its comments and reviews are gone
+	if cs, _ := st.Comments(id); len(cs) != 0 {
+		t.Fatalf("comments survived delete: %d", len(cs))
+	}
+	if rs, _ := st.ListReviews("", ""); len(rs) != 0 {
+		t.Fatalf("reviews survived delete: %d", len(rs))
+	}
+	// the fix-forward child survives but is detached (no dangling parent)
+	gotChild, err := st.Get(child)
+	if err != nil {
+		t.Fatalf("child should survive: %v", err)
+	}
+	if gotChild.ParentID != 0 {
+		t.Fatalf("child parent_id should be cleared, got %d", gotChild.ParentID)
+	}
+	// deleting a non-existent task errors (no silent no-op)
+	if err := st.Delete(9999); err == nil {
+		t.Fatal("deleting a missing task should error")
+	}
+}
+
 // ListReviews can scope to a repo, so the loop only drains its own reviews.
 func TestListReviewsByRepo(t *testing.T) {
 	st := testStore(t)

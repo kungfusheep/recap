@@ -585,6 +585,34 @@ func (s *Store) UnsubmitReview(taskID int64) error {
 	return s.SetStatus(taskID, StatusPending)
 }
 
+// Delete removes a task and everything scoped to it — all its comments and
+// reviews — in one transaction, and detaches any fix-forward children (their
+// parent_id is cleared so they don't dangle at a deleted task). Errors if the
+// task doesn't exist.
+func (s *Store) Delete(taskID int64) error {
+	if _, err := s.Get(taskID); err != nil {
+		return err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM comments WHERE task_id = ?`, taskID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM reviews WHERE task_id = ?`, taskID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE tasks SET parent_id = NULL WHERE parent_id = ?`, taskID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM tasks WHERE id = ?`, taskID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // DiscardReview deletes the task's open draft review and its comments.
 func (s *Store) DiscardReview(taskID int64) error {
 	rid, err := s.draftReview(taskID)

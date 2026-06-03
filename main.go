@@ -52,6 +52,8 @@ func main() {
 		err = cmdReview(args)
 	case "set":
 		err = cmdSet(args)
+	case "delete", "rm":
+		err = cmdDelete(args)
 	case "skill":
 		fmt.Print(skillGuide)
 	case "help", "-h", "--help":
@@ -100,6 +102,7 @@ usage:
 
   recap comment <id> --who you|agent --body TEXT
   recap set <id> pending|approved|redo
+  recap delete <id>...   remove task(s) and their reviews/comments (alias: rm)
 
   recap review comment <task> --body TEXT [--file F --line N --anchor H --snippet S]
                          add a comment to the task's draft review
@@ -394,6 +397,40 @@ func cmdComment(args []string) error {
 		return err
 	}
 	fmt.Printf("commented on #%d\n", id)
+	return nil
+}
+
+// cmdDelete removes one or more tasks (and their reviews/comments). It's a
+// user-invoked verb — the autonomous loop never deletes — so it acts directly,
+// reporting each task it removed by title for an audit trail.
+func cmdDelete(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: recap delete <id>... (alias: rm)")
+	}
+	st, err := Open()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	var deleted int
+	for _, a := range args {
+		id, err := parseID(a)
+		if err != nil {
+			return err
+		}
+		t, err := st.Get(id)
+		if err != nil {
+			return err
+		}
+		if err := st.Delete(id); err != nil {
+			return err
+		}
+		fmt.Printf("deleted #%d  %s  %s\n", t.ID, t.Repo, t.Title)
+		deleted++
+	}
+	if deleted > 0 {
+		notify.Reload() // nudge any open TUI to drop the removed task(s)
+	}
 	return nil
 }
 
