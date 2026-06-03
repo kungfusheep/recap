@@ -1050,6 +1050,7 @@ func buildMain() Component {
 					Key("g", diffTop),
 					Key("G", diffBottom),
 					Key("c", openDiffLineComment),
+					Key("e", openInEditor), // open this file:line in $EDITOR
 					Key("<Enter>", func() { setPane(paneList) }),
 					Key("<Esc>", func() { setPane(paneList) }),
 				))),
@@ -1101,6 +1102,7 @@ var helpNavRows = []helpRow{
 var helpActionRows = []helpRow{
 	{"o", "expand revisions"},
 	{"t", "edit TODO"},
+	{"e", "open in $EDITOR"},
 	{"c", "comment"},
 	{"e / d", "edit / delete"},
 	{"O", "open [[file]] link"},
