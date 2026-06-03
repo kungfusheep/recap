@@ -83,6 +83,7 @@ usage:
       --sha SHA          commit to review (default: short HEAD)
       --status S         pending|approved|redo (default: pending)
       --parent ID        the task this one fixes forward (links lineage)
+      --summary S        reviewer briefing shown atop the preview (not the commit msg)
 
   recap ls [flags]       list tasks (default: pending only)
       --status S         filter by status
@@ -145,6 +146,7 @@ func cmdAdd(args []string) error {
 	sha := fs.String("sha", "", "commit sha (default: short HEAD)")
 	status := fs.String("status", StatusPending, "pending|approved|redo")
 	parent := fs.Int64("parent", 0, "id of the task this fixes forward")
+	summary := fs.String("summary", "", "reviewer briefing: what you did + why + what to watch (richer than the commit msg)")
 	fs.Parse(args)
 
 	if *title == "" {
@@ -180,7 +182,7 @@ func cmdAdd(args []string) error {
 	id, err := st.Add(Task{
 		Repo: *repo, RepoPath: *repoPath, SHA: *sha, Title: *title,
 		Criterion: *criterion, CheckCmd: *check, Result: *result, Status: *status,
-		ParentID: *parent,
+		ParentID: *parent, Summary: *summary,
 	})
 	if err != nil {
 		return err
@@ -295,6 +297,9 @@ func cmdShow(args []string) error {
 	}
 	if t.Result != "" {
 		fmt.Printf("result: %s\n", t.Result)
+	}
+	if t.Summary != "" {
+		fmt.Printf("\nsummary:\n  %s\n", t.Summary)
 	}
 
 	comments, _ := st.Comments(id)

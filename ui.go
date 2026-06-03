@@ -456,8 +456,10 @@ func refreshDetail() {
 //     submitted — summary + anchored comments (what I asked for).
 //   - fix-forward task (has a parent) awaiting re-review: a "↩ amends review #N"
 //     header + that review's summary, above the new commit's diff.
+//   - ordinary inbox/done task: the agent-written reviewer briefing (task.Summary),
+//     the contextual "what I did + why + what to watch" — richer than the commit.
 //
-// Returns nil for ordinary inbox items.
+// Returns nil when there's no context to show.
 func buildBanner(t Task) [][]Span {
 	if uiStore.ReviewState(t.ID) == StateRework {
 		// the active request_changes review on this task.
@@ -471,7 +473,22 @@ func buildBanner(t Task) [][]Span {
 			return reviewBanner(fmt.Sprintf("↩ amends review #%d", rv.ID), rv, false)
 		}
 	}
+	// plain inbox/done item: lead with the reviewer briefing if there is one.
+	if strings.TrimSpace(t.Summary) != "" {
+		return summaryBanner(t.Summary)
+	}
 	return nil
+}
+
+// summaryBanner renders the agent's reviewer briefing as wrapped banner rows.
+func summaryBanner(summary string) [][]Span {
+	var rows [][]Span
+	rows = append(rows, []Span{span("summary", cHunk, true)})
+	for _, line := range wrapText(summary, 72) {
+		rows = append(rows, []Span{span("  "+line, cFG, false)})
+	}
+	rows = append(rows, []Span{}) // blank separator before the diff
+	return rows
 }
 
 // latestSubmitted returns the newest submitted/resolved review for a task as a

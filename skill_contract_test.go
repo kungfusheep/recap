@@ -64,10 +64,22 @@ func contractDB(t *testing.T) string {
 func TestSkillContract_HelpListsLoopVerbs(t *testing.T) {
 	db := contractDB(t)
 	out := mustRun(t, db, "help")
-	for _, want := range []string{"add", "review", "--sha", "--parent", "resolve", "submit"} {
+	for _, want := range []string{"add", "review", "--sha", "--parent", "--summary", "resolve", "submit"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("recap help missing %q the skill depends on:\n%s", want, out)
 		}
+	}
+}
+
+// the reviewer briefing the loop always passes (--summary) round-trips and shows
+// in `recap show`.
+func TestSkillContract_AddWithSummary(t *testing.T) {
+	db := contractDB(t)
+	mustRun(t, db, "add", "--repo", "demo", "--repo-path", "/tmp/demo",
+		"--title", "t", "--sha", "abc", "--summary", "streaming parser; watch EOF")
+	out := mustRun(t, db, "show", "1")
+	if !strings.Contains(out, "streaming parser; watch EOF") {
+		t.Fatalf("recap show omits the summary briefing:\n%s", out)
 	}
 }
 

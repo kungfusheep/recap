@@ -55,7 +55,8 @@ type Task struct {
 	Result    string // e.g. PASS / FAIL / the observed result
 	Status    string // pending | approved | redo
 	CreatedAt string
-	ParentID  int64 // the task this one fixes forward (0 = none)
+	ParentID  int64  // the task this one fixes forward (0 = none)
+	Summary   string // agent-written reviewer briefing (richer than the commit msg)
 }
 
 // Review is a batch of reviewer feedback against a task: a verdict, an overall
@@ -124,6 +125,7 @@ CREATE TABLE IF NOT EXISTS reviews (
 // gate each on PRAGMA table_info.
 var addColumns = []struct{ table, col, decl string }{
 	{"tasks", "parent_id", "INTEGER"},
+	{"tasks", "summary", "TEXT"}, // agent-written reviewer briefing (not the commit msg)
 	{"comments", "review_id", "INTEGER"},
 	{"comments", "file", "TEXT"},
 	{"comments", "line", "INTEGER"},
@@ -230,9 +232,9 @@ func (s *Store) Add(t Task) (int64, error) {
 		t.CreatedAt = nowStamp()
 	}
 	res, err := s.db.Exec(
-		`INSERT INTO tasks (repo, repo_path, sha, title, criterion, check_cmd, result, status, created_at, parent_id)
-		 VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		t.Repo, t.RepoPath, t.SHA, t.Title, t.Criterion, t.CheckCmd, t.Result, t.Status, t.CreatedAt, nullID(t.ParentID))
+		`INSERT INTO tasks (repo, repo_path, sha, title, criterion, check_cmd, result, status, created_at, parent_id, summary)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		t.Repo, t.RepoPath, t.SHA, t.Title, t.Criterion, t.CheckCmd, t.Result, t.Status, t.CreatedAt, nullID(t.ParentID), nullStr(t.Summary))
 	if err != nil {
 		return 0, err
 	}
@@ -242,11 +244,11 @@ func (s *Store) Add(t Task) (int64, error) {
 func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 	var t Task
 	err := row.Scan(&t.ID, &t.Repo, &t.RepoPath, &t.SHA, &t.Title, &t.Criterion,
-		&t.CheckCmd, &t.Result, &t.Status, &t.CreatedAt, &t.ParentID)
+		&t.CheckCmd, &t.Result, &t.Status, &t.CreatedAt, &t.ParentID, &t.Summary)
 	return t, err
 }
 
-const taskCols = `id, repo, repo_path, sha, title, criterion, check_cmd, result, status, created_at, COALESCE(parent_id,0)`
+const taskCols = `id, repo, repo_path, sha, title, criterion, check_cmd, result, status, created_at, COALESCE(parent_id,0), COALESCE(summary,'')`
 
 // Get returns one task by id.
 func (s *Store) Get(id int64) (Task, error) {

@@ -18,8 +18,16 @@ recap add \
   --criterion "<the falsifiable success check you wrote for the task>" \
   --check     "<the command that re-proves it, e.g. go test -run X ./...>" \
   --result    "PASS" \
+  --summary   "<reviewer briefing — see below>" \
   --sha       "$(git rev-parse --short HEAD)"
 ```
+
+Always pass `--summary`: a **reviewer briefing** shown at the top of the item's preview.
+This is NOT the commit message (keep that concise for git). The summary is the rich,
+contextual narrative for whoever reviews this now — "what I did, why, and what to watch
+for" — including relevant context from the working session that would mean nothing to a
+future git reader. Make the review fast: surface the decisions, trade-offs, and anything
+you're unsure about.
 
 Order matters: **commit first, then `recap add --sha HEAD`**, so the entry resolves to the
 real commit and its diff. Record every completed task — the inbox is the audit trail.

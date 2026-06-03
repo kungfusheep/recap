@@ -228,11 +228,20 @@ func TestBuildBanner(t *testing.T) {
 		t.Fatalf("fix banner missing header/summary: %q", ff)
 	}
 
-	// ordinary inbox item → no banner.
+	// ordinary inbox item with no summary → no banner.
 	plain, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "plain", Status: StatusPending})
 	pt, _ := st.Get(plain)
 	if b := buildBanner(pt); b != nil {
 		t.Fatalf("plain task should have no banner, got %d rows", len(b))
+	}
+
+	// inbox item WITH a reviewer briefing → summary banner.
+	briefed, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "briefed", Status: StatusPending,
+		Summary: "swapped the parser to a streaming one; watch the EOF edge case"})
+	bt, _ := st.Get(briefed)
+	sb := flattenSpans(buildBanner(bt))
+	if !contains2(sb, "summary") || !contains2(sb, "streaming one") || !contains2(sb, "EOF edge case") {
+		t.Fatalf("summary banner missing briefing: %q", sb)
 	}
 }
 
