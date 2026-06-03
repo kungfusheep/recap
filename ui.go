@@ -436,15 +436,9 @@ func refreshDetail() {
 	metaResult = dash(t.Result)
 	metaResultColor = resultColor(t.Result)
 	loadDraftPane(t.ID)
+	// the review-context banner (amends summary / re-review header) sits above the
+	// task's own diff, which still shows for context.
 	diffBanner = buildBanner(t)
-
-	// AMENDS: the task's own diff is the stale, already-reviewed commit — lead
-	// with the review instead (buildBanner has produced it); show no diff.
-	if uiStore.ReviewState(t.ID) == StateRework {
-		diffFiles = nil
-		setDiff()
-		return
-	}
 
 	if t.SHA == "" || t.RepoPath == "" {
 		filesText, diffFiles = "no diff — task has no sha", nil
