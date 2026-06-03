@@ -1,16 +1,32 @@
 // Package notify is recap's live-refresh signalling: an open reviewer TUI
-// registers its PID in a pidfile; the mutating CLI verbs send SIGUSR1 to those
-// PIDs so the TUI reloads its inbox without a restart. The pidfile path is
-// supplied by the caller (it follows $RECAP_DB), so isolated dbs get isolated
-// pidfiles. Stale PIDs are pruned on register and on send.
+// registers its PID in a pidfile beside the db; the mutating CLI verbs send
+// SIGUSR1 to those PIDs so the TUI reloads its inbox without a restart. The
+// pidfile is the db path plus ".pids", so isolated dbs get isolated pidfiles.
+// Stale PIDs are pruned on register and on send.
 package notify
 
 import (
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 )
+
+// pidFilePath resolves the pidfile next to recap's db ($RECAP_DB or
+// ~/.config/recap/recap.db, the same location the store uses), suffixed ".pids".
+// notify owns this so callers need no wrappers.
+func pidFilePath() string {
+	db := os.Getenv("RECAP_DB")
+	if db == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			db = filepath.Join(home, ".config", "recap", "recap.db")
+		} else {
+			db = "recap.db"
+		}
+	}
+	return db + ".pids"
+}
 
 // ReadPIDs returns the PIDs recorded in the pidfile (empty if none/unreadable).
 func ReadPIDs(path string) []int {
@@ -48,9 +64,10 @@ func PrunePIDs(pids []int) []int {
 	return alive
 }
 
-// Register adds this process to the pidfile so Reload can signal it. Returns a
-// cleanup func that removes it (call on TUI exit).
-func Register(path string) func() {
+// Register adds this process to recap's pidfile so Reload can signal it.
+// Returns a cleanup func that removes it (call on TUI exit).
+func Register() func() {
+	path := pidFilePath()
 	me := os.Getpid()
 	pids := append(PrunePIDs(ReadPIDs(path)), me)
 	_ = WritePIDs(path, pids)
@@ -68,7 +85,8 @@ func Register(path string) func() {
 // Reload sends SIGUSR1 to every registered TUI so it reloads its inbox.
 // Best-effort: a missing pidfile or dead PID is a harmless no-op, so headless
 // CLI use is unaffected. Prunes dead PIDs as a side effect.
-func Reload(path string) {
+func Reload() {
+	path := pidFilePath()
 	pids := ReadPIDs(path)
 	if len(pids) == 0 {
 		return

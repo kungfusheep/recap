@@ -8,7 +8,11 @@ import (
 // the pidfile round-trips, prunes dead PIDs, and Register's cleanup removes only
 // its own entry — the machinery `recap add` relies on to signal open TUIs.
 func TestPIDFileRoundTrip(t *testing.T) {
-	path := t.TempDir() + "/recap.db.pids"
+	// Register/Reload resolve the pidfile from $RECAP_DB (db path + ".pids"),
+	// so point that at our temp db to isolate the test.
+	dir := t.TempDir()
+	t.Setenv("RECAP_DB", dir+"/recap.db")
+	path := dir + "/recap.db.pids"
 
 	// seed a live PID (ourselves) and a dead one (impossible PID).
 	me := os.Getpid()
@@ -27,7 +31,7 @@ func TestPIDFileRoundTrip(t *testing.T) {
 	if err := WritePIDs(path, []int{other}); err != nil {
 		t.Fatalf("seed other: %v", err)
 	}
-	cleanup := Register(path)
+	cleanup := Register()
 	after := ReadPIDs(path)
 	if !contains(after, me) || !contains(after, other) {
 		t.Fatalf("register should add me alongside live others, got %v", after)
@@ -45,10 +49,12 @@ func TestPIDFileRoundTrip(t *testing.T) {
 // Reload is a harmless no-op when no TUI is registered (headless CLI use), and
 // prunes dead PIDs.
 func TestReloadNoPIDs(t *testing.T) {
-	path := t.TempDir() + "/recap.db.pids"
-	Reload(path) // must not panic with no pidfile
+	dir := t.TempDir()
+	t.Setenv("RECAP_DB", dir+"/recap.db")
+	path := dir + "/recap.db.pids"
+	Reload() // must not panic with no pidfile
 	WritePIDs(path, []int{2147480000})
-	Reload(path)
+	Reload()
 	if pids := ReadPIDs(path); len(pids) != 0 {
 		t.Fatalf("dead PID not pruned: %v", pids)
 	}

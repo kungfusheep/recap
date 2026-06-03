@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	. "github.com/kungfusheep/glyph"
+	"github.com/kungfusheep/recap/notify"
 	"github.com/kungfusheep/riffkey"
 )
 
@@ -216,7 +217,7 @@ func runUI() error {
 	// live refresh: register this TUI so `recap add` can SIGUSR1 us to reload the
 	// inbox without a restart. The handler only flags + requests a render; the
 	// actual reload runs on the render thread (refreshDetail) to avoid races.
-	cleanup := registerUIPID()
+	cleanup := notify.Register()
 	defer cleanup()
 	sigReload := make(chan os.Signal, 1)
 	signal.Notify(sigReload, syscall.SIGUSR1)
