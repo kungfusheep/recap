@@ -156,6 +156,56 @@ func TestEditDeleteComment(t *testing.T) {
 	}
 }
 
+// derived state is the truth: drafts don't move a task, submit→rework,
+// resolve→back to pending, approve→approved, and a direct approval is honoured.
+func TestReviewStateDerivation(t *testing.T) {
+	st := testStore(t)
+	defer st.Close()
+	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+
+	// fresh task: pending
+	if got := st.ReviewState(id); got != StatePending {
+		t.Fatalf("fresh: want pending, got %s", got)
+	}
+
+	// a draft comment must NOT change state
+	st.AddReviewComment(id, "you", "wip", "a.go", 1, "@@", "x")
+	if got := st.ReviewState(id); got != StatePending {
+		t.Fatalf("draft present: want pending, got %s", got)
+	}
+
+	// submit request_changes → rework
+	if _, err := st.SubmitReview(id, VerdictRequestChanges, "fix"); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if got := st.ReviewState(id); got != StateRework {
+		t.Fatalf("after request_changes: want rework, got %s", got)
+	}
+
+	// resolve → back to pending (addressed via fix-forward)
+	rv, _ := st.ListReviews(ReviewSubmitted, "")
+	if err := st.ResolveReview(rv[0].ID); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if got := st.ReviewState(id); got != StatePending {
+		t.Fatalf("after resolve: want pending, got %s", got)
+	}
+
+	// approve review → approved
+	if _, err := st.SubmitReview(id, VerdictApprove, ""); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if got := st.ReviewState(id); got != StateDone {
+		t.Fatalf("after approve: want approved, got %s", got)
+	}
+
+	// a task approved directly (legacy flag, no review) is honoured
+	id2, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t2", Status: StatusApproved})
+	if got := st.ReviewState(id2); got != StateDone {
+		t.Fatalf("direct approval: want approved, got %s", got)
+	}
+}
+
 // ListReviews can scope to a repo, so the loop only drains its own reviews.
 func TestListReviewsByRepo(t *testing.T) {
 	st := testStore(t)

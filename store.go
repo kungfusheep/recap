@@ -382,6 +382,49 @@ func (s *Store) DraftInfo(taskID int64) (reviewID int64, comments int, ok bool) 
 	return reviewID, comments, true
 }
 
+// Derived review state for a task — computed from its reviews, never a stale
+// flag. A task NEEDS REWORK only while its newest *submitted* review is
+// request_changes and unresolved. Approve shows APPROVED. Everything else
+// (incl. tasks that only have unsubmitted drafts) is PENDING. Drafts are
+// invisible to this — they surface via DraftInfo as a row pill instead.
+const (
+	StatePending = "pending"
+	StateRework  = "rework"
+	StateDone    = "approved"
+)
+
+// ReviewState returns the derived state for a task: the verdict of its newest
+// submitted review decides it (request_changes→rework unless resolved,
+// approve→approved). With no governing review it falls back to the stored
+// status for the approved case (tasks approved directly, before reviews existed),
+// otherwise pending.
+func (s *Store) ReviewState(taskID int64) string {
+	var verdict, state string
+	err := s.db.QueryRow(
+		`SELECT COALESCE(verdict,''), state FROM reviews
+		   WHERE task_id = ? AND state IN (?, ?)
+		   ORDER BY id DESC LIMIT 1`,
+		taskID, ReviewSubmitted, ReviewResolved).Scan(&verdict, &state)
+	if err != nil {
+		// no submitted/resolved review — honour a stored direct approval only.
+		if t, e := s.Get(taskID); e == nil && t.Status == StatusApproved {
+			return StateDone
+		}
+		return StatePending
+	}
+	if state == ReviewResolved {
+		return StatePending // addressed — back in the normal queue
+	}
+	switch verdict {
+	case VerdictApprove:
+		return StateDone
+	case VerdictRequestChanges:
+		return StateRework
+	default:
+		return StatePending // a non-blocking "comment" verdict
+	}
+}
+
 // AddReviewComment adds a comment to the task's open draft review, optionally
 // anchored to a diff line. Returns the comment id.
 func (s *Store) AddReviewComment(taskID int64, who, body, file string, line int, anchor, snippet string) (int64, error) {

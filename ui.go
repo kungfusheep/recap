@@ -83,6 +83,7 @@ func repoColor(name string) Color {
 // the row fill reacts (mail's pattern); rebuilt only when the task set changes.
 type taskVM struct {
 	ID         int64
+	IDText     string // "#6", dim, for cross-referencing with CLI / chat
 	Title      string
 	When       string
 	Repo       string
@@ -90,6 +91,8 @@ type taskVM struct {
 	GlyphColor Color
 	RepoColor  Color
 	Pending    bool
+	HasDraft   bool   // unsubmitted feedback in progress → row pill
+	DraftPill  string // e.g. "✎ 2"
 	Selected   bool
 	HasGroup   bool
 	GroupLabel string
@@ -249,33 +252,61 @@ func runUI() error {
 
 // --- data ------------------------------------------------------------------
 
-func statusPriority(s string) int {
+// derived-state ordering + labels (pending → rework → approved).
+func statePriority(s string) int {
 	switch s {
-	case StatusPending:
+	case StatePending:
 		return 0
-	case StatusRedo:
+	case StateRework:
 		return 1
 	default:
 		return 2
 	}
 }
 
-func groupLabel(s string) string {
+func stateLabel(s string) string {
 	switch s {
-	case StatusPending:
+	case StatePending:
 		return "PENDING"
-	case StatusRedo:
+	case StateRework:
 		return "NEEDS REWORK"
 	default:
 		return "APPROVED"
 	}
 }
 
+func stateGlyph(s string) string {
+	switch s {
+	case StateRework:
+		return "↻"
+	case StateDone:
+		return "✓"
+	default:
+		return "●"
+	}
+}
+
+func stateColor(s string) Color {
+	switch s {
+	case StateDone:
+		return cSubtle
+	case StateRework:
+		return cDel
+	default:
+		return cBright
+	}
+}
+
 func reloadTasks() {
 	tasks, _ = uiStore.List("", repoFltr)
-	// inbox order: pending, then rework, then approved; newest first within each
+	// derived state per task (computed from reviews, never a stale flag).
+	state := make(map[int64]string, len(tasks))
+	for _, t := range tasks {
+		state[t.ID] = uiStore.ReviewState(t.ID)
+	}
+	// inbox order: pending, then rework, then approved; newest first within each.
 	sort.SliceStable(tasks, func(i, j int) bool {
-		pi, pj := statusPriority(tasks[i].Status), statusPriority(tasks[j].Status)
+		pi, pj := statePriority(state[tasks[i].ID]), statePriority(state[tasks[j].ID])
 		if pi != pj {
 			return pi < pj
 		}
@@ -291,22 +322,29 @@ func reloadTasks() {
 	vmRows = vmRows[:0]
 	prev := ""
 	for _, t := range tasks {
+		st := state[t.ID]
 		vm := taskVM{
 			ID:         t.ID,
+			IDText:     fmt.Sprintf("#%d", t.ID),
 			Title:      t.Title,
 			Repo:       t.Repo,
-			Glyph:      statusGlyph(t.Status),
-			GlyphColor: glyphColor(t.Status),
+			Glyph:      stateGlyph(st),
+			GlyphColor: stateColor(st),
 			RepoColor:  repoColor(t.Repo),
-			Pending:    t.Status == StatusPending,
+			Pending:    st == StatePending,
 		}
 		if len(t.CreatedAt) >= 16 {
 			vm.When = t.CreatedAt[11:16]
 		}
-		if t.Status != prev {
+		// unsubmitted draft feedback → a pill on the row (doesn't affect state).
+		if _, n, ok := uiStore.DraftInfo(t.ID); ok && n > 0 {
+			vm.HasDraft = true
+			vm.DraftPill = fmt.Sprintf("✎ %d", n)
+		}
+		if st != prev {
 			vm.HasGroup = true
-			vm.GroupLabel = groupLabel(t.Status)
-			prev = t.Status
+			vm.GroupLabel = stateLabel(st)
+			prev = st
 		}
 		vmRows = append(vmRows, vm)
 	}
@@ -322,17 +360,6 @@ func reloadTasks() {
 		}
 	}
 	detailDirty = true
-}
-
-func glyphColor(status string) Color {
-	switch status {
-	case StatusApproved:
-		return cSubtle
-	case StatusRedo:
-		return cDel
-	default:
-		return cBright
-	}
 }
 
 // refreshDetail updates selection fill + the right-hand detail when selection,
@@ -710,14 +737,14 @@ func buildMain() Component {
 					SelectedStyle(Style{}). // band painted per-row, excludes group headers
 					Marker("").
 					Render(taskRow),
-				// list-focused keys
+				// list-focused keys. status is review-derived, so there are no direct
+				// redo/pending flips — rework happens only via S → request_changes.
+				// a = quick-approve (submits an approve review).
 				If(&pane).Eq(paneList).Then(On(
 					Key("j", func() { moveSel(1) }),
 					Key("k", func() { moveSel(-1) }),
 					Key("<Enter>", func() { setPane(paneDiff) }),
-					Key("a", func() { setSel(StatusApproved) }),
-					Key("r", func() { setSel(StatusRedo) }),
-					Key("u", func() { setSel(StatusPending) }),
+					Key("a", approveSelected),
 					Key("c", openComment),
 					Key("v", rerun),
 				)),
@@ -886,11 +913,16 @@ func taskRow(r *taskVM) Component {
 				Text(&r.Title).Style(If(&r.Pending).Then(Style{FG: cBright, Attr: AttrBold}).Else(Style{FG: cBright})),
 			),
 			SpaceW(2),
+			// draft-feedback pill: unsubmitted comments in progress on this task.
+			If(&r.HasDraft).Then(HBox(Text(&r.DraftPill).FG(cHunk), SpaceW(2))),
 			Text(&r.When).FG(cSubtle),
 		),
 		HBox(
 			SpaceW(2),
 			Text(&r.Repo).FG(cSubtle), // match the right column's muted meta, not a cyan tint
+			Space(),
+			Text(&r.IDText).FG(cMuted), // dim id for cross-referencing
+			SpaceW(1),
 		),
 	)
 	return VBox(
@@ -1121,16 +1153,18 @@ func moveSel(d int) {
 	}
 }
 
-func setSel(status string) {
+// approveSelected quick-approves the selected task by submitting an approve
+// review, so its derived state becomes APPROVED (no direct status flip).
+func approveSelected() {
 	if len(tasks) == 0 {
 		return
 	}
 	t := tasks[sel]
-	if err := uiStore.SetStatus(t.ID, status); err != nil {
+	if _, _, err := submitReview(uiStore, t.ID, VerdictApprove, ""); err != nil {
 		statusMsg = "error: " + err.Error()
 		return
 	}
-	statusMsg = fmt.Sprintf("#%d → %s", t.ID, status)
+	statusMsg = fmt.Sprintf("#%d approved", t.ID)
 	reloadTasks()
 }
 
