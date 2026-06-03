@@ -348,14 +348,15 @@ func refreshDetail() {
 		draftComments[i].Selected = i == draftSel
 	}
 	// focus-aware selection bands: the active column's selected row reads bright,
-	// the others dim. Driven at List level so the band spans full column width.
-	listSelStyle.BG = cFloat
-	draftSelStyle.BG = cFloat
+	// the others dim. Painted per-row (in taskRow/draftRow) so the band covers
+	// only the row body, never a group header sharing the same list item.
+	curSelBG = cFloat
+	draftSelBG = cFloat
 	switch pane {
 	case paneList:
-		listSelStyle.BG = cSelBG
+		curSelBG = cSelBG
 	case paneDraft:
-		draftSelStyle.BG = cSelBG
+		draftSelBG = cSelBG
 	}
 	// fade the diff scrollbar in only while the diff column has focus
 	if pane == paneDiff {
@@ -701,8 +702,8 @@ func buildMain() Component {
 				List(&vmRows).
 					Selection(&sel).
 					Style(&listBaseStyle).
-					SelectedStyle(&listSelStyle).
-					Marker("  ").
+					SelectedStyle(Style{}). // band painted per-row, excludes group headers
+					Marker("").
 					Render(taskRow),
 				// list-focused keys
 				If(&pane).Eq(paneList).Then(On(
@@ -764,8 +765,8 @@ func buildMain() Component {
 					List(&draftComments).
 						Selection(&draftSel).
 						Style(&listBaseStyle).
-						SelectedStyle(&draftSelStyle).
-						Marker("  ").
+						SelectedStyle(Style{}). // band painted per-row
+						Marker("").
 						Render(draftRow),
 					If(&pane).Eq(paneDraft).Then(On(
 						Key("j", func() { moveDraft(1) }),
@@ -814,8 +815,9 @@ func toggleHelp() { helpOpen = !helpOpen }
 // draftRow renders one draft comment in the inbox's visual style: a filled card
 // (selection-aware, accent bar) with the location, the snippet, then the note.
 func draftRow(c *draftCommentVM) Component {
-	// no per-row fill — the List paints the selection band; rows stay flat.
-	return VBox.PaddingVH(1, 1)(
+	// per-row body fill = full-width flat band (no list marker), focus-aware.
+	itemBG := If(&c.Selected).Then(&draftSelBG).Else(&cPaneBG)
+	return VBox.Fill(itemBG).PaddingVH(1, 1)(
 		Text(&c.Location).FG(cSubtle),
 		If(&c.Snippet).Then(Text(&c.Snippet).FG(cMuted)),
 		Text(&c.Body).FG(cFG),
@@ -823,10 +825,13 @@ func draftRow(c *draftCommentVM) Component {
 }
 
 func taskRow(r *taskVM) Component {
-	// no per-row fill — the List paints the full-width selection band underneath.
-	// one icon system: the status dot (● pending / ↻ rework / ✓ approved). The
+	// per-row body fill = full-width flat band (no list marker), focus-aware. The
+	// group header sits OUTSIDE the filled body, so selecting a row never
+	// highlights its PENDING/APPROVED header.
+	// one icon system: the status dot (● pending / ↻ rework / ✓ approved); the
 	// repo is shown plainly, tinted by its identity colour.
-	body := VBox.PaddingVH(1, 1)(
+	itemBG := If(&r.Selected).Then(&curSelBG).Else(&cPaneBG)
+	body := VBox.Fill(itemBG).PaddingVH(1, 1)(
 		HBox(
 			Text(&r.Glyph).FG(r.GlyphColor),
 			SpaceW(1),
@@ -871,12 +876,10 @@ var (
 	draftSel     int
 	lastDraftSel = -1
 
-	// List-level styles drive the full-width selection band (incl. the marker
-	// column), so the highlight reads as a flat edge-to-edge band — not a card.
-	// The selected style's fill is updated on focus (bright/dim) in refreshDetail.
+	// the list's base style fills unselected rows with the pane colour; the
+	// selection band is painted per-row (taskRow/draftRow) so it never covers a
+	// group header. curSelBG/draftSelBG carry the focus-aware band colour.
 	listBaseStyle = Style{BG: cPaneBG}
-	listSelStyle  = Style{BG: cSelBG}
-	draftSelStyle = Style{BG: cSelBG}
 )
 
 // syncDiffToDraft scrolls the diff pane to the line the selected draft comment
