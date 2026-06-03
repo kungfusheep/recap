@@ -82,20 +82,22 @@ func repoColor(name string) Color {
 // taskVM is the per-row view-model. Selected is updated in place each frame so
 // the row fill reacts (mail's pattern); rebuilt only when the task set changes.
 type taskVM struct {
-	ID         int64
-	IDText     string // "#6", dim, for cross-referencing with CLI / chat
-	Title      string
-	When       string
-	Repo       string
-	Glyph      string
-	GlyphColor Color
-	RepoColor  Color
-	Pending    bool
-	HasDraft   bool   // unsubmitted feedback in progress → row pill
-	DraftPill  string // e.g. "✎ 2"
-	Selected   bool
-	HasGroup   bool
-	GroupLabel string
+	ID           int64
+	IDText       string // "#6", dim, for cross-referencing with CLI / chat
+	Title        string
+	When         string
+	Repo         string
+	Glyph        string
+	GlyphColor   Color
+	RepoColor    Color
+	Pending      bool
+	HasDraft     bool   // unsubmitted feedback in progress → row pill
+	DraftPill    string // e.g. "✎ 2"
+	ReReview     bool   // fix-forward task awaiting re-review
+	ReReviewPill string // e.g. "↩ #9"
+	Selected     bool
+	HasGroup     bool
+	GroupLabel   string
 }
 
 // draftCommentVM is one row in the draft-review overview pane: the location
@@ -267,11 +269,11 @@ func statePriority(s string) int {
 func stateLabel(s string) string {
 	switch s {
 	case StatePending:
-		return "PENDING"
+		return "INBOX"
 	case StateRework:
-		return "NEEDS REWORK"
+		return "AMENDS"
 	default:
-		return "APPROVED"
+		return "DONE"
 	}
 }
 
@@ -340,6 +342,12 @@ func reloadTasks() {
 		if _, n, ok := uiStore.DraftInfo(t.ID); ok && n > 0 {
 			vm.HasDraft = true
 			vm.DraftPill = fmt.Sprintf("✎ %d", n)
+		}
+		// a fix-forward task still awaiting review is a re-review: flag it so
+		// resubmissions stand out from net-new inbox items.
+		if t.ParentID != 0 && st == StatePending {
+			vm.ReReview = true
+			vm.ReReviewPill = fmt.Sprintf("↩ #%d", t.ParentID)
 		}
 		if st != prev {
 			vm.HasGroup = true
@@ -913,6 +921,8 @@ func taskRow(r *taskVM) Component {
 				Text(&r.Title).Style(If(&r.Pending).Then(Style{FG: cBright, Attr: AttrBold}).Else(Style{FG: cBright})),
 			),
 			SpaceW(2),
+			// re-review pill: this is a resubmitted fix for a kicked-back task.
+			If(&r.ReReview).Then(HBox(Text(&r.ReReviewPill).FG(cAdd), SpaceW(2))),
 			// draft-feedback pill: unsubmitted comments in progress on this task.
 			If(&r.HasDraft).Then(HBox(Text(&r.DraftPill).FG(cHunk), SpaceW(2))),
 			Text(&r.When).FG(cSubtle),

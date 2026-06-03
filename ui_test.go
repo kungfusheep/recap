@@ -159,6 +159,45 @@ func TestDraftPaneOrdering(t *testing.T) {
 	}
 }
 
+// a fix-forward task awaiting review gets the re-review flag; once it's been
+// re-reviewed (kicked back to amends, or approved) the flag clears.
+func TestReReviewFlag(t *testing.T) {
+	st := testStore(t)
+	uiStore = st
+	t.Cleanup(func() { uiStore = nil; vmRows = nil; sel = 0 })
+
+	orig, _ := st.Add(Task{Repo: "recap", RepoPath: "/tmp/r", Title: "orig", Status: StatusRedo})
+	fix, _ := st.Add(Task{Repo: "recap", RepoPath: "/tmp/r", Title: "fix", Status: StatusPending, ParentID: orig})
+	st.Add(Task{Repo: "recap", RepoPath: "/tmp/r", Title: "fresh", Status: StatusPending}) // net-new, no parent
+
+	repoFltr = "recap"
+	t.Cleanup(func() { repoFltr = "" })
+	reloadTasks()
+
+	byID := map[int64]taskVM{}
+	for _, vm := range vmRows {
+		byID[vm.ID] = vm
+	}
+	if !byID[fix].ReReview {
+		t.Fatalf("fix task (parent, pending) should be flagged re-review: %+v", byID[fix])
+	}
+	if byID[fix].ReReviewPill == "" {
+		t.Fatalf("re-review pill text missing")
+	}
+	if byID[orig].ReReview {
+		t.Fatalf("non-parented task should not be re-review")
+	}
+
+	// once the fix is approved, it leaves the inbox and the re-review flag clears.
+	st.SubmitReview(fix, VerdictApprove, "")
+	reloadTasks()
+	for _, vm := range vmRows {
+		if vm.ID == fix && vm.ReReview {
+			t.Fatalf("approved fix should no longer be re-review")
+		}
+	}
+}
+
 func TestWrapText(t *testing.T) {
 	got := wrapText("the quick brown fox jumps", 9)
 	want := []string{"the quick", "brown fox", "jumps"}
