@@ -381,13 +381,54 @@ func TestPaneRingRespectsDraftVisibility(t *testing.T) {
 	}
 }
 
-// regression: the task status icon must never use the cyan repo tint (the
-// pre-derived-state bug flagged in review). stateColor governs it now.
-func TestStatusIconNotCyan(t *testing.T) {
-	cyan := repoPalette[0] // 0x6f8fa8, the old cyan tint
-	for _, s := range []string{StatePending, StateRework, StateDone} {
-		if c := stateColor(s); c == cyan || c == cHunk {
-			t.Fatalf("state %s icon is cyan (%v)", s, c)
+// regression (review #26): the status icon must render its per-state colour, never
+// the cyan repo tint. The earlier version of this test checked stateColor()'s
+// return value — which was already correct — and so missed the REAL bug: taskRow
+// passed the colour to .FG() by value, but List builds the row template once from
+// a placeholder element, baking the zero colour; only *pointer*-bound values
+// update per row, so every icon fell back to the inherited cyan cascade. This
+// verifies by RENDER: it executes the real taskRow list and reads the icon cell's
+// foreground out of the buffer, so a by-value regression fails it.
+func TestStatusIconColorByRender(t *testing.T) {
+	prevRows, prevSel := vmRows, sel
+	t.Cleanup(func() { vmRows = prevRows; sel = prevSel })
+
+	vmRows = []taskVM{
+		{ID: 1, Title: "pending", Repo: "recap", Glyph: stateGlyph(StatePending), GlyphColor: stateColor(StatePending), Pending: true, Selected: true},
+		{ID: 2, Title: "rework", Repo: "recap", Glyph: stateGlyph(StateRework), GlyphColor: stateColor(StateRework)},
+		{ID: 3, Title: "done", Repo: "recap", Glyph: stateGlyph(StateDone), GlyphColor: stateColor(StateDone)},
+	}
+	sel = 0
+	node := List(&vmRows).Selection(&sel).Style(&listBaseStyle).
+		SelectedStyle(Style{}).Marker("  ").Render(taskRow)
+	tmpl := Build(node)
+	buf := NewBuffer(48, 18)
+	tmpl.Execute(buf, 48, 18)
+
+	cyan := repoPalette[0] // 0x6f8fa8, the wrong tint the icon used to fall back to
+	want := map[rune]Color{
+		'●': stateColor(StatePending),
+		'↻': stateColor(StateRework),
+		'✓': stateColor(StateDone),
+	}
+	seen := map[rune]bool{}
+	for y := 0; y < 18; y++ {
+		for x := 0; x < 48; x++ {
+			c := buf.Get(x, y)
+			exp, ok := want[c.Rune]
+			if !ok {
+				continue
+			}
+			seen[c.Rune] = true
+			if c.Style.FG == cyan || c.Style.FG == cHunk {
+				t.Fatalf("icon %q rendered cyan (%v)", string(c.Rune), c.Style.FG)
+			}
+			if c.Style.FG != exp {
+				t.Fatalf("icon %q FG = %v, want %v", string(c.Rune), c.Style.FG, exp)
+			}
 		}
+	}
+	if len(seen) != 3 {
+		t.Fatalf("expected all 3 state icons rendered, saw %v", seen)
 	}
 }

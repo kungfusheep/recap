@@ -1039,7 +1039,11 @@ func taskRow(r *taskVM) Component {
 	itemBG := If(&r.Selected).Then(&curSelBG).Else(&cPaneBG)
 	body := VBox.Fill(itemBG).PaddingVH(1, 1)(
 		HBox(
-			Text(&r.Glyph).FG(r.GlyphColor),
+			// FG must be a *Color, not a value: List builds the row template once
+			// from a placeholder element, so a by-value .FG() bakes the zero colour
+			// and every icon falls back to the inherited (cyan) cascade. The pointer
+			// is re-read per row each frame.
+			Text(&r.Glyph).FG(&r.GlyphColor),
 			SpaceW(1),
 			HBox.Grow(1)(
 				// FG must live inside Style: .Style() replaces the whole style, so a
