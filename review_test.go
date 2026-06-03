@@ -114,6 +114,48 @@ func TestParentLineage(t *testing.T) {
 	}
 }
 
+// draft comments are editable/deletable individually; submitted ones are not.
+func TestEditDeleteComment(t *testing.T) {
+	st := testStore(t)
+	defer st.Close()
+	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	c1, _ := st.AddReviewComment(id, "you", "first", "a.go", 1, "@@", "x")
+	c2, _ := st.AddReviewComment(id, "you", "second", "a.go", 2, "@@", "y")
+
+	// edit c1
+	if err := st.UpdateComment(c1, "first edited"); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	cs, _ := st.Comments(id)
+	if cs[0].Body != "first edited" {
+		t.Fatalf("edit didn't take: %q", cs[0].Body)
+	}
+	// empty body rejected
+	if err := st.UpdateComment(c1, ""); err == nil {
+		t.Fatal("expected error updating to empty body")
+	}
+
+	// delete c2 — c1 survives
+	if err := st.DeleteComment(c2); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	cs, _ = st.Comments(id)
+	if len(cs) != 1 || cs[0].ID != c1 {
+		t.Fatalf("delete removed the wrong comment: %+v", cs)
+	}
+
+	// once submitted, comments are immutable
+	if _, err := st.SubmitReview(id, VerdictComment, "done"); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if err := st.UpdateComment(c1, "too late"); err == nil {
+		t.Fatal("expected error editing a submitted comment")
+	}
+	if err := st.DeleteComment(c1); err == nil {
+		t.Fatal("expected error deleting a submitted comment")
+	}
+}
+
 // discarding a draft removes it and its comments.
 func TestDiscardReview(t *testing.T) {
 	st := testStore(t)

@@ -110,6 +110,72 @@ func TestLoadDraftPane(t *testing.T) {
 	}
 }
 
+// loadDraftPane also records which diff lines carry a comment (the gutter cue)
+// and threads the comment id through for edit/delete.
+func TestCommentedLinesCue(t *testing.T) {
+	st := testStore(t)
+	uiStore = st
+	t.Cleanup(func() { uiStore = nil; clear(commentedLines); draftComments = nil })
+
+	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	cid, _ := st.AddReviewComment(id, "you", "note", "main.go", 12, "@@", "x := 1")
+	st.AddReviewComment(id, "you", "general note", "", 0, "", "")
+
+	loadDraftPane(id)
+	if !commentedLines[lineKey("main.go", 12)] {
+		t.Fatalf("expected main.go:12 marked as commented, got %v", commentedLines)
+	}
+	if len(commentedLines) != 1 {
+		t.Fatalf("only anchored comments should mark lines, got %d", len(commentedLines))
+	}
+	if draftComments[0].ID != cid {
+		t.Fatalf("VM should carry comment id %d, got %d", cid, draftComments[0].ID)
+	}
+}
+
+// the draft pane is ordered by file, then line; general comments sort last.
+func TestDraftPaneOrdering(t *testing.T) {
+	st := testStore(t)
+	uiStore = st
+	t.Cleanup(func() { uiStore = nil; clear(commentedLines); draftComments = nil; draftSel = 0 })
+
+	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	// add deliberately out of order
+	st.AddReviewComment(id, "you", "general", "", 0, "", "")
+	st.AddReviewComment(id, "you", "b high", "b.go", 40, "@@", "x")
+	st.AddReviewComment(id, "you", "a low", "a.go", 5, "@@", "y")
+	st.AddReviewComment(id, "you", "b low", "b.go", 9, "@@", "z")
+
+	loadDraftPane(id)
+	got := make([]string, len(draftComments))
+	for i, c := range draftComments {
+		got[i] = c.Location
+	}
+	want := []string{"a.go · line 5", "b.go · line 9", "b.go · line 40", "general"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("order[%d] = %q, want %q (full: %v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+func TestWrapText(t *testing.T) {
+	got := wrapText("the quick brown fox jumps", 9)
+	want := []string{"the quick", "brown fox", "jumps"}
+	if len(got) != len(want) {
+		t.Fatalf("wrap lines = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("line %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+	// newlines force paragraph breaks
+	if g := wrapText("a\nb", 80); len(g) != 2 || g[0] != "a" || g[1] != "b" {
+		t.Fatalf("newline handling: %v", g)
+	}
+}
+
 // the focus ring includes the draft pane only when it's visible, so h/l/Tab
 // never land on a pane that isn't on screen.
 func TestPaneRingRespectsDraftVisibility(t *testing.T) {

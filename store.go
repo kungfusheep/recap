@@ -405,6 +405,51 @@ func (s *Store) AddReviewComment(taskID int64, who, body, file string, line int,
 	return res.LastInsertId()
 }
 
+// draftCommentGuard returns the comment if it belongs to an open draft review
+// (the only state in which comments are editable). Submitted/resolved review
+// comments are an immutable record.
+func (s *Store) draftCommentGuard(commentID int64) (Comment, error) {
+	var c Comment
+	var state string
+	err := s.db.QueryRow(
+		`SELECT c.id, COALESCE(c.review_id,0), COALESCE(r.state,'')
+		   FROM comments c LEFT JOIN reviews r ON r.id = c.review_id
+		  WHERE c.id = ?`, commentID).Scan(&c.ID, &c.ReviewID, &state)
+	if err == sql.ErrNoRows {
+		return Comment{}, fmt.Errorf("no comment #%d", commentID)
+	}
+	if err != nil {
+		return Comment{}, err
+	}
+	if c.ReviewID == 0 || state != ReviewDraft {
+		return Comment{}, fmt.Errorf("comment #%d is not on an open draft review", commentID)
+	}
+	return c, nil
+}
+
+// UpdateComment edits a draft review comment's body. Only draft comments are
+// mutable; submitted reviews are immutable.
+func (s *Store) UpdateComment(commentID int64, body string) error {
+	if body == "" {
+		return fmt.Errorf("comment body is required")
+	}
+	if _, err := s.draftCommentGuard(commentID); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`UPDATE comments SET body = ? WHERE id = ?`, body, commentID)
+	return err
+}
+
+// DeleteComment removes a single draft review comment (without discarding the
+// whole draft). Only draft comments are deletable.
+func (s *Store) DeleteComment(commentID int64) error {
+	if _, err := s.draftCommentGuard(commentID); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`DELETE FROM comments WHERE id = ?`, commentID)
+	return err
+}
+
 // SubmitReview finalizes the task's draft review: records the verdict + summary,
 // stamps it submitted, and flips the task status (request_changes→redo,
 // approve→approved; comment leaves status untouched). Returns the review.

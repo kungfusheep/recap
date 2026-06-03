@@ -39,18 +39,23 @@ func cleanLine(s string) string {
 	return b.String()
 }
 
-// mail-inspired warm-dark palette (borderless, fill + whitespace).
+// mail-inspired warm-dark palette (borderless, fill + whitespace). The shade
+// hierarchy mirrors mail: app/diff sit on cBG, the side columns claim their area
+// with the darker cPaneBG, and rows step up cGroupBG → cSelBG.
 var (
-	cBG     = Hex(0x1c1c1c)
-	cBright = Hex(0xe8e6e3)
-	cFG     = Hex(0xb8b5b0)
-	cSubtle = Hex(0x8b8780)
-	cMuted  = Hex(0x3f3c38)
-	cSelBG  = Hex(0x302f2c)
-	cFloat  = Hex(0x252421)
-	cAdd    = Hex(0x8aa872) // diff +, muted green
-	cDel    = Hex(0xc08a72) // diff -, muted terracotta
-	cHunk   = Hex(0x6f8fa8) // @@ hunk, muted blue
+	cBG        = Hex(0x1c1c1c) // app + diff background
+	cPaneBG    = Hex(0x191918) // side-column fill (mail's ThreadBG) — darkest
+	cBright    = Hex(0xe8e6e3)
+	cFG        = Hex(0xb8b5b0)
+	cSubtle    = Hex(0x8b8780)
+	cMuted     = Hex(0x3f3c38)
+	cSelBG     = Hex(0x302f2c) // selected row
+	cGroupBG   = Hex(0x252421) // grouped row / float panels
+	cFloat     = Hex(0x252421)
+	cAdd       = Hex(0x8aa872) // diff +, muted green
+	cDel       = Hex(0xc08a72) // diff -, muted terracotta
+	cHunk      = Hex(0x6f8fa8) // @@ hunk, muted blue
+	cCommentBG = Hex(0x23282e) // faint blue wash on a commented diff line
 )
 
 // repo identity bar colours (like mail's per-sender tick).
@@ -90,6 +95,7 @@ type taskVM struct {
 // line (file:line), the captured snippet, and the reviewer's note. File/Line
 // keep the raw anchor so selecting a row can scroll the diff to it.
 type draftCommentVM struct {
+	ID       int64  // comment id, for edit/delete
 	Location string // "file · line N" or "general"
 	Snippet  string // the diff line commented on (may be empty)
 	Body     string
@@ -118,8 +124,21 @@ var (
 
 	// line-comment "pick a line" mode: renderDiffLayer draws label chars in the
 	// gutter of visible commentable rows; diffLabelByRow maps label → row.
+	// pickMode mirrors diffCommentMode as a string so view conditionals (If.Eq)
+	// can gate key scopes on it ("on"/"off"); always set both via setPickMode.
 	diffCommentMode bool
+	pickMode        = "off"
 	diffLabelByRow  = map[rune]int{}
+
+	// commentedLines marks diff rows that already carry a draft comment, keyed by
+	// "file:line", so renderDiffLayer can draw a visual cue in the gutter.
+	commentedLines = map[string]bool{}
+
+	// diffFocused mirrors pane=="diff" as a 0/1 opacity target so the diff
+	// scrollbar fades in only when the diff column has focus (mail's cue).
+	diffFocused = 0.0
+
+	helpOpen bool // ? cheatsheet overlay
 
 	// the anchor of the line currently being commented on (set when picked).
 	pcFile, pcAnchor, pcSnippet string
@@ -133,6 +152,12 @@ var (
 	pcLocation    string
 	pcSnippetView string
 
+	// comment view/edit: which draft comment is open, and its display strings.
+	editingCommentID int64
+	cvLocation       string
+	cvSnippet        string
+	cvBodyLines      []string // body wrapped to the modal width
+
 	draftNote string // e.g. "✎ 2 draft" when the current task has draft comments
 
 	// draft review pane (conditional): shows the selected task's accumulated
@@ -144,7 +169,7 @@ var (
 	countText, filterText string
 	detailTitle           string
 	metaRepo, metaWhen    string
-	metaCheck, metaResult string
+	metaResult            string
 	metaResultColor       = cSubtle
 	filesText             string
 	diffFiles             []DiffFile
@@ -172,10 +197,26 @@ func runUI() error {
 	reloadTasks()
 	setupCommentView()
 	setupReviewViews()
+	// SetView once — glyph re-layouts the template against the new terminal size
+	// every frame, so no SetView-on-resize is needed (and rebuilding the tree on
+	// resize would discard the diff layer's scroll state). The diff layer itself
+	// re-renders on width change via renderDiffLayer/NeedsRender.
 	uiApp.SetView(buildMain())
-	uiApp.OnResize(func(w, h int) { uiApp.SetView(buildMain()) })
 	uiApp.OnBeforeRender(refreshDetail)
 	uiApp.Router().NoCounts()
+	// while picking a diff line, label letters overlap many bound keys, so the
+	// view scopes are suppressed (see buildMain) and the labels are caught here
+	// at the root, taking priority over nothing else once those scopes are off.
+	if r := uiApp.Router(); r != nil {
+		r.HandleUnmatched(func(k riffkey.Key) bool {
+			if diffCommentMode && k.Rune != 0 && k.Mod == 0 {
+				pickDiffLine(k.Rune)
+				uiApp.RequestRender()
+				return true
+			}
+			return false
+		})
+	}
 	return uiApp.Run()
 }
 
@@ -273,15 +314,24 @@ func refreshDetail() {
 	for i := range vmRows {
 		vmRows[i].Selected = i == sel
 	}
-	// draft rows mirror the inbox: per-frame Selected flag + a focus-aware fill,
-	// and moving the draft selection scrolls the diff to the commented line.
 	for i := range draftComments {
 		draftComments[i].Selected = i == draftSel
 	}
-	if pane == paneList {
-		draftSelBG = cFloat // dim while the draft pane isn't focused
-	} else if pane == paneDraft {
-		draftSelBG = cSelBG // bright while it is
+	// focus-aware selection bands: the active column's selected row reads bright,
+	// the others dim. Driven at List level so the band spans full column width.
+	listSelStyle.BG = cFloat
+	draftSelStyle.BG = cFloat
+	switch pane {
+	case paneList:
+		listSelStyle.BG = cSelBG
+	case paneDraft:
+		draftSelStyle.BG = cSelBG
+	}
+	// fade the diff scrollbar in only while the diff column has focus
+	if pane == paneDiff {
+		diffFocused = 1.0
+	} else {
+		diffFocused = 0.0
 	}
 	if draftSel != lastDraftSel {
 		lastDraftSel = draftSel
@@ -299,7 +349,7 @@ func refreshDetail() {
 	lastSel, lastLen, lastFltr, detailDirty = sel, len(tasks), repoFltr, false
 
 	if len(tasks) == 0 || sel < 0 || sel >= len(tasks) {
-		detailTitle, metaRepo, metaWhen, metaCheck, metaResult = "no tasks", "", "", "", ""
+		detailTitle, metaRepo, metaWhen, metaResult = "no tasks", "", "", ""
 		filesText, diffFiles, draftNote = "", nil, ""
 		hasDraft, draftComments = false, nil
 		setDiff()
@@ -308,7 +358,6 @@ func refreshDetail() {
 	t := tasks[sel]
 	detailTitle = t.Title
 	metaRepo, metaWhen = t.Repo, t.CreatedAt
-	metaCheck = "check: " + dash(t.Criterion)
 	metaResult = dash(t.Result)
 	metaResultColor = resultColor(t.Result)
 	loadDraftPane(t.ID)
@@ -332,6 +381,9 @@ func refreshDetail() {
 // the conditional pane's comment rows, sourced from the open draft review.
 func loadDraftPane(taskID int64) {
 	draftComments = nil
+	for k := range commentedLines {
+		delete(commentedLines, k)
+	}
 	rid, n, ok := uiStore.DraftInfo(taskID)
 	if !ok || n == 0 {
 		hasDraft, draftNote = false, ""
@@ -347,12 +399,13 @@ func loadDraftPane(taskID int64) {
 	}
 	cs, _ := uiStore.ReviewComments(rid)
 	for _, c := range cs {
-		vm := draftCommentVM{Body: c.Body, File: c.File, Line: c.Line}
+		vm := draftCommentVM{ID: c.ID, Body: c.Body, File: c.File, Line: c.Line}
 		if c.File != "" {
 			vm.Location = c.File
 			if c.Line > 0 {
 				vm.Location += fmt.Sprintf(" · line %d", c.Line)
 			}
+			commentedLines[lineKey(c.File, c.Line)] = true
 		} else {
 			vm.Location = "general"
 		}
@@ -361,7 +414,20 @@ func loadDraftPane(taskID int64) {
 		}
 		draftComments = append(draftComments, vm)
 	}
+	// group by file, then line — general (unanchored) comments sort to the end.
+	sort.SliceStable(draftComments, func(i, j int) bool {
+		a, b := draftComments[i], draftComments[j]
+		if (a.File == "") != (b.File == "") {
+			return a.File != "" // anchored before general
+		}
+		if a.File != b.File {
+			return a.File < b.File
+		}
+		return a.Line < b.Line
+	})
 }
+
+func lineKey(file string, line int) string { return fmt.Sprintf("%s:%d", file, line) }
 
 func resultColor(r string) Color {
 	switch {
@@ -513,6 +579,11 @@ func renderDiffLayer() {
 	}
 	clear := Style{Fill: cBG, BG: cBG, FG: cFG}
 	buf := NewBuffer(w, h)
+	// leave a small right margin so code never butts against the scrollbar edge.
+	textW := w - 2
+	if textW < 1 {
+		textW = w
+	}
 
 	// in pick mode, label visible commentable rows; the label overwrites the
 	// 2-col gutter so all code stays visible. Recomputed each render so labels
@@ -527,15 +598,28 @@ func renderDiffLayer() {
 
 	for y := 0; y < h; y++ {
 		buf.ClearLineWithStyle(y, clear)
-		if y < len(diffLines) {
-			buf.WriteSpans(0, y, diffLines[y], w)
-			if diffCommentMode && y >= top && y < top+vh && li < len(labels) &&
-				y < len(diffMeta) && diffMeta[y].Commentable {
-				r := rune(labels[li])
-				li++
-				diffLabelByRow[r] = y
-				buf.WriteSpans(0, y, []Span{{Text: string(r), Style: Style{FG: cBG, BG: cHunk, Attr: AttrBold}}}, w)
+		if y >= len(diffLines) {
+			continue
+		}
+		buf.WriteSpans(0, y, diffLines[y], textW)
+		switch {
+		case diffCommentMode && y >= top && y < top+vh && li < len(labels) &&
+			y < len(diffMeta) && diffMeta[y].Commentable:
+			// pick mode: overlay the selection label in the gutter
+			r := rune(labels[li])
+			li++
+			diffLabelByRow[r] = y
+			buf.WriteSpans(0, y, []Span{{Text: string(r), Style: Style{FG: cBG, BG: cHunk, Attr: AttrBold}}}, w)
+		case !diffCommentMode && y < len(diffMeta) && diffMeta[y].Commentable &&
+			commentedLines[lineKey(diffMeta[y].File, diffMeta[y].Line)]:
+			// normal: a bright filled gutter block marks a commented line, with a
+			// faint tinted wash across the row so it's easy to spot at a glance.
+			for cx := 0; cx < w; cx++ {
+				cell := buf.Get(cx, y)
+				cell.Style.BG = cCommentBG
+				buf.Set(cx, y, cell)
 			}
+			buf.WriteSpans(0, y, []Span{{Text: "█", Style: Style{FG: cHunk, BG: cCommentBG, Attr: AttrBold}}}, w)
 		}
 	}
 	scrollY := diffLayer.ScrollY()
@@ -553,34 +637,41 @@ func dash(s string) string {
 // --- view ------------------------------------------------------------------
 
 func buildMain() Component {
-	keybar := "  h/l focus   j/k move   ↵ diff   c comment   S review   a approve   r rework   f filter   q quit"
-
-	return VBox.Fill(cBG).CascadeStyle(&Style{Fill: cBG, BG: cBG, FG: cFG}).PaddingTRBL(1, 0, 0, 3)(
-		// global keys (always active)
-		On(
+	return VBox.Fill(cBG).CascadeStyle(&Style{Fill: cBG, BG: cBG, FG: cFG})(
+		// global keys — suppressed while picking a diff line, so the label
+		// letters (which overlap a/c/d/g/…) route to the in-place picker instead.
+		If(&pickMode).Eq("off").Then(On(
 			Key("q", uiApp.Stop),
+			Key("?", toggleHelp),
 			Key("<Tab>", togglePane),
 			Key("h", focusPrev),
 			Key("l", focusNext),
 			Key("f", cycleFilter),
 			Key("S", openVerdict),
-		),
+		)),
+		// pick-a-line scope: Esc cancels. The label letters themselves are caught
+		// by the main router's unmatched handler (see runUI) since they overlap
+		// many bound keys and must take priority while picking.
+		If(&pickMode).Eq("on").Then(On(
+			Key("<Esc>", cancelDiffPick),
+		)),
 		HBox.Grow(1).Gap(4)(
-			// left — review inbox
-			VBox.Grow(2)(
+			// left — review inbox (darker column fill claims the area)
+			VBox.Grow(2).Fill(cPaneBG).PaddingTRBL(1, 0, 0, 0)(
 				HBox(
+					SpaceW(3),
 					Text("recap").FG(cBright).Bold(),
 					SpaceW(1),
 					Text(&countText).FG(cSubtle),
 					Space(),
 					Text(&filterText).FG(cSubtle),
-					SpaceW(1),
+					SpaceW(2),
 				),
-				SpaceH(1),
+				SpaceH(2),
 				List(&vmRows).
 					Selection(&sel).
-					Style(Style{BG: cBG}).
-					SelectedStyle(Style{}).
+					Style(&listBaseStyle).
+					SelectedStyle(&listSelStyle).
 					Marker("  ").
 					Render(taskRow),
 				// list-focused keys
@@ -595,28 +686,35 @@ func buildMain() Component {
 					Key("v", rerun),
 				)),
 			),
-			// right — detail + diff
-			VBox.Grow(3).PaddingTRBL(0, 2, 0, 0)(
+			// middle — detail + diff (no side padding; scrollbar flush right)
+			VBox.Grow(3).PaddingTRBL(1, 0, 0, 0)(
 				HBox(
 					Text(&detailTitle).FG(cBright).Bold(),
-					Space(),
-					Text(&draftNote).FG(cHunk),
-					SpaceW(1),
+					SpaceW(2),
 				),
 				SpaceH(1),
 				HBox(
 					Text(&metaRepo).FG(cSubtle),
-					Text("   ·   ").FG(cMuted),
+					Text("  ·  ").FG(cMuted),
 					Text(&metaWhen).FG(cSubtle),
-					Text("   ·   ").FG(cMuted),
-					Text(&metaCheck).FG(cSubtle),
-					Text("   ·   ").FG(cMuted),
+					Text("  ·  ").FG(cMuted),
 					Text(&metaResult).FG(&metaResultColor),
 				),
-				SpaceH(1),
-				LayerView(diffLayer).Grow(1),
-				// diff-focused keys
-				If(&pane).Eq(paneDiff).Then(On(
+				SpaceH(2),
+				// diff + a flush-right scrollbar. No Length: a vertical scrollbar
+				// with height 0 is auto-stretched to fill the row, so it tracks the
+				// full column height (same structure ScrollView builds internally).
+				// It fades in only while the diff column has focus (mail's cue).
+				HBox.Grow(1)(
+					LayerView(diffLayer).Grow(1),
+					ScrollbarForLayer(diffLayer).
+						TrackStyle(Style{FG: cMuted, BG: cBG}).
+						ThumbStyle(Style{FG: cSubtle, BG: cBG}).
+						Opacity(Animate(&diffFocused)),
+				),
+				// diff-focused keys (suppressed during pick mode so label letters
+				// like c/j/k/d/g aren't swallowed before the picker sees them).
+				If(&pickMode).Eq("off").Then(If(&pane).Eq(paneDiff).Then(On(
 					Key("j", diffDown),
 					Key("k", diffUp),
 					Key("d", diffHalfDown),
@@ -626,54 +724,79 @@ func buildMain() Component {
 					Key("c", openDiffLineComment),
 					Key("<Enter>", func() { setPane(paneList) }),
 					Key("<Esc>", func() { setPane(paneList) }),
-				)),
+				))),
 			),
-			// far right — draft review overview (only when the task has a draft)
+			// right — draft review overview (only when the task has a draft)
 			If(&hasDraft).Then(
-				VBox.Grow(2).PaddingTRBL(0, 0, 0, 2)(
-					HBox(Text("review draft").FG(cBright).Bold(), Space(), Text(&draftNote).FG(cHunk), SpaceW(1)),
-					SpaceH(1),
+				VBox.Grow(2).Fill(cPaneBG).PaddingTRBL(1, 0, 0, 0)(
+					HBox(SpaceW(3), Text("review draft").FG(cBright).Bold(), Space(), Text(&draftNote).FG(cSubtle), SpaceW(2)),
+					SpaceH(2),
 					List(&draftComments).
 						Selection(&draftSel).
-						Style(Style{BG: cBG}).
-						SelectedStyle(Style{BG: cBG}).
-						Marker("").
+						Style(&listBaseStyle).
+						SelectedStyle(&draftSelStyle).
+						Marker("  ").
 						Render(draftRow),
 					If(&pane).Eq(paneDraft).Then(On(
 						Key("j", func() { moveDraft(1) }),
 						Key("k", func() { moveDraft(-1) }),
-						Key("<Enter>", func() { setPane(paneList) }),
+						Key("<Enter>", openCommentView),
+						Key("e", editDraftComment),
+						Key("d", deleteDraftComment),
 						Key("<Esc>", func() { setPane(paneList) }),
 					)),
 				),
 			),
 		),
-		SpaceH(1),
-		HBox(Text(&statusMsg).FG(cSubtle), Space(), Text(keybar).FG(cMuted)),
+		// transient status (errors/confirmations) only — no permanent keybar
+		If(&statusMsg).Then(HBox(SpaceW(3), Text(&statusMsg).FG(cSubtle))),
+		// keyboard help, toggled with ?
+		If(&helpOpen).Then(On(Key("<Esc>", toggleHelp))),
+		If(&helpOpen).Then(helpOverlay()),
 	)
 }
+
+// helpOverlay is the ? cheatsheet — keeps shortcuts out of the main chrome.
+func helpOverlay() Component {
+	row := func(k, d string) Component {
+		return HBox(Text(k).FG(cBright).Width(10), Text(d).FG(cSubtle))
+	}
+	return Overlay.BottomRight().Offset(-3, -2).Backdrop()(
+		VBox.Fill(cGroupBG).PaddingVH(1, 3).Gap(0)(
+			Text("keys").FG(cBright).Bold(),
+			SpaceH(1),
+			row("h / l", "focus column"),
+			row("j / k", "move"),
+			row("↵", "open"),
+			row("c", "comment on a line"),
+			row("e / d", "edit / delete comment"),
+			row("S", "submit review"),
+			row("a / r", "approve / rework"),
+			row("f", "filter by repo"),
+			row("?", "toggle this help"),
+			row("q", "quit"),
+		),
+	)
+}
+
+func toggleHelp() { helpOpen = !helpOpen }
 
 // draftRow renders one draft comment in the inbox's visual style: a filled card
 // (selection-aware, accent bar) with the location, the snippet, then the note.
 func draftRow(c *draftCommentVM) Component {
-	itemBG := If(&c.Selected).Then(&draftSelBG).Else(&cBG)
-	body := VBox.Fill(itemBG).PaddingVH(1, 2)(
-		HBox(
-			Text("▌").FG(cHunk),
-			SpaceW(1),
-			HBox.Grow(1)(Text(&c.Location).FG(cSubtle)),
-		),
-		If(&c.Snippet).Then(
-			HBox(SpaceW(2), Text(&c.Snippet).FG(cMuted)),
-		),
-		HBox(SpaceW(2), HBox.Grow(1)(Text(&c.Body).FG(cFG))),
+	// no per-row fill — the List paints the selection band; rows stay flat.
+	return VBox.PaddingVH(1, 1)(
+		Text(&c.Location).FG(cSubtle),
+		If(&c.Snippet).Then(Text(&c.Snippet).FG(cMuted)),
+		Text(&c.Body).FG(cFG),
 	)
-	return VBox.Fill(cBG).PaddingTRBL(0, 1, 0, 0)(body)
 }
 
 func taskRow(r *taskVM) Component {
-	itemBG := If(&r.Selected).Then(&curSelBG).Else(&cBG)
-	body := VBox.Fill(itemBG).PaddingVH(1, 2)(
+	// no per-row fill — the List paints the full-width selection band underneath.
+	// one icon system: the status dot (● pending / ↻ rework / ✓ approved). The
+	// repo is shown plainly, tinted by its identity colour.
+	body := VBox.PaddingVH(1, 1)(
 		HBox(
 			Text(&r.Glyph).FG(r.GlyphColor),
 			SpaceW(1),
@@ -682,18 +805,15 @@ func taskRow(r *taskVM) Component {
 			),
 			SpaceW(2),
 			Text(&r.When).FG(cSubtle),
-			SpaceW(1),
 		),
 		HBox(
 			SpaceW(2),
-			Text("▌").FG(r.RepoColor),
-			SpaceW(1),
-			Text(&r.Repo).FG(cSubtle),
+			Text(&r.Repo).FG(r.RepoColor),
 		),
 	)
-	return VBox.Fill(cBG).PaddingTRBL(0, 1, 0, 0)(
+	return VBox(
 		If(&r.HasGroup).Then(
-			VBox.Fill(cBG).PaddingTRBL(1, 0, 0, 1)(
+			VBox.PaddingTRBL(1, 0, 0, 0)(
 				Text(&r.GroupLabel).FG(cMuted).Bold(),
 			),
 		),
@@ -720,6 +840,13 @@ var (
 	draftSelBG   = cSelBG
 	draftSel     int
 	lastDraftSel = -1
+
+	// List-level styles drive the full-width selection band (incl. the marker
+	// column), so the highlight reads as a flat edge-to-edge band — not a card.
+	// The selected style's fill is updated on focus (bright/dim) in refreshDetail.
+	listBaseStyle = Style{BG: cPaneBG}
+	listSelStyle  = Style{BG: cSelBG}
+	draftSelStyle = Style{BG: cSelBG}
 )
 
 // syncDiffToDraft scrolls the diff pane to the line the selected draft comment
@@ -789,6 +916,98 @@ func moveDraft(d int) {
 	if draftSel < 0 {
 		draftSel = 0
 	}
+}
+
+// selectedDraft returns the comment under the draft cursor, or nil.
+func selectedDraft() *draftCommentVM {
+	if draftSel < 0 || draftSel >= len(draftComments) {
+		return nil
+	}
+	return &draftComments[draftSel]
+}
+
+// openCommentView shows the full comment (wrapped body + snippet) in a modal —
+// the pane truncates long notes; this is the read-in-full view.
+func openCommentView() {
+	c := selectedDraft()
+	if c == nil {
+		return
+	}
+	editingCommentID = c.ID
+	cvLocation = c.Location
+	cvSnippet = c.Snippet
+	cvBodyLines = wrapText(c.Body, 66)
+	uiApp.PushView("commentview")
+}
+
+// wrapText word-wraps s to width columns, returning the lines.
+func wrapText(s string, width int) []string {
+	var out []string
+	for _, para := range strings.Split(s, "\n") {
+		words := strings.Fields(para)
+		if len(words) == 0 {
+			out = append(out, "")
+			continue
+		}
+		line := words[0]
+		for _, w := range words[1:] {
+			if len(line)+1+len(w) > width {
+				out = append(out, line)
+				line = w
+			} else {
+				line += " " + w
+			}
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+// editDraftComment opens the body prompt pre-filled with the selected comment's
+// text; saving calls UpdateComment.
+func editDraftComment() {
+	c := selectedDraft()
+	if c == nil {
+		return
+	}
+	editingCommentID = c.ID
+	commentText = c.Body
+	uiApp.PushView("editcomment")
+}
+
+func saveEditedComment() {
+	body := strings.TrimSpace(commentText)
+	commentText = ""
+	uiApp.PopView()
+	if editingCommentID == 0 {
+		return
+	}
+	if body == "" {
+		statusMsg = "(empty — comment unchanged)"
+		return
+	}
+	if err := uiStore.UpdateComment(editingCommentID, body); err != nil {
+		statusMsg = "error: " + err.Error()
+		return
+	}
+	statusMsg = "comment updated"
+	detailDirty = true
+}
+
+func deleteDraftComment() {
+	c := selectedDraft()
+	if c == nil {
+		return
+	}
+	if err := uiStore.DeleteComment(c.ID); err != nil {
+		statusMsg = "error: " + err.Error()
+		return
+	}
+	statusMsg = "comment deleted"
+	if draftSel > 0 {
+		draftSel--
+	}
+	detailDirty = true
 }
 
 func openComment() {
@@ -943,8 +1162,9 @@ func wireTyping(view string) {
 	}
 }
 
-// openDiffLineComment enters "pick a line" mode: renderDiffLayer labels the
-// visible commentable rows and the diffpick view captures the choice.
+// openDiffLineComment toggles "pick a line" mode in place: renderDiffLayer draws
+// labels over the visible commentable rows of the diff that's already on screen
+// (no view switch). The diff-pane key scope captures the label keystroke.
 func openDiffLineComment() {
 	if len(tasks) == 0 {
 		return
@@ -960,20 +1180,32 @@ func openDiffLineComment() {
 		statusMsg = "(no diff lines to comment on)"
 		return
 	}
-	diffCommentMode = true
+	setPickMode(true)
 	diffLayer.Invalidate()
-	uiApp.PushView("diffpick")
+}
+
+// setPickMode toggles in-place label mode, keeping the bool and the conditional
+// string mirror in sync.
+func setPickMode(on bool) {
+	diffCommentMode = on
+	if on {
+		pickMode = "on"
+	} else {
+		pickMode = "off"
+	}
 }
 
 func cancelDiffPick() {
-	diffCommentMode = false
+	setPickMode(false)
 	diffLayer.Invalidate()
-	uiApp.PopView()
 }
 
-// pickDiffLine resolves a label to its row, captures the anchor, and opens the
-// body prompt.
+// pickDiffLine resolves a label to its row, captures the anchor, leaves pick
+// mode, and opens the body prompt.
 func pickDiffLine(r rune) {
+	if !diffCommentMode {
+		return
+	}
 	row, ok := diffLabelByRow[r]
 	if !ok || row < 0 || row >= len(diffMeta) || !diffMeta[row].Commentable {
 		return
@@ -985,9 +1217,8 @@ func pickDiffLine(r rune) {
 	if len(pcSnippetView) > 68 {
 		pcSnippetView = pcSnippetView[:67] + "…"
 	}
-	diffCommentMode = false
+	setPickMode(false)
 	diffLayer.Invalidate()
-	uiApp.PopView() // leave diffpick
 	commentText = ""
 	uiApp.PushView("linecomment")
 }
@@ -1047,27 +1278,6 @@ func saveReviewSummary() {
 }
 
 func setupReviewViews() {
-	// pick-a-line view — labels are drawn into the shared diff layer by
-	// renderDiffLayer while diffCommentMode is set. A single catch-all maps the
-	// typed label rune to its row (cleaner than 52 individual bindings).
-	uiApp.View("diffpick",
-		VBox.Fill(cBG).CascadeStyle(&Style{Fill: cBG, BG: cBG, FG: cFG}).PaddingTRBL(1, 0, 0, 3)(
-			On(Key("<Esc>", cancelDiffPick)),
-			HBox(Text("comment").FG(cBright).Bold(), SpaceW(1), Text("pick a line · esc cancel").FG(cMuted)),
-			SpaceH(1),
-			LayerView(diffLayer).Grow(1),
-		),
-	).NoCounts()
-	if r, ok := uiApp.ViewRouter("diffpick"); ok {
-		r.HandleUnmatched(func(k riffkey.Key) bool {
-			if k.Rune != 0 && k.Mod == 0 {
-				pickDiffLine(k.Rune)
-				return true
-			}
-			return false
-		})
-	}
-
 	// line-comment body prompt
 	cancel := func() { commentText = ""; uiApp.PopView() }
 	uiApp.View("linecomment",
@@ -1126,6 +1336,43 @@ func setupReviewViews() {
 		),
 	).NoCounts()
 	wireTyping("reviewsummary")
+
+	// comment read view — the full comment, wrapped; e edits, d deletes.
+	uiApp.View("commentview",
+		VBox.Fill(cBG)(
+			On(
+				Key("e", func() { uiApp.PopView(); editDraftComment() }),
+				Key("d", func() { uiApp.PopView(); deleteDraftComment() }),
+				Key("<Esc>", func() { uiApp.PopView() }),
+				Key("q", func() { uiApp.PopView() }),
+			),
+			Space(),
+			HBox(Space(), VBox.Fill(cFloat).PaddingVH(1, 2).Width(72)(
+				HBox(Text("comment").FG(cBright).Bold(), Space(), Text("e edit · d delete · esc back").FG(cMuted)),
+				SpaceH(1),
+				Text(&cvLocation).FG(cSubtle),
+				If(&cvSnippet).Then(Text(&cvSnippet).FG(cMuted)),
+				SpaceH(1),
+				ForEach(&cvBodyLines, func(s *string) Component { return Text(s).FG(cBright) }),
+			), Space()),
+			Space(),
+		),
+	).NoCounts()
+
+	// comment edit prompt (reuses the commentText machinery, pre-filled)
+	uiApp.View("editcomment",
+		VBox.Fill(cBG)(
+			promptKeys(saveEditedComment, cancel),
+			Space(),
+			HBox(Space(), VBox.Fill(cFloat).PaddingVH(1, 2).Width(72)(
+				HBox(Text("edit comment").FG(cBright).Bold(), Space(), Text("esc cancel · enter save").FG(cMuted)),
+				SpaceH(1),
+				HBox(Text("> ").FG(cSubtle), Text(&commentText).FG(cBright)),
+			), Space()),
+			Space(),
+		),
+	).NoCounts()
+	wireTyping("editcomment")
 }
 
 // --- helpers ---------------------------------------------------------------
