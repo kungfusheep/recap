@@ -4,33 +4,35 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	. "github.com/kungfusheep/glyph"
 )
 
-// pasting a screenshot inserts a [[path]] link into the prompt, space-separated
-// from existing text, and never pollutes the saved commentText with the caret.
+// pasting a screenshot inserts a [[path]] link into the prompt field at the
+// cursor, space-separated from existing text.
 func TestInsertCommentLink(t *testing.T) {
-	prev, prevLines := commentText, commentLines
-	t.Cleanup(func() { commentText = prev; commentLines = prevLines })
+	prev := commentField
+	t.Cleanup(func() { commentField = prev })
 
-	commentText = ""
+	commentField = InputState{}
 	insertCommentLink("/tmp/recap-1.png")
-	if commentText != "[[/tmp/recap-1.png]]" {
-		t.Fatalf("into empty: %q", commentText)
+	if commentField.Value != "[[/tmp/recap-1.png]]" {
+		t.Fatalf("into empty: %q", commentField.Value)
 	}
 	insertCommentLink("/tmp/recap-2.png")
-	if commentText != "[[/tmp/recap-1.png]] [[/tmp/recap-2.png]]" {
-		t.Fatalf("append spacing: %q", commentText)
+	if commentField.Value != "[[/tmp/recap-1.png]] [[/tmp/recap-2.png]]" {
+		t.Fatalf("append spacing: %q", commentField.Value)
 	}
 	// the extractor round-trips what was inserted
-	links := extractLinks(commentText)
+	links := extractLinks(commentField.Value)
 	if len(links) != 2 || links[0] != "/tmp/recap-1.png" {
 		t.Fatalf("extract after insert: %v", links)
 	}
 	// when text already ends in a space, no extra space is added
-	commentText = "see this "
+	commentField = InputState{Value: "see this ", Cursor: len("see this ")}
 	insertCommentLink("/tmp/x.png")
-	if commentText != "see this [[/tmp/x.png]]" || strings.Contains(commentText, "  ") {
-		t.Fatalf("trailing-space handling: %q", commentText)
+	if commentField.Value != "see this [[/tmp/x.png]]" || strings.Contains(commentField.Value, "  ") {
+		t.Fatalf("trailing-space handling: %q", commentField.Value)
 	}
 }
 

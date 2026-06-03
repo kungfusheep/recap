@@ -204,8 +204,6 @@ var (
 	filesText             string
 	diffFiles             []DiffFile
 	statusMsg             string
-	commentText           string
-	commentLines          []string // commentText wrapped for the prompt display
 
 	lastSel, lastLen int
 	lastFltr         string
@@ -236,8 +234,6 @@ func runUI() error {
 	omni = newOmniBox(uiApp, omniCommands())
 
 	reloadTasks()
-	setupCommentView()
-	setupReviewViews()
 	setupTodoView()
 
 	// live refresh: register this TUI so `recap add` can SIGUSR1 us to reload the
@@ -1088,6 +1084,9 @@ func buildMain() Component {
 		),
 		// transient status (errors/confirmations) only — no permanent keybar
 		If(&statusMsg).Then(HBox(SpaceW(3), Text(&statusMsg).FG(cSubtle))),
+		// floating comment prompts (add/edit + read), over the inbox/diff
+		inputPromptOverlay(),
+		readCommentOverlay(),
 		// keyboard help overlay, toggled with ? (modal scope captures esc/?)
 		If(&helpOpen).Then(helpOverlay()),
 		// command palette overlay, opened with <C-p> / <Space>
@@ -1355,7 +1354,7 @@ func openCommentView() {
 	cvLocation = c.Location
 	cvSnippet = c.Snippet
 	cvBodyLines = wrapText(c.Body, 66)
-	uiApp.PushView("commentview")
+	openReadComment()
 }
 
 // wrapText word-wraps s to width columns, returning the lines.
@@ -1393,14 +1392,11 @@ func editDraftComment() {
 		return
 	}
 	editingCommentID = c.ID
-	setCommentText(c.Body)
-	uiApp.PushView("editcomment")
+	openInputPrompt("edit comment", "", "", c.Body, saveEditedComment)
 }
 
 func saveEditedComment() {
-	body := strings.TrimSpace(commentText)
-	setCommentText("")
-	uiApp.PopView()
+	body := strings.TrimSpace(commentField.Value)
 	if editingCommentID == 0 {
 		return
 	}
@@ -1455,8 +1451,22 @@ func openDraftLinks() {
 
 func openComment() {
 	if _, ok := selectedTask(); ok {
-		setCommentText("")
-		uiApp.PushView("comment")
+		openInputPrompt("comment", "", "", "", saveGeneralComment)
+	}
+}
+
+// saveGeneralComment records an unanchored review comment on the selected task —
+// same draft as line comments, so it shows in the pane and submits with the review.
+func saveGeneralComment() {
+	body := strings.TrimSpace(commentField.Value)
+	t, ok := selectedTask()
+	if body == "" || !ok {
+		return
+	}
+	if _, err := uiStore.AddReviewComment(t.ID, "you", body, "", 0, "", ""); err != nil {
+		statusMsg = "error: " + err.Error()
+	} else {
+		statusMsg = fmt.Sprintf("commented on #%d", t.ID)
 	}
 }
 
@@ -1542,128 +1552,7 @@ func rerun() {
 
 // --- comment prompt --------------------------------------------------------
 
-func setupCommentView() {
-	save := func() {
-		body := strings.TrimSpace(commentText)
-		setCommentText("")
-		uiApp.PopView()
-		if t, ok := selectedTask(); body != "" && ok {
-			// a general (unanchored) review comment — same draft as line comments,
-			// so it shows in the comments pane and submits with the review (a loose
-			// thread comment would be invisible to the pane and get "lost").
-			if _, err := uiStore.AddReviewComment(t.ID, "you", body, "", 0, "", ""); err != nil {
-				statusMsg = "error: " + err.Error()
-			} else {
-				statusMsg = fmt.Sprintf("commented on #%d", t.ID)
-			}
-		}
-	}
-	cancel := func() { setCommentText(""); uiApp.PopView() }
-	uiApp.View("comment",
-		VBox.Fill(cBG)(
-			promptKeys(save, cancel),
-			Space(),
-			HBox(Space(), VBox.Fill(cFloat).PaddingVH(1, 2).Width(72)(
-				HBox(Text("comment").FG(cBright).Bold(), Space(), Text("esc cancel · enter save").FG(cMuted)),
-				SpaceH(1),
-				commentInput(),
-			), Space()),
-			Space(),
-		),
-	).NoCounts()
-	wireTyping("comment")
-}
-
 // --- review UI (line comments + submit) ------------------------------------
-
-func backspaceComment() {
-	if len(commentText) > 0 {
-		rs := []rune(commentText)
-		setCommentText(string(rs[:len(rs)-1]))
-	}
-}
-
-// the comment prompt's input width (panel Width(72) minus padding/"> " gutter).
-const commentWrapW = 66
-
-// commentInput renders the wrapped comment text as the prompt body: a "> " gutter
-// on the first line, the rest hanging-indented, so long comments wrap instead of
-// truncating off-screen.
-func commentInput() Component {
-	return ForEach(&commentLines, func(line *string) Component {
-		return HBox(Text("  ").FG(cSubtle), Text(line).FG(cBright))
-	})
-}
-
-// setCommentText updates the input and its wrapped display mirror together, so a
-// long comment line-wraps in the prompt instead of truncating off-screen.
-// the block caret appended to the input's display mirror so the prompt shows a
-// cursor at the insertion point. Display-only: commentText (what gets saved) never
-// carries it.
-const inputCaret = "▌"
-
-func setCommentText(s string) {
-	commentText = s
-	lines := wrapText(s, commentWrapW)
-	if len(lines) == 0 {
-		lines = []string{""}
-	}
-	lines[len(lines)-1] += inputCaret // visible caret at the insertion point
-	commentLines = lines
-}
-
-// promptKeys is the standard text-prompt binding scope: enter/esc/backspace/
-// space. Embed it in a prompt view's tree via On(Key(...)). Printable typing is
-// wired separately with wireTyping (the router catch-all).
-func promptKeys(save, cancel func()) OnC {
-	return On(
-		Key("<CR>", save),
-		Key("<Esc>", cancel),
-		Key("<BS>", backspaceComment),
-		Key("<Space>", func() { setCommentText(commentText + " ") }),
-		Key("<C-v>", pasteImageIntoComment), // paste a clipboard screenshot as a [[path]] link
-	)
-}
-
-// insertCommentLink appends a [[path]] reference to the prompt text (space-
-// separated when needed). Pure — the testable half of pasteImageIntoComment.
-func insertCommentLink(path string) {
-	ref := "[[" + path + "]]"
-	if commentText != "" && !strings.HasSuffix(commentText, " ") {
-		ref = " " + ref
-	}
-	setCommentText(commentText + ref)
-}
-
-// pasteImageIntoComment grabs a clipboard screenshot to a temp PNG and inserts a
-// [[path]] link to it (recap can't render images inline, so the link is opened
-// with O / the OS opener). No-op with a clear message if the clipboard has no image.
-func pasteImageIntoComment() {
-	path, err := pasteClipboardImage()
-	if err != nil {
-		statusMsg = "paste: " + err.Error()
-		uiApp.RequestRender()
-		return
-	}
-	insertCommentLink(path)
-	statusMsg = "pasted screenshot → " + path
-	uiApp.RequestRender()
-}
-
-// wireTyping routes printable keystrokes into commentText for a prompt view
-// (the catch-all path; there is no On(Key) form for "any rune").
-func wireTyping(view string) {
-	if r, ok := uiApp.ViewRouter(view); ok {
-		r.HandleUnmatched(func(k riffkey.Key) bool {
-			if k.Rune != 0 && k.Mod == 0 {
-				setCommentText(commentText + string(k.Rune))
-				uiApp.RequestRender()
-				return true
-			}
-			return false
-		})
-	}
-}
 
 // openDiffLineComment toggles "pick a line" mode in place: renderDiffLayer draws
 // labels over the visible commentable rows of the diff that's already on screen
@@ -1696,8 +1585,7 @@ func commentOnDiffLine(m diffLineMeta) {
 	if len(pcSnippetView) > 68 {
 		pcSnippetView = pcSnippetView[:67] + "…"
 	}
-	setCommentText("")
-	uiApp.PushView("linecomment")
+	openInputPrompt("line comment", pcLocation, pcSnippetView, "", saveLineComment)
 }
 
 // setPickMode toggles in-place label mode, keeping the bool and the conditional
@@ -1735,9 +1623,7 @@ func pickDiffLine(r rune) {
 }
 
 func saveLineComment() {
-	body := strings.TrimSpace(commentText)
-	setCommentText("")
-	uiApp.PopView()
+	body := strings.TrimSpace(commentField.Value)
 	t, ok := selectedTask()
 	if body == "" || !ok {
 		return
@@ -1785,64 +1671,6 @@ func unsubmitSelected() {
 	}
 	statusMsg = fmt.Sprintf("#%d unsubmitted → inbox", t.ID)
 	reloadTasks()
-}
-
-func setupReviewViews() {
-	// line-comment body prompt
-	cancel := func() { setCommentText(""); uiApp.PopView() }
-	uiApp.View("linecomment",
-		VBox.Fill(cBG)(
-			promptKeys(saveLineComment, cancel),
-			Space(),
-			HBox(Space(), VBox.Fill(cFloat).PaddingVH(1, 2).Width(72)(
-				HBox(Text("line comment").FG(cBright).Bold(), Space(), Text("esc cancel · enter save").FG(cMuted)),
-				SpaceH(1),
-				Text(&pcLocation).FG(cSubtle),
-				Text(&pcSnippetView).FG(cMuted),
-				SpaceH(1),
-				commentInput(),
-			), Space()),
-			Space(),
-		),
-	).NoCounts()
-	wireTyping("linecomment")
-
-	// comment read view — the full comment, wrapped; e edits, d deletes.
-	uiApp.View("commentview",
-		VBox.Fill(cBG)(
-			On(
-				Key("e", func() { uiApp.PopView(); editDraftComment() }),
-				Key("d", func() { uiApp.PopView(); deleteDraftComment() }),
-				Key("<Esc>", func() { uiApp.PopView() }),
-				Key("q", func() { uiApp.PopView() }),
-			),
-			Space(),
-			HBox(Space(), VBox.Fill(cFloat).PaddingVH(1, 2).Width(72)(
-				HBox(Text("comment").FG(cBright).Bold(), Space(), Text("e edit · d delete · esc back").FG(cMuted)),
-				SpaceH(1),
-				Text(&cvLocation).FG(cSubtle),
-				If(&cvSnippet).Then(Text(&cvSnippet).FG(cMuted)),
-				SpaceH(1),
-				ForEach(&cvBodyLines, func(s *string) Component { return Text(s).FG(cBright) }),
-			), Space()),
-			Space(),
-		),
-	).NoCounts()
-
-	// comment edit prompt (reuses the commentText machinery, pre-filled)
-	uiApp.View("editcomment",
-		VBox.Fill(cBG)(
-			promptKeys(saveEditedComment, cancel),
-			Space(),
-			HBox(Space(), VBox.Fill(cFloat).PaddingVH(1, 2).Width(72)(
-				HBox(Text("edit comment").FG(cBright).Bold(), Space(), Text("esc cancel · enter save").FG(cMuted)),
-				SpaceH(1),
-				commentInput(),
-			), Space()),
-			Space(),
-		),
-	).NoCounts()
-	wireTyping("editcomment")
 }
 
 // --- helpers ---------------------------------------------------------------

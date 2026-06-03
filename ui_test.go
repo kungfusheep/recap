@@ -384,26 +384,6 @@ func TestDraftCommentBodyWraps(t *testing.T) {
 	}
 }
 
-// regression (review #28): the comment prompt must show a cursor at the insertion
-// point, and the caret must never leak into the saved text.
-func TestCommentInputCaret(t *testing.T) {
-	prev, prevLines := commentText, commentLines
-	t.Cleanup(func() { commentText = prev; commentLines = prevLines })
-
-	setCommentText("hello world")
-	if commentText != "hello world" {
-		t.Fatalf("caret leaked into saved text: %q", commentText)
-	}
-	if last := commentLines[len(commentLines)-1]; !strings.HasSuffix(last, inputCaret) {
-		t.Fatalf("no caret on the input line: %q", last)
-	}
-	// empty input still shows a lone caret so the box reads as focused/editable
-	setCommentText("")
-	if commentLines[0] != inputCaret {
-		t.Fatalf("empty input should show a lone caret, got %q", commentLines[0])
-	}
-}
-
 // regression (TODO: preview title padding): the three column headers must sit on
 // the same row. The middle column is unfilled, so its top padding collapsed and
 // the title rode one row higher than the left/right headers. Verified by render:

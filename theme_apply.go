@@ -94,8 +94,6 @@ func applyTheme(name string, t Theme) {
 	currentThemeName = name
 	setThemeVars(t)
 	if uiApp != nil {
-		setupCommentView()
-		setupReviewViews()
 		setupTodoView()
 		uiApp.SetView(buildMain())
 		// the diff pane is a native-scroll Layer whose spans bake their colours at
