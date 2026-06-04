@@ -56,9 +56,6 @@ func main() {
 		err = cmdNext(args)
 	case "current":
 		err = cmdCurrent(args)
-	case "working":
-		fmt.Fprintln(os.Stderr, "recap working is retired — use `recap next` (it sets the in-flight item for you) / `recap current` to peek")
-		os.Exit(2)
 	case "whoami":
 		err = cmdWhoami(args)
 	case "read":

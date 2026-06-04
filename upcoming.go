@@ -16,8 +16,8 @@ import (
 var (
 	upcomingItems   []upcomingRow // the next ≤upcomingMax TODO tasks (plain bullets)
 	hasUpcoming     bool          // gates the whole section
-	workingText     string        // the in-flight marker text ("" = none)
-	hasWorking      bool          // gates the spinner flare row; mirrors workingText != ""
+	currentText     string        // the in-flight item's flare text ("" = none)
+	hasCurrent      bool          // gates the spinner flare row; mirrors currentText != ""
 	upcomingRepo    string        // repo path currently shown (render-thread owned)
 	upcomingLoading string        // repo path being loaded (render-thread owned, dedupe)
 
@@ -36,7 +36,7 @@ type upcomingRow struct {
 
 type upcomingResult struct {
 	repo    string
-	working string // the in-flight marker at load time
+	current string // the in-flight item's flare text at load time
 	items   []string
 }
 
@@ -65,10 +65,10 @@ func updateUpcoming() {
 	if staged != nil {
 		upcomingRepo = staged.repo
 		upcomingLoading = "" // load landed — clear the in-flight guard so forced reloads work
-		workingText = staged.working
-		hasWorking = workingText != ""
+		currentText = staged.current
+		hasCurrent = currentText != ""
 		upcomingItems = buildUpcomingRows(staged.items)
-		hasUpcoming = hasWorking || len(upcomingItems) > 0
+		hasUpcoming = hasCurrent || len(upcomingItems) > 0
 	}
 
 	t, ok := selectedTask()
@@ -81,10 +81,10 @@ func updateUpcoming() {
 	upcomingLoading = t.RepoPath
 	repo := t.RepoPath
 	go func() {
-		working := currentTitle()   // the in-flight item recap next handed out (flare text)
+		current := currentTitle()   // the in-flight item recap next handed out (flare text)
 		items := loadUpcoming(repo) // TODO tasks — file read + parse, off the render thread
 		upcomingMu.Lock()
-		upcomingStaged = &upcomingResult{repo: repo, working: working, items: items}
+		upcomingStaged = &upcomingResult{repo: repo, current: current, items: items}
 		upcomingMu.Unlock()
 		if uiApp != nil {
 			uiApp.RequestRender()

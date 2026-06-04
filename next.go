@@ -106,6 +106,7 @@ func advance(q []WorkItem, currentRef string) (next WorkItem, skipped bool, ok b
 func cmdNext(args []string) error {
 	fs := flag.NewFlagSet("next", flag.ExitOnError)
 	skipReason := fs.String("skip", "", "reason this item is being skipped (recorded on it)")
+	dryRun := fs.Bool("dry-run", false, "preview the next item without advancing the cursor")
 	fs.Parse(args)
 
 	st, err := Open()
@@ -118,6 +119,18 @@ func cmdNext(args []string) error {
 	q := buildQueue(st, repo, currentRepoPath())
 	curRef, curTitle := loadCurrent()
 	next, skipped, ok := advance(q, curRef)
+
+	// dry run: show what advancing WOULD hand out, but touch nothing — no cursor
+	// move, no skip recorded, no push. Pure preview ("what's next" without claiming it).
+	if *dryRun {
+		if !ok {
+			fmt.Println("(nothing to work on — inbox + todos are clear)")
+			return nil
+		}
+		fmt.Println("(dry run — cursor unchanged)")
+		printWorkOrder(next)
+		return nil
+	}
 
 	// passing an item that's still in the queue = a skip (not a completion). Capture
 	// the reason on it if given; otherwise nudge so the next skip carries one.

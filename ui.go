@@ -277,7 +277,7 @@ func runUI() error {
 	// marker — no idle re-renders when nothing's in progress.
 	go func() {
 		for range time.Tick(120 * time.Millisecond) {
-			if hasWorking {
+			if hasCurrent {
 				spinFrame++
 				uiApp.RequestRender()
 			}
@@ -553,7 +553,7 @@ func refreshDetail() {
 	// do it here on the render thread, then force the detail to rebuild.
 	if reloadRequested.CompareAndSwap(true, false) {
 		reloadTasks()
-		invalidateUpcoming() // force the in-flight marker + upcoming list to reflect current state (e.g. after `recap working`)
+		invalidateUpcoming() // force the in-flight cursor + upcoming list to reflect current state (e.g. after `recap next`)
 		refreshIdentity()    // pick up `recap whoami` (name + colour) on push
 		detailDirty = true
 	}
@@ -1126,13 +1126,13 @@ func buildMain() Component {
 						// overshoots its container and bleeds into the next column, so
 						// the section is separated from the inbox by whitespace instead.
 						VBox.PaddingTRBL(0, 2, 2, 3).Gap(1)(
-							Text("upcoming").FG(cSubtle).Bold(),
-							// the in-flight marker (recap working) flares with an animated
+							Text("UPCOMING").FG(cSubtle).Bold(),
+							// the in-flight item (recap next's cursor) flares with an animated
 							// spinner to show active work — distinct from the static TODO list.
-							If(&hasWorking).Then(HBox(
+							If(&hasCurrent).Then(HBox(
 								Spinner(&spinFrame).Frames(SpinnerDots).FG(cBright),
 								SpaceW(1),
-								Text(&workingText).FG(cBright),
+								Text(&currentText).FG(cBright),
 							)),
 							VBox(ForEach(&upcomingItems, func(r *upcomingRow) Component {
 								return Text(&r.Line).FG(&r.FG)

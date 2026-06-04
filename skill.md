@@ -81,7 +81,7 @@ skip. Skipping something you didn't complete should carry `--skip "reason"` so t
 reviewer sees why it was passed (it's recorded as a comment on the item), not silently
 dropped. Completing an item (`revise`/`resolve`/marking the todo done) drops it from the
 queue, so the next `recap next` naturally lands on what follows. Everything pushes live —
-an open TUI tracks the flare without a refresh. (`recap working` is retired into this.)
+an open TUI tracks the flare without a refresh.
 
 ## Project scoping (important)
 
