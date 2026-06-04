@@ -824,3 +824,27 @@ func TestSummaryFollowsSelectedRevision(t *testing.T) {
 		t.Fatalf("selecting rev 0 should show its own summary, banner=%q", b)
 	}
 }
+
+// the inbox lists oldest-first so the newest pending task sits at the BOTTOM (work
+// the queue front-to-back). DONE is newest-at-top, but the inbox must not be —
+// guard against that regression.
+func TestInboxOrderLatestAtBottom(t *testing.T) {
+	st := testStore(t)
+	uiStore = st
+	t.Cleanup(func() { uiStore = nil; vmRows = nil; sel = 0 })
+
+	a, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "oldest", Status: StatusPending})
+	b, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "middle", Status: StatusPending})
+	c, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "newest", Status: StatusPending})
+
+	reloadTasks()
+	var ids []int64
+	for _, r := range vmRows {
+		if r.RevIdx < 0 && r.Pending {
+			ids = append(ids, r.ID)
+		}
+	}
+	if len(ids) != 3 || ids[0] != a || ids[1] != b || ids[2] != c {
+		t.Fatalf("inbox order = %v, want [%d %d %d] (oldest→newest, latest at bottom)", ids, a, b, c)
+	}
+}
