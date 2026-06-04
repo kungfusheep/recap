@@ -1,4 +1,4 @@
-// Command recap is the async review inbox for autonomous (tododo/deadman) work.
+// Command recap is the agent work loop + async review inbox for autonomous work.
 // The agent records each completed task; you review the queue later — out of
 // band, out of git. Diffs live in git (pointed to by sha); this tool holds the
 // private review layer (task, falsifiable check, result, verdict, thread).
@@ -88,7 +88,7 @@ func main() {
 }
 
 func usage(w *os.File) {
-	fmt.Fprint(w, `recap — async review inbox for autonomous (tododo/deadman) work
+	fmt.Fprint(w, `recap — agent work loop + async review inbox for autonomous work
 
 The agent records each completed task here; you review the queue later, out of
 band and out of git. Diffs stay in git (by sha); recap holds the review layer:
@@ -142,7 +142,7 @@ usage:
   recap review ls [--state S] [--repo NAME] [--all]
                          inspect reviews (default: current repo only)
 
-  recap skill            print the agent loop guide (for tododo/deadman-todo)
+  recap skill            print the agent loop guide (self-contained)
   recap help
 
 db: $RECAP_DB or ~/.config/recap/recap.db

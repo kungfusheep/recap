@@ -1,23 +1,23 @@
 # recap — agent loop guide
 
 recap is the agent's work loop and its async review layer. `recap next` hands you the next
-thing to do — review amends, reviewer replies, and TODO items, in priority order; you
-complete it, which records it to the review inbox to be looked at later (out of band, out
-of git), and the reviewer's feedback comes back as fix-forward work. recap **owns the TODO
-file**: it reads it to build the queue and marks items done for you, so the loop never
-opens or edits the TODO file itself.
+thing to do — review amends, reviewer replies, and pending todo items, in priority order;
+you complete it, which records it to the review inbox to be looked at later (out of band,
+out of git), and the reviewer's feedback comes back as fix-forward work. Everything runs
+through recap verbs: recap tracks the work and marks it done for you — you never edit
+project files by hand to manage the queue.
 
 For the exact command surface and flags, run `recap help`. The verbs below are the stable
-contract the loop depends on.
+contract the loop depends on — this skill is self-contained; you don't need any other.
 
 ## Completing work (→ inbox)
 
 How you finish an item depends on its kind — `recap next` tells you which:
 
 - **todo** → commit your work, then `recap done <ref>`. This **records it to the review
-  inbox AND marks the todo line done** in one explicit step (the `<ref>` is what
-  `recap next` handed you, e.g. `todo:a66e3a51`; the title is auto-filled from the todo
-  text). You never open the TODO file yourself.
+  inbox AND marks the todo done** in one explicit step (the `<ref>` is what `recap next`
+  handed you, e.g. `todo:a66e3a51`; the title is auto-filled from the todo text). recap
+  does the bookkeeping — you don't.
   ```
   recap done <ref> \
     --criterion "<the falsifiable success check you wrote>" \
@@ -154,8 +154,7 @@ Pass any emoji (👍 seen/agree, 👀 looking, ✅ done). It shows next to the c
 overwrites, empty clears). Same `[cN]` ids as reply.
 
 A `request_changes` review surfaces directly from the db as `recap next`'s top
-(amends) tier — no TODO breadcrumb; `recap review show <id>` is the work order and
-`revise` completes it.
+(amends) tier; `recap review show <id>` is the work order and `revise` completes it.
 
 ## Attaching files / screenshots to comments
 
@@ -166,16 +165,26 @@ pastes a clipboard image: it writes a temp PNG ($TMPDIR, OS-tidied — the loop 
 so long-term retention isn't needed) and inserts the `[[path]]` link for you. You can also
 type any `[[path]]` by hand to attach a log, file, or screenshot to feedback.
 
-## Boundaries
+## Falsifiable criteria
 
-- Recording and reading reviews is local and reversible — safe to run unattended.
-- `recap next` (take work), `recap done` (complete a todo → inbox), `recap review show`
-  (read feedback), and `recap revise` (attach a fix-forward diff + resolve the review) are
-  the loop's core verbs. Submitting reviews (`recap review submit`) is the **human
-  reviewer's** action (via the TUI or CLI), never the loop's — never self-review.
+Before you start an item, state its success check as something that can **fail** if the
+work is broken — a concrete command and the result you expect, not "looks right". That
+check is exactly what you pass as `--criterion` / `--check` / `--result` when you complete
+the item. After the change, run it; if it couldn't fail when the code is wrong, it isn't a
+real check — tighten it before recording.
+
+## Boundaries & safety
+
+- The core loop is local and reversible — safe to run unattended: `recap next` (take
+  work), `recap done` (complete a todo → inbox), `recap review show` (read feedback),
+  `recap revise` (fix-forward diff + resolve).
+- Anything **destructive or outward-facing** — deleting data you didn't create, force
+  pushes, publishing, network/external calls, or any change that's hard to undo — needs
+  explicit human confirmation. Surface it, don't guess.
+- Commits: one per item on the current branch, message a concise **single line** — the
+  rich detail belongs in the recap `--summary`, not the commit body. Never sign commits or
+  leave any agent attribution.
+- Submitting reviews (`recap review submit`) is the **human reviewer's** action, never the
+  loop's — never self-review.
 - The review db (`$RECAP_DB` or `~/.config/recap/recap.db`) is private to the reviewer and
   cross-repo: never commit it, never push it, never surface its contents publicly.
-
-See the `deadman-todo` skill for the loop's safety boundary, falsifiable-criteria rules,
-and the per-task commit policy that this layers on top of. (recap owns the TODO file
-itself — reading it for `recap next` and marking lines done via `recap done`.)
