@@ -63,15 +63,15 @@ func TestCurrentTitleFlare(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("RECAP_DB", dir+"/recap.db")
 
-	if currentTitle() != "" {
-		t.Fatalf("idle → empty flare, got %q", currentTitle())
+	if currentTitle("wed") != "" {
+		t.Fatalf("idle → empty flare, got %q", currentTitle("wed"))
 	}
-	saveCurrent("todo:abcd1234", "fix the width issue on the right")
-	if got := currentTitle(); got != "fix the width issue on the right" {
+	saveCurrent("wed", "todo:abcd1234", "fix the width issue on the right")
+	if got := currentTitle("wed"); got != "fix the width issue on the right" {
 		t.Fatalf("flare = %q", got)
 	}
-	saveCurrent("", "")
-	if currentTitle() != "" {
-		t.Fatalf("cleared → empty flare, got %q", currentTitle())
+	saveCurrent("wed", "", "")
+	if currentTitle("wed") != "" {
+		t.Fatalf("cleared → empty flare, got %q", currentTitle("wed"))
 	}
 }

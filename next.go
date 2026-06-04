@@ -117,7 +117,7 @@ func cmdNext(args []string) error {
 
 	repo := currentRepo()
 	q := buildQueue(st, repo, currentRepoPath())
-	curRef, curTitle := loadCurrent()
+	curRef, curTitle := loadCurrent(repo)
 	next, skipped, ok := advance(q, curRef)
 
 	// dry run: show what advancing WOULD hand out, but touch nothing — no cursor
@@ -149,13 +149,13 @@ func cmdNext(args []string) error {
 	}
 
 	if !ok {
-		saveCurrent("", "")
+		saveCurrent(repo, "", "")
 		notify.Reload()
 		fmt.Println("(nothing to work on — inbox + todos are clear)")
 		return nil
 	}
 
-	if err := saveCurrent(next.Ref, next.Title); err != nil {
+	if err := saveCurrent(repo, next.Ref, next.Title); err != nil {
 		return err
 	}
 	notify.Reload()

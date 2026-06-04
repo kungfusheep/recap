@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -81,8 +82,8 @@ func updateUpcoming() {
 	upcomingLoading = t.RepoPath
 	repo := t.RepoPath
 	go func() {
-		current := currentTitle()   // the in-flight item recap next handed out (flare text)
-		items := loadUpcoming(repo) // TODO tasks — file read + parse, off the render thread
+		current := currentTitle(filepath.Base(repo)) // the displayed repo's in-flight item (flare)
+		items := loadUpcoming(repo)                  // TODO tasks — file read + parse, off the render thread
 		upcomingMu.Lock()
 		upcomingStaged = &upcomingResult{repo: repo, current: current, items: items}
 		upcomingMu.Unlock()

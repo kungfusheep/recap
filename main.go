@@ -587,7 +587,7 @@ func cmdWhoami(args []string) error {
 // cmdCurrent shows the in-flight item without advancing — what `recap next` last
 // handed out (and hasn't been completed). "(idle)" when there's nothing.
 func cmdCurrent(args []string) error {
-	ref, title := loadCurrent()
+	ref, title := loadCurrent(currentRepo())
 	if ref == "" {
 		fmt.Println("(idle — recap next to take work)")
 		return nil
