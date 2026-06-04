@@ -142,8 +142,16 @@ tier) — act on it first:
    stays attached so they can recontextualise.
 
 Do **not** use `recap add --parent` for amend fixes — that spawns a near-duplicate
-inbox item per fix. One task accumulates its whole change history via `revise`. (`recap
-review resolve <id>` on its own is still fine when there's nothing new to attach.)
+inbox item per fix. One task accumulates its whole change history via `revise`.
+
+**A review can be a question, not a change.** request_changes puts the item in *your*
+amends queue (your turn). If the reviewer's point was a **question** — nothing to revise,
+just answer — reply to it (below) and then `recap review resolve <id>` to hand it back.
+Resolving with nothing to attach is fine and correct here: it bounces the item out of your
+amends and back into the reviewer's inbox for re-review (where they approve, or re-request
+with a real change). **Never leave an answered review sitting in amends** — once you've
+addressed it (revised *or* answered), the turn is the reviewer's; the ball must move to
+exactly one court, never get stuck in yours.
 
 ### Replying to a comment (threading)
 
@@ -156,8 +164,9 @@ recap reply <comment-id> --body "what you did / why"
 
 `recap review show <id>` prints every comment with its id as `[cN]`; pass that N. The
 reply nests under the comment (and replies can themselves be replied to) and shows the
-same way for general and line comments. `--who` defaults to `agent`. This is for
-discussion only — it does **not** resolve the review; use `revise` for the fix-forward.
+same way for general and line comments. `--who` defaults to `agent`. A reply by itself
+does **not** resolve the review — use `revise` for a code fix, or, when the comment was a
+question you've now answered, `recap review resolve <id>` to hand it back (see above).
 
 For a lightweight acknowledgement — "seen / agreed / done" without a whole reply —
 react to a comment with an emote:
