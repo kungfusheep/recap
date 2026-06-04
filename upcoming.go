@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"sync"
+
+	. "github.com/kungfusheep/glyph"
 )
 
 // The "upcoming" section is a compact, read-only peek at the next few incomplete
@@ -12,14 +14,24 @@ import (
 // selected repo changes and the result is swapped in on the render thread, the
 // same hand-off the SIGUSR1 inbox reload uses.
 var (
-	upcomingItems   []string // ≤upcomingMax next incomplete task texts (truncated)
-	hasUpcoming     bool     // gates the section; mirrors len(upcomingItems) > 0
-	upcomingRepo    string   // repo path currently shown (render-thread owned)
-	upcomingLoading string   // repo path being loaded (render-thread owned, dedupe)
+	upcomingItems   []upcomingRow // ≤upcomingMax next incomplete tasks (display rows)
+	hasUpcoming     bool          // gates the section; mirrors len(upcomingItems) > 0
+	upcomingRepo    string        // repo path currently shown (render-thread owned)
+	upcomingLoading string        // repo path being loaded (render-thread owned, dedupe)
 
 	upcomingMu     sync.Mutex
 	upcomingStaged *upcomingResult // handed off from the loader goroutine
 )
+
+// upcomingRow is one rendered upcoming line. The first (next) item carries an
+// "in-progress" flare — a ▸ marker + brighter colour — since the loop works the
+// TODO top-down, so upcoming[0] is the item being worked next. Marker/FG are
+// precomputed per row so the build-once ForEach template renders them uniformly.
+type upcomingRow struct {
+	Marker string
+	Text   string
+	FG     Color
+}
 
 type upcomingResult struct {
 	repo  string
@@ -40,7 +52,8 @@ func updateUpcoming() {
 	upcomingStaged = nil
 	upcomingMu.Unlock()
 	if staged != nil {
-		upcomingRepo, upcomingItems = staged.repo, staged.items
+		upcomingRepo = staged.repo
+		upcomingItems = buildUpcomingRows(staged.items)
 		hasUpcoming = len(upcomingItems) > 0
 	}
 
@@ -81,6 +94,21 @@ func loadUpcoming(repoPath string) []string {
 		return nil
 	}
 	return upcomingFromItems(items)
+}
+
+// buildUpcomingRows turns the upcoming task texts into display rows, flaring the
+// first (the next item the loop works) as in-progress. Runs on the render thread
+// so it can read the current theme colours.
+func buildUpcomingRows(texts []string) []upcomingRow {
+	rows := make([]upcomingRow, 0, len(texts))
+	for i, txt := range texts {
+		r := upcomingRow{Marker: "· ", Text: txt, FG: cSubtle}
+		if i == 0 {
+			r.Marker, r.FG = "▸ ", cBright // in-progress flare
+		}
+		rows = append(rows, r)
+	}
+	return rows
 }
 
 // upcomingFromItems picks the first upcomingMax incomplete tasks, in file order,

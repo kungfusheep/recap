@@ -1048,8 +1048,8 @@ func buildMain() Component {
 					If(&hasUpcoming).Then(VBox(
 						HBox(SpaceW(3), Text("upcoming").FG(cSubtle).Bold(), SpaceW(2)),
 						SpaceH(1),
-						ForEach(&upcomingItems, func(s *string) Component {
-							return HBox(SpaceW(3), Text("· ").FG(cMuted), Text(s).FG(cSubtle))
+						ForEach(&upcomingItems, func(r *upcomingRow) Component {
+							return HBox(SpaceW(3), Text(&r.Marker).FG(&r.FG), Text(&r.Text).FG(&r.FG))
 						}),
 						SpaceH(1),
 						HBox(SpaceW(3), HRule().FG(cMuted), SpaceW(2)),

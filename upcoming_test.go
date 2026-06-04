@@ -33,3 +33,27 @@ func TestUpcomingFromItems(t *testing.T) {
 		t.Fatalf("truncation wrong: len=%d last=%q (%q)", len(r), string(r[len(r)-1]), g[0])
 	}
 }
+
+// buildUpcomingRows flares the first (in-progress / next) item with a ▸ marker and
+// the rest with a plain bullet, so the next-to-be-worked task stands out.
+func TestBuildUpcomingRowsFlare(t *testing.T) {
+	rows := buildUpcomingRows([]string{"first", "second", "third"})
+	if len(rows) != 3 {
+		t.Fatalf("got %d rows, want 3", len(rows))
+	}
+	if rows[0].Marker != "▸ " {
+		t.Fatalf("first marker = %q, want ▸ (in-progress flare)", rows[0].Marker)
+	}
+	for i := 1; i < len(rows); i++ {
+		if rows[i].Marker != "· " {
+			t.Fatalf("row %d marker = %q, want · ", i, rows[i].Marker)
+		}
+	}
+	if buildUpcomingRows(nil) == nil {
+		// make(...,0) returns non-nil empty slice; just assert it's empty
+		t.Fatal("expected non-nil empty slice")
+	}
+	if len(buildUpcomingRows(nil)) != 0 {
+		t.Fatal("empty input should give empty rows")
+	}
+}
