@@ -226,3 +226,54 @@ func TestSplitThread(t *testing.T) {
 		t.Fatalf("nested reply of 2 wrong: %+v", byParent[2])
 	}
 }
+
+// undoCategorise reverses the most recent approve/submit (LIFO), unsubmitting that
+// task back to the inbox, regardless of current selection.
+func TestUndoCategorise(t *testing.T) {
+	st := testStore(t)
+	prev := uiStore
+	uiStore = st
+	categoriseUndo = nil
+	t.Cleanup(func() { uiStore = prev; categoriseUndo = nil })
+
+	a, _ := st.Add(Task{Repo: "wed", Title: "a"})
+	b, _ := st.Add(Task{Repo: "wed", Title: "b"})
+	reloadTasks()
+
+	// approve both (via the real handler path so the undo stack is populated)
+	sel = indexOfTask(a)
+	approveSelected()
+	sel = indexOfTask(b)
+	approveSelected()
+	if uiStore.ReviewState(a) != StateDone || uiStore.ReviewState(b) != StateDone {
+		t.Fatalf("setup: both should be done (a=%s b=%s)", uiStore.ReviewState(a), uiStore.ReviewState(b))
+	}
+
+	// undo → reverses b (last in), not a
+	undoCategorise()
+	if uiStore.ReviewState(b) != StatePending {
+		t.Fatalf("after undo, b should be back in inbox, got %s", uiStore.ReviewState(b))
+	}
+	if uiStore.ReviewState(a) != StateDone {
+		t.Fatalf("a should still be done after undoing b, got %s", uiStore.ReviewState(a))
+	}
+	// undo again → reverses a; a third undo is a no-op (nothing to undo)
+	undoCategorise()
+	if uiStore.ReviewState(a) != StatePending {
+		t.Fatalf("after second undo, a should be back in inbox, got %s", uiStore.ReviewState(a))
+	}
+	if len(categoriseUndo) != 0 {
+		t.Fatalf("undo stack should be empty, got %d", len(categoriseUndo))
+	}
+}
+
+// indexOfTask returns the vmRows index of a task header row, for tests that drive
+// selection-based handlers.
+func indexOfTask(id int64) int {
+	for i, r := range vmRows {
+		if r.ID == id && r.RevIdx < 0 {
+			return i
+		}
+	}
+	return 0
+}

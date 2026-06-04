@@ -1069,6 +1069,7 @@ func buildMain() Component {
 						Key("k", func() { moveSel(-1) }),
 						Key("<Enter>", func() { setPane(paneDiff) }),
 						Key("a", approveSelected),
+						Key("u", undoCategorise), // undo the last approve/submit
 						Key("c", openComment),
 						Key("v", rerun),
 						Key("o", toggleExpand), // expand a task into its revision diffs
@@ -1583,6 +1584,37 @@ func moveSel(d int) {
 	}
 }
 
+// categoriseUndo is a LIFO stack of task IDs recently categorised (approved with
+// `a` or submitted to amends with `S`). `u` in the inbox pops the last and
+// unsubmits it — a basic undo for an accidental keypress, returning the task to
+// the inbox. Capped so it can't grow without bound across a long session.
+var categoriseUndo []int64
+
+func pushCategoriseUndo(taskID int64) {
+	categoriseUndo = append(categoriseUndo, taskID)
+	if len(categoriseUndo) > 50 {
+		categoriseUndo = categoriseUndo[len(categoriseUndo)-50:]
+	}
+}
+
+// undoCategorise reverses the most recent approve/submit by unsubmitting that
+// task's review (back to the inbox). Independent of the current selection — it
+// undoes what you last did, not what's highlighted.
+func undoCategorise() {
+	if len(categoriseUndo) == 0 {
+		statusMsg = "(nothing to undo)"
+		return
+	}
+	id := categoriseUndo[len(categoriseUndo)-1]
+	categoriseUndo = categoriseUndo[:len(categoriseUndo)-1]
+	if err := uiStore.UnsubmitReview(id); err != nil {
+		statusMsg = fmt.Sprintf("undo #%d: %s", id, err.Error())
+		return
+	}
+	statusMsg = fmt.Sprintf("undid #%d → inbox", id)
+	reloadTasks()
+}
+
 // approveSelected quick-approves the selected task by submitting an approve
 // review, so its derived state becomes APPROVED (no direct status flip).
 func approveSelected() {
@@ -1594,7 +1626,8 @@ func approveSelected() {
 		statusMsg = "error: " + err.Error()
 		return
 	}
-	statusMsg = fmt.Sprintf("#%d approved", t.ID)
+	pushCategoriseUndo(t.ID)
+	statusMsg = fmt.Sprintf("#%d approved  ·  u to undo", t.ID)
 	reloadTasks()
 }
 
@@ -1713,7 +1746,8 @@ func submitSelected() {
 		statusMsg = "error: " + err.Error()
 		return
 	}
-	msg := fmt.Sprintf("#%d submitted → amends", t.ID)
+	pushCategoriseUndo(t.ID)
+	msg := fmt.Sprintf("#%d submitted → amends  ·  u to undo", t.ID)
 	if res.line != "" && res.wrote {
 		msg += " · queued in TODO"
 	}
