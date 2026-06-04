@@ -130,6 +130,9 @@ type draftCommentVM struct {
 	Who      string // "you" | "agent" (used to label replies)
 	Emote    string // optional reaction shown below the body (e.g. 👍)
 	HasEmote bool   // gates the emote line; mirrors Emote != ""
+	ReadUser bool   // the user has seen this comment (drives the user dot + optimistic mark)
+	AgentDot string // ● read / ○ unread — agent receipt (precomputed, build-once safe)
+	UserDot  string // ● read / ○ unread — user receipt
 	Location string // "file · line N" / "general" / "↳ who" for a reply
 	Indent   string // leading spaces for nested replies (precomputed; build-once safe)
 	When     string // comment time (HH:MM) from CreatedAt
@@ -582,6 +585,7 @@ func refreshDetail() {
 	if draftSel != lastDraftSel {
 		lastDraftSel = draftSel
 		syncDiffToDraft()
+		markSelectedCommentRead()
 	}
 	filterText = "all"
 	if repoFltr != "" {
@@ -749,6 +753,8 @@ func loadDraftPane(taskID int64) {
 			drafts++
 		}
 		vm := draftCommentVM{ID: c.ID, ParentID: c.ParentID, Who: c.Who, Emote: c.Emote, HasEmote: c.Emote != "", Body: c.Body, File: c.File, Line: c.Line, Draft: c.Draft, When: hhmm(c.CreatedAt)}
+		vm.ReadUser = c.ReadUser != ""
+		vm.AgentDot, vm.UserDot = readDot(c.ReadAgent != ""), readDot(vm.ReadUser)
 		if c.File != "" {
 			vm.Location = c.File
 			if c.Line > 0 {
@@ -1049,6 +1055,14 @@ func dash(s string) string {
 	return s
 }
 
+// readDot is the read-receipt glyph: filled when read, hollow when not.
+func readDot(read bool) string {
+	if read {
+		return "●"
+	}
+	return "○"
+}
+
 // hhmm extracts the HH:MM time from a "2006-01-02 15:04:05" stamp (nowStamp's
 // format); returns "" for anything shorter, so a missing time just renders blank.
 func hhmm(stamp string) string {
@@ -1322,7 +1336,8 @@ func draftRow(c *draftCommentVM) Component {
 	itemBG := If(&c.Selected).Then(&draftSelBG).Else(&cPaneBG)
 	// Indent (precomputed per row) nests replies; empty for top-level comments.
 	return VBox.Fill(itemBG).PaddingVH(1, 1)(
-		HBox(Text(&c.Indent), Text(&c.Location).FG(cSubtle), Space(), Text(&c.When).FG(cMuted)),
+		// two read-receipt dots: agent (cHunk) then you (cDel) — ● read / ○ unread.
+		HBox(Text(&c.Indent), Text(&c.AgentDot).FG(cHunk), Text(&c.UserDot).FG(cDel), SpaceW(1), Text(&c.Location).FG(cSubtle), Space(), Text(&c.When).FG(cMuted)),
 		If(&c.Snippet).Then(Text(&c.Snippet).FG(cMuted)),
 		// TextBlock re-wraps to the column width, so a long comment flows onto
 		// several lines instead of truncating at one (Text clips to a single line).
@@ -1498,6 +1513,24 @@ func selectedDraft() *draftCommentVM {
 		return nil
 	}
 	return &draftComments[draftSel]
+}
+
+// markSelectedCommentRead records the user's read-receipt on the selected comment:
+// fills its dot now (optimistic) and persists off the render thread (no main-thread
+// I/O). The agent sees it on its next poll / review show.
+func markSelectedCommentRead() {
+	c := selectedDraft()
+	if c == nil || c.ReadUser {
+		return
+	}
+	c.ReadUser = true
+	c.UserDot = readDot(true)
+	id := c.ID
+	go func() {
+		if uiStore != nil {
+			_ = uiStore.MarkReadUser(id)
+		}
+	}()
 }
 
 // openCommentView shows the full comment (wrapped body + snippet) in a modal —

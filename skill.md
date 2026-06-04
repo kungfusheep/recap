@@ -60,6 +60,20 @@ recap working --clear
 It nudges any open TUI to refresh, so the cue updates live. It's a cue only — it doesn't
 record work (that's `recap add`) or change task state.
 
+## Reviewer replies — the read-receipt inbox
+
+Reviewer **replies** (via `recap reply` or the TUI `r`) are thread comments, NOT new
+submitted reviews — so they don't show in `recap review ls`. Check for them every cycle:
+
+```
+recap unread       # reviewer comments the agent hasn't read yet, with [cN] ids
+recap read <cN> …  # mark read once you've acted (clears the receipt)
+```
+
+Each comment carries two read dots in the TUI — agent (●/○) and user — so both sides
+see receipt; marking read pushes live (no refresh). Treat `recap unread` as part of the
+loop's feedback intake alongside `recap review ls`.
+
 ## Picking up review feedback (inbox → fix-forward work)
 
 At the **start of each loop cycle**, before reading the TODO, check for reviews the human

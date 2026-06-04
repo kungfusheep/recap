@@ -313,3 +313,42 @@ func TestSetEmote(t *testing.T) {
 		t.Fatal("SetEmote on a missing comment should error")
 	}
 }
+
+// read receipts: reviewer comments start unread-by-agent and show in UnreadByAgent;
+// marking read clears them; agent comments are never in the agent's unread inbox.
+func TestReadReceipts(t *testing.T) {
+	st := testStore(t)
+	tid, _ := st.Add(Task{Repo: "wed", Title: "t"})
+	c1, _ := st.AddReviewComment(tid, "you", "fix this", "", 0, "", "")
+	c2, _ := st.AddComment(tid, "you", "a loose note")
+	st.AddComment(tid, "agent", "my own note") // agent's own — never 'unread by agent'
+
+	un, _ := st.UnreadByAgent()
+	if len(un) != 2 {
+		t.Fatalf("want 2 unread reviewer comments, got %d", len(un))
+	}
+	if err := st.MarkReadAgent(c1); err != nil {
+		t.Fatalf("MarkReadAgent: %v", err)
+	}
+	un, _ = st.UnreadByAgent()
+	if len(un) != 1 || un[0].ID != c2 {
+		t.Fatalf("after read c1, unread should be just c2, got %+v", un)
+	}
+	// the read flag is visible on the comment
+	cs, _ := st.Comments(tid)
+	for _, c := range cs {
+		if c.ID == c1 && c.ReadAgent == "" {
+			t.Fatalf("c1 should carry a read_agent stamp")
+		}
+	}
+	// user read-receipt round-trips independently
+	if err := st.MarkReadUser(c2); err != nil {
+		t.Fatalf("MarkReadUser: %v", err)
+	}
+	cs, _ = st.Comments(tid)
+	for _, c := range cs {
+		if c.ID == c2 && c.ReadUser == "" {
+			t.Fatalf("c2 should carry a read_user stamp")
+		}
+	}
+}

@@ -54,6 +54,10 @@ func main() {
 		err = cmdEmote(args)
 	case "working":
 		err = cmdWorking(args)
+	case "read":
+		err = cmdRead(args)
+	case "unread":
+		err = cmdUnread(args)
 	case "review":
 		err = cmdReview(args)
 	case "set":
@@ -421,7 +425,71 @@ func cmdComment(args []string) error {
 	if _, err := st.AddComment(id, *who, *body); err != nil {
 		return err
 	}
+	notify.Reload() // push: any open TUI shows the comment without a refresh
 	fmt.Printf("commented on #%d\n", id)
+	return nil
+}
+
+// cmdUnread lists reviewer comments the agent hasn't read yet — the loop's feedback
+// inbox. Thread replies (recap reply / TUI 'r') don't bump a review's state, so they
+// never show in `review ls`; this surfaces them with their [cN] ids so you can act.
+func cmdUnread(args []string) error {
+	st, err := Open()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	cs, err := st.UnreadByAgent()
+	if err != nil {
+		return err
+	}
+	if len(cs) == 0 {
+		fmt.Println("no unread reviewer comments")
+		return nil
+	}
+	fmt.Printf("unread reviewer comments (%d):\n", len(cs))
+	for _, c := range cs {
+		loc := "general"
+		if c.File != "" {
+			loc = c.File
+			if c.Line > 0 {
+				loc += fmt.Sprintf(":%d", c.Line)
+			}
+		}
+		kind := "comment"
+		if c.ParentID != 0 {
+			kind = fmt.Sprintf("reply→c%d", c.ParentID)
+		}
+		fmt.Printf("  [c%d] task #%d · %s · %s\n      %s\n", c.ID, c.TaskID, loc, kind, c.Body)
+	}
+	fmt.Println("\n(act on each, then: recap read <comment-id> …  to clear the receipt)")
+	return nil
+}
+
+// cmdRead records the agent's read-receipt on one or more comments (clears them
+// from `recap unread`). Pushes so the user's open TUI fills the agent-read dot live.
+func cmdRead(args []string) error {
+	var ids []int64
+	for _, a := range args {
+		id, err := parseID(strings.TrimPrefix(a, "c"))
+		if err != nil {
+			return fmt.Errorf("usage: recap read <comment-id>…")
+		}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return fmt.Errorf("usage: recap read <comment-id>…")
+	}
+	st, err := Open()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	if err := st.MarkReadAgent(ids...); err != nil {
+		return err
+	}
+	notify.Reload() // push: the user's open TUI fills the agent-read dot without a refresh
+	fmt.Printf("marked %d comment(s) read\n", len(ids))
 	return nil
 }
 
@@ -479,6 +547,7 @@ func cmdEmote(args []string) error {
 	if err := st.SetEmote(commentID, emote); err != nil {
 		return err
 	}
+	notify.Reload() // push: the emote appears in any open TUI without a refresh
 	fmt.Printf("emoted %s on comment #%d\n", emote, commentID)
 	return nil
 }
@@ -516,6 +585,7 @@ func cmdReply(args []string) error {
 	if _, err := st.AddReply(commentID, *who, *body); err != nil {
 		return err
 	}
+	notify.Reload() // push: the reply threads into any open TUI without a refresh
 	fmt.Printf("replied to comment #%d\n", commentID)
 	return nil
 }

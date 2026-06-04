@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -87,6 +88,8 @@ type Comment struct {
 	Snippet   string // the diff line(s) commented on
 	CreatedAt string
 	Emote     string // optional reaction (e.g. 👍) — the agent's ack of this comment
+	ReadAgent string // timestamp the agent marked this read ("" = unread) — receipt
+	ReadUser  string // timestamp the user's TUI marked this read ("" = unread)
 }
 
 // Revision is one diff attached to a task. A task's first diff is its base
@@ -154,6 +157,8 @@ var addColumns = []struct{ table, col, decl string }{
 	{"comments", "snippet", "TEXT"},
 	{"comments", "parent_id", "INTEGER"},
 	{"comments", "emote", "TEXT"},
+	{"comments", "read_agent", "TEXT"},
+	{"comments", "read_user", "TEXT"},
 }
 
 func (s *Store) hasColumn(table, col string) (bool, error) {
@@ -357,6 +362,50 @@ func (s *Store) SetEmote(commentID int64, emote string) error {
 	return nil
 }
 
+// markRead stamps one of the read columns (read_agent / read_user) on the given
+// comments with the current time. Idempotent; unknown ids are ignored.
+func (s *Store) markRead(col string, ids ...int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	q := make([]string, len(ids))
+	args := make([]any, 0, len(ids)+1)
+	args = append(args, nowStamp())
+	for i, id := range ids {
+		q[i] = "?"
+		args = append(args, id)
+	}
+	_, err := s.db.Exec(`UPDATE comments SET `+col+` = ? WHERE id IN (`+strings.Join(q, ",")+`)`, args...)
+	return err
+}
+
+// MarkReadAgent records the agent's read-receipt on the given comments.
+func (s *Store) MarkReadAgent(ids ...int64) error { return s.markRead("read_agent", ids...) }
+
+// MarkReadUser records the user's read-receipt (set by the TUI on view).
+func (s *Store) MarkReadUser(ids ...int64) error { return s.markRead("read_user", ids...) }
+
+// UnreadByAgent returns reviewer comments the agent hasn't marked read yet — the
+// loop's actionable feedback inbox (thread replies don't bump a review's state, so
+// they're invisible to `review ls`; this surfaces them). Oldest first.
+func (s *Store) UnreadByAgent() ([]Comment, error) {
+	rows, err := s.db.Query(`SELECT ` + commentCols + ` FROM comments
+		WHERE who = 'you' AND COALESCE(read_agent,'') = '' ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Comment
+	for rows.Next() {
+		c, err := scanComment(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // AddReply records a reply to an existing comment — the threading primitive. The
 // reply inherits the parent's task and review context (so a reply to a line
 // comment stays anchored to that review, and a reply to a loose thread message
@@ -386,15 +435,15 @@ func (s *Store) AddReply(parentID int64, who, body string) (int64, error) {
 	return res.LastInsertId()
 }
 
-const commentCols = `id, task_id, COALESCE(review_id,0), COALESCE(parent_id,0), who, body, COALESCE(file,''), COALESCE(line,0), COALESCE(anchor,''), COALESCE(snippet,''), created_at, COALESCE(emote,'')`
+const commentCols = `id, task_id, COALESCE(review_id,0), COALESCE(parent_id,0), who, body, COALESCE(file,''), COALESCE(line,0), COALESCE(anchor,''), COALESCE(snippet,''), created_at, COALESCE(emote,''), COALESCE(read_agent,''), COALESCE(read_user,'')`
 
 // commentColsC is commentCols qualified to the comments alias "c", for queries
 // that join reviews (so column names aren't ambiguous).
-const commentColsC = `c.id, c.task_id, COALESCE(c.review_id,0), COALESCE(c.parent_id,0), c.who, c.body, COALESCE(c.file,''), COALESCE(c.line,0), COALESCE(c.anchor,''), COALESCE(c.snippet,''), c.created_at, COALESCE(c.emote,'')`
+const commentColsC = `c.id, c.task_id, COALESCE(c.review_id,0), COALESCE(c.parent_id,0), c.who, c.body, COALESCE(c.file,''), COALESCE(c.line,0), COALESCE(c.anchor,''), COALESCE(c.snippet,''), c.created_at, COALESCE(c.emote,''), COALESCE(c.read_agent,''), COALESCE(c.read_user,'')`
 
 func scanComment(row interface{ Scan(...any) error }) (Comment, error) {
 	var c Comment
-	err := row.Scan(&c.ID, &c.TaskID, &c.ReviewID, &c.ParentID, &c.Who, &c.Body, &c.File, &c.Line, &c.Anchor, &c.Snippet, &c.CreatedAt, &c.Emote)
+	err := row.Scan(&c.ID, &c.TaskID, &c.ReviewID, &c.ParentID, &c.Who, &c.Body, &c.File, &c.Line, &c.Anchor, &c.Snippet, &c.CreatedAt, &c.Emote, &c.ReadAgent, &c.ReadUser)
 	return c, err
 }
 
@@ -441,7 +490,7 @@ func (s *Store) TaskReviewComments(taskID int64) ([]TaskComment, error) {
 		var c Comment
 		var state string
 		if err := rows.Scan(&c.ID, &c.TaskID, &c.ReviewID, &c.ParentID, &c.Who, &c.Body,
-			&c.File, &c.Line, &c.Anchor, &c.Snippet, &c.CreatedAt, &c.Emote, &state); err != nil {
+			&c.File, &c.Line, &c.Anchor, &c.Snippet, &c.CreatedAt, &c.Emote, &c.ReadAgent, &c.ReadUser, &state); err != nil {
 			return nil, err
 		}
 		out = append(out, TaskComment{Comment: c, Draft: state == ReviewDraft})
