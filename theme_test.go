@@ -325,3 +325,19 @@ func TestDiffColoursDistinctPerTheme(t *testing.T) {
 		}
 	}
 }
+
+// every theme's diff colours must meet WCAG AA contrast (4.5:1) against the
+// background so the diff stays readable, and remain distinct from each other.
+func TestDiffColoursMeetWCAG_AA(t *testing.T) {
+	for _, nt := range allThemes() {
+		setThemeVars(nt.Palette)
+		for name, c := range map[string]Color{"add": cAdd, "del": cDel, "hunk": cHunk} {
+			if r := contrastRatio(c, cBG); r < wcagAA-0.01 {
+				t.Errorf("%s: %s contrast %.2f < AA %.1f", nt.Name, name, r, wcagAA)
+			}
+		}
+		if cAdd == cDel || cAdd == cHunk || cDel == cHunk {
+			t.Errorf("%s: diff colours not distinct after contrast fix", nt.Name)
+		}
+	}
+}

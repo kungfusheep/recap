@@ -71,9 +71,11 @@ func setThemeVars(t Theme) {
 	// they stay distinct (green/red/blue) but sympathetic to the palette's tone —
 	// the mfd themes map Success/Error/Info to fg/bright/fg, which made +/@@ identical
 	// and the diff unreadable, so derive them instead.
-	cAdd = Lerp(diffAddBase, t.FG, 0.25)
-	cDel = Lerp(diffDelBase, t.FG, 0.25)
-	cHunk = Lerp(diffHunkBase, t.FG, 0.25)
+	// blend toward the theme tone for sympathy, then enforce WCAG AA contrast against
+	// the background so the diff stays readable on low-contrast palettes.
+	cAdd = ensureContrast(Lerp(diffAddBase, t.FG, 0.25), t.BG, wcagAA)
+	cDel = ensureContrast(Lerp(diffDelBase, t.FG, 0.25), t.BG, wcagAA)
+	cHunk = ensureContrast(Lerp(diffHunkBase, t.FG, 0.25), t.BG, wcagAA)
 	cCommentBG = Lerp(t.BG, t.Info, 0.18) // faint wash of the accent over the bg
 	listBaseStyle = Style{BG: cPaneBG}
 	paneStyle = Style{Fill: cPaneBG, BG: cPaneBG, FG: cFG}
