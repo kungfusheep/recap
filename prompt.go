@@ -23,6 +23,9 @@ var (
 	promptOnSave    func()     // runs on enter; reads commentField.Value
 	commentField    InputState // the prompt's text field (Value + Cursor)
 	commentViewOpen bool       // the read-only comment overlay
+
+	promptRef NodeRef // anchors the input overlay's screen effects
+	readRef   NodeRef // anchors the read overlay's screen effects
 )
 
 // openInputPrompt shows the input overlay with a title, optional location/snippet
@@ -58,13 +61,20 @@ func submitPrompt() {
 // decision keys; the bound Input() captures typing via glyph's TextHandler wiring.
 func inputPromptOverlay() Component {
 	return If(&promptOpen).Then(
-		Overlay.Centered().Backdrop()(
-			VBox.Width(72).Fill(cFloat).CascadeStyle(&Style{Fill: cFloat, BG: cFloat, FG: cFG}).PaddingVH(1, 2)(
+		Overlay.Centered()(
+			VBox.Width(72).Fill(cFloat).CascadeStyle(&Style{Fill: cFloat, BG: cFloat, FG: cFG}).
+				PaddingVH(1, 2).NodeRef(&promptRef).Opacity(In(1).Out(Animate(0)))(
 				On.Modal(
 					Key("<CR>", submitPrompt),
 					Key("<Enter>", submitPrompt),
 					Key("<Esc>", closePrompt),
 					Key("<C-v>", pasteImageIntoComment),
+				),
+				// dim everything except the panel (drop shadow + dodged vignette), the
+				// same treatment as the omnibox/help overlays — no flat Backdrop.
+				ScreenEffect(
+					SEDropShadow().Strength(0.3).Focus(&promptRef),
+					SEVignette().Smooth().Strength(In(Animate(0.3)).Out(Animate(0))).Dodge(&promptRef),
 				),
 				HBox(Text(&promptTitle).FG(cBright).Bold(), Space(), Text("esc cancel · enter save").FG(cMuted)),
 				SpaceH(1),
@@ -112,13 +122,18 @@ func openReadComment() {
 
 func readCommentOverlay() Component {
 	return If(&commentViewOpen).Then(
-		Overlay.Centered().Backdrop()(
-			VBox.Width(72).Fill(cFloat).CascadeStyle(&Style{Fill: cFloat, BG: cFloat, FG: cFG}).PaddingVH(1, 2)(
+		Overlay.Centered()(
+			VBox.Width(72).Fill(cFloat).CascadeStyle(&Style{Fill: cFloat, BG: cFloat, FG: cFG}).
+				PaddingVH(1, 2).NodeRef(&readRef).Opacity(In(1).Out(Animate(0)))(
 				On.Modal(
 					Key("e", func() { commentViewOpen = false; editDraftComment() }),
 					Key("d", func() { commentViewOpen = false; deleteDraftComment() }),
 					Key("<Esc>", func() { commentViewOpen = false; uiApp.RequestRender() }),
 					Key("q", func() { commentViewOpen = false; uiApp.RequestRender() }),
+				),
+				ScreenEffect(
+					SEDropShadow().Strength(0.3).Focus(&readRef),
+					SEVignette().Smooth().Strength(In(Animate(0.3)).Out(Animate(0))).Dodge(&readRef),
 				),
 				HBox(Text("comment").FG(cBright).Bold(), Space(), Text("e edit · d delete · esc back").FG(cMuted)),
 				SpaceH(1),
