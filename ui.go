@@ -117,6 +117,7 @@ type taskVM struct {
 type draftCommentVM struct {
 	ID       int64  // comment id, for edit/delete
 	Location string // "file · line N" or "general"
+	When     string // comment time (HH:MM) from CreatedAt
 	Snippet  string // the diff line commented on (may be empty)
 	Body     string
 	File     string
@@ -354,9 +355,7 @@ func reloadTasks() {
 			Pending:    st == StatePending,
 			RevIdx:     -1, // task header row
 		}
-		if len(t.CreatedAt) >= 16 {
-			vm.When = t.CreatedAt[11:16]
-		}
+		vm.When = hhmm(t.CreatedAt)
 		// unsubmitted draft feedback → a pill on the row (doesn't affect state).
 		if _, n, ok := uiStore.DraftInfo(t.ID); ok && n > 0 {
 			vm.HasDraft = true
@@ -686,7 +685,7 @@ func loadDraftPane(taskID int64) {
 		if c.Draft {
 			drafts++
 		}
-		vm := draftCommentVM{ID: c.ID, Body: c.Body, File: c.File, Line: c.Line, Draft: c.Draft}
+		vm := draftCommentVM{ID: c.ID, Body: c.Body, File: c.File, Line: c.Line, Draft: c.Draft, When: hhmm(c.CreatedAt)}
 		if c.File != "" {
 			vm.Location = c.File
 			if c.Line > 0 {
@@ -948,6 +947,15 @@ func dash(s string) string {
 	return s
 }
 
+// hhmm extracts the HH:MM time from a "2006-01-02 15:04:05" stamp (nowStamp's
+// format); returns "" for anything shorter, so a missing time just renders blank.
+func hhmm(stamp string) string {
+	if len(stamp) < 16 {
+		return ""
+	}
+	return stamp[11:16]
+}
+
 // --- view ------------------------------------------------------------------
 
 func buildMain() Component {
@@ -1203,7 +1211,7 @@ func draftRow(c *draftCommentVM) Component {
 	// per-row body fill = full-width flat band (no list marker), focus-aware.
 	itemBG := If(&c.Selected).Then(&draftSelBG).Else(&cPaneBG)
 	return VBox.Fill(itemBG).PaddingVH(1, 1)(
-		Text(&c.Location).FG(cSubtle),
+		HBox(Text(&c.Location).FG(cSubtle), Space(), Text(&c.When).FG(cMuted)),
 		If(&c.Snippet).Then(Text(&c.Snippet).FG(cMuted)),
 		// TextBlock re-wraps to the column width, so a long comment flows onto
 		// several lines instead of truncating at one (Text clips to a single line).

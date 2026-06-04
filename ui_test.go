@@ -661,3 +661,17 @@ func TestOmniMaxVisible(t *testing.T) {
 		t.Fatalf("MaxVisible(10) not bounding: %d of %d command labels rendered", vis, total)
 	}
 }
+
+// hhmm pulls HH:MM out of a nowStamp ("2006-01-02 15:04:05") and degrades to ""
+// for short/empty input, so a comment row with no time renders blank not garbled.
+func TestHHMM(t *testing.T) {
+	if got := hhmm("2026-06-04 09:45:05"); got != "09:45" {
+		t.Fatalf("hhmm = %q, want 09:45", got)
+	}
+	if got := hhmm(""); got != "" {
+		t.Fatalf("hhmm(empty) = %q, want empty", got)
+	}
+	if got := hhmm("2026-06-04"); got != "" {
+		t.Fatalf("hhmm(date-only) = %q, want empty", got)
+	}
+}
