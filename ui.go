@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"syscall"
+	"time"
 	"unicode"
 
 	. "github.com/kungfusheep/glyph"
@@ -984,7 +985,7 @@ func buildMain() Component {
 		)),
 		HBox.Grow(1).Gap(4)(
 			// left — review inbox (darker column fill claims the area)
-			VBox.Grow(2).Fill(cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0)(
+			VBox.Grow(2).Fill(cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0).NodeRef(&listPaneRef)(
 				HBox(
 					SpaceW(3),
 					Text("recap").FG(cBright).Bold(),
@@ -1018,7 +1019,7 @@ func buildMain() Component {
 			// SpaceH(1) drops the title to row 1 to line up with the left/right
 			// column headers: those get their top row from .Fill()+PaddingTRBL, but
 			// this unfilled column's top padding collapses, so the title rode at row 0.
-			VBox.Grow(3).PaddingTRBL(1, 0, 0, 0)(
+			VBox.Grow(3).PaddingTRBL(1, 0, 0, 0).NodeRef(&diffPaneRef)(
 				SpaceH(1),
 				HBox(
 					Text(&detailTitle).FG(cBright).Bold(),
@@ -1061,7 +1062,7 @@ func buildMain() Component {
 			),
 			// right — comments overview (shown whenever the task has any comments)
 			If(&hasDraft).Then(
-				VBox.Grow(2).Fill(cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0)(
+				VBox.Grow(2).Fill(cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0).NodeRef(&draftPaneRef)(
 					HBox(SpaceW(3), Text("comments").FG(cBright).Bold(), Space(), Text(&draftNote).FG(cSubtle), SpaceW(2)),
 					SpaceH(2),
 					List(&draftComments).
@@ -1084,6 +1085,8 @@ func buildMain() Component {
 		),
 		// transient status (errors/confirmations) only — no permanent keybar
 		If(&statusMsg).Then(HBox(SpaceW(3), Text(&statusMsg).FG(cSubtle))),
+		// per-column focus fade: unfocused columns dim (mail's FocusShade)
+		columnShades(),
 		// floating comment prompts (add/edit + read), over the inbox/diff
 		inputPromptOverlay(),
 		readCommentOverlay(),
@@ -1121,6 +1124,32 @@ var helpActionRows = []helpRow{
 }
 
 var helpRef NodeRef
+
+// column node refs for the focus-fade effect (mail's FocusShade): each column
+// dims while it isn't the focused pane.
+var (
+	listPaneRef  NodeRef
+	diffPaneRef  NodeRef
+	draftPaneRef NodeRef
+)
+
+// columnShades returns the per-column focus-fade effects, gated by pane: a column
+// fades (shade present → animates in) while it isn't focused, and fades back when
+// focused. The shades dodge the overlays so popups aren't double-dimmed.
+func columnShades() Component {
+	fade := Animate.Duration(380 * time.Millisecond).Ease(EaseOutCubic)
+	mk := func(ref *NodeRef) FocusShade {
+		return NewFocusShade(ref).
+			Strength(In(fade(0.28)).Out(fade(0))).
+			Dodge(&helpRef, &promptRef, &readRef, omni.Ref())
+	}
+	return VBox(
+		If(&pane).Ne(paneList).Then(ScreenEffect(mk(&listPaneRef))),
+		If(&pane).Ne(paneDiff).Then(ScreenEffect(mk(&diffPaneRef))),
+		// the draft column only exists when hasDraft; otherwise its ref is stale.
+		If(&hasDraft).Then(If(&pane).Ne(paneDraft).Then(ScreenEffect(mk(&draftPaneRef)))),
+	)
+}
 
 // helpOverlay is the ? cheatsheet — centred, two-column, mail's dimensions and
 // screen-effect treatment (animated dodged vignette + focused drop shadow).

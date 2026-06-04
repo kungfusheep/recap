@@ -141,6 +141,10 @@ func (b *OmniBox) move(d int) {
 }
 
 // View returns the overlay; render it once near the top of the main view tree.
+// Ref returns the panel's node ref, so focus-shade effects can dodge it (avoid
+// double-dimming the column behind the open palette).
+func (b *OmniBox) Ref() *NodeRef { return &b.ref }
+
 // While closed it renders nothing and binds no keys; while open it floats a
 // centred panel over the inbox and captures keys via On.Modal.
 func (b *OmniBox) View() Component {
