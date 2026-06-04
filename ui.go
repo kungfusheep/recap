@@ -213,6 +213,7 @@ var (
 	draftComments []draftCommentVM
 
 	countText, filterText string
+	spinFrame             int // animation frame for the in-flight spinner flare
 	inboxCount            int // number of pending (inbox) tasks — shown in the header
 	detailTitle           string
 	metaRepo, metaWhen    string
@@ -264,6 +265,17 @@ func runUI() error {
 		for range sigReload {
 			reloadRequested.Store(true)
 			uiApp.RequestRender()
+		}
+	}()
+
+	// animate the in-flight spinner flare, but only while there's an in-flight
+	// marker — no idle re-renders when nothing's in progress.
+	go func() {
+		for range time.Tick(120 * time.Millisecond) {
+			if hasWorking {
+				spinFrame++
+				uiApp.RequestRender()
+			}
 		}
 	}()
 
@@ -1071,6 +1083,13 @@ func buildMain() Component {
 						// the section is separated from the inbox by whitespace instead.
 						VBox.PaddingTRBL(0, 2, 2, 3).Gap(1)(
 							Text("upcoming").FG(cSubtle).Bold(),
+							// the in-flight marker (recap working) flares with an animated
+							// spinner to show active work — distinct from the static TODO list.
+							If(&hasWorking).Then(HBox(
+								Spinner(&spinFrame).Frames(SpinnerDots).FG(cBright),
+								SpaceW(1),
+								Text(&workingText).FG(cBright),
+							)),
 							VBox(ForEach(&upcomingItems, func(r *upcomingRow) Component {
 								return Text(&r.Line).FG(&r.FG)
 							})),

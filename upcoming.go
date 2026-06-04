@@ -14,8 +14,10 @@ import (
 // selected repo changes and the result is swapped in on the render thread, the
 // same hand-off the SIGUSR1 inbox reload uses.
 var (
-	upcomingItems   []upcomingRow // ≤upcomingMax next incomplete tasks (display rows)
-	hasUpcoming     bool          // gates the section; mirrors len(upcomingItems) > 0
+	upcomingItems   []upcomingRow // the next ≤upcomingMax TODO tasks (plain bullets)
+	hasUpcoming     bool          // gates the whole section
+	workingText     string        // the in-flight marker text ("" = none)
+	hasWorking      bool          // gates the spinner flare row; mirrors workingText != ""
 	upcomingRepo    string        // repo path currently shown (render-thread owned)
 	upcomingLoading string        // repo path being loaded (render-thread owned, dedupe)
 
@@ -23,11 +25,10 @@ var (
 	upcomingStaged *upcomingResult // handed off from the loader goroutine
 )
 
-// upcomingRow is one rendered upcoming line. The explicitly-marked in-flight item
-// (set via `recap working`) carries the "in-progress" flare — a ▸ marker + brighter
-// colour — and leads the list; the next TODO tasks follow with a plain bullet. Line
-// (marker+text) and FG are precomputed so each row is a single full-width Text — the
-// build-once ForEach renders them uniformly and they reflow on resize.
+// upcomingRow is one TODO line in the upcoming list, rendered as a single
+// full-width Text (build-once ForEach safe, reflows on resize). The in-flight
+// marker is NOT a row — it's rendered separately above the list with an animated
+// spinner flare (the "in progress" cue), set via `recap working`.
 type upcomingRow struct {
 	Line string
 	FG   Color
@@ -51,8 +52,10 @@ func updateUpcoming() {
 	upcomingMu.Unlock()
 	if staged != nil {
 		upcomingRepo = staged.repo
-		upcomingItems = buildUpcomingRows(staged.working, staged.items)
-		hasUpcoming = len(upcomingItems) > 0
+		workingText = staged.working
+		hasWorking = workingText != ""
+		upcomingItems = buildUpcomingRows(staged.items)
+		hasUpcoming = hasWorking || len(upcomingItems) > 0
 	}
 
 	t, ok := selectedTask()
@@ -95,14 +98,11 @@ func loadUpcoming(repoPath string) []string {
 	return upcomingFromItems(items)
 }
 
-// buildUpcomingRows builds the display rows: the explicit in-flight marker (if any)
-// leads with the ▸ flare, then the next TODO tasks with a plain bullet. Runs on the
-// render thread so it can read the current theme colours.
-func buildUpcomingRows(working string, texts []string) []upcomingRow {
-	rows := make([]upcomingRow, 0, len(texts)+1)
-	if working != "" {
-		rows = append(rows, upcomingRow{Line: "▸ " + working, FG: cBright})
-	}
+// buildUpcomingRows turns the upcoming task texts into plain bulleted rows. Runs on
+// the render thread so it can read the current theme colours. (The in-flight marker
+// is rendered separately with a spinner, not as one of these rows.)
+func buildUpcomingRows(texts []string) []upcomingRow {
+	rows := make([]upcomingRow, 0, len(texts))
 	for _, txt := range texts {
 		rows = append(rows, upcomingRow{Line: "· " + txt, FG: cSubtle})
 	}

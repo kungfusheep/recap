@@ -40,34 +40,19 @@ func TestUpcomingFromItems(t *testing.T) {
 	}
 }
 
-// buildUpcomingRows flares the EXPLICIT in-flight marker (▸, bright) at the top and
-// lists the next TODO tasks with a plain bullet — the flare follows what the agent
-// marked, not the list order.
-func TestBuildUpcomingRowsFlare(t *testing.T) {
-	rows := buildUpcomingRows("addressing review #176", []string{"first", "second", "third"})
-	if len(rows) != 4 { // marker + 3 tasks
-		t.Fatalf("got %d rows, want 4", len(rows))
+// buildUpcomingRows renders the TODO tasks as plain bulleted rows (the in-flight
+// marker is rendered separately with a spinner, not as a row here).
+func TestBuildUpcomingRows(t *testing.T) {
+	rows := buildUpcomingRows([]string{"first", "second", "third"})
+	if len(rows) != 3 {
+		t.Fatalf("got %d rows, want 3", len(rows))
 	}
-	if rows[0].Line != "▸ addressing review #176" {
-		t.Fatalf("flare row = %q, want the in-flight marker", rows[0].Line)
-	}
-	for i := 1; i < len(rows); i++ {
-		if !strings.HasPrefix(rows[i].Line, "· ") {
-			t.Fatalf("row %d line = %q, want '· ' prefix", i, rows[i].Line)
-		}
-	}
-
-	// no marker → no flare, just bulleted tasks (the flare isn't faked from item 0)
-	plain := buildUpcomingRows("", []string{"first", "second"})
-	if len(plain) != 2 {
-		t.Fatalf("no-marker rows = %d, want 2", len(plain))
-	}
-	for i, r := range plain {
+	for i, r := range rows {
 		if !strings.HasPrefix(r.Line, "· ") {
-			t.Fatalf("no-marker row %d = %q, want plain bullet (no flare)", i, r.Line)
+			t.Fatalf("row %d line = %q, want '· ' prefix", i, r.Line)
 		}
 	}
-	if len(buildUpcomingRows("", nil)) != 0 {
+	if len(buildUpcomingRows(nil)) != 0 {
 		t.Fatal("empty input should give empty rows")
 	}
 }
