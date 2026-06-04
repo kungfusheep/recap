@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -81,7 +83,15 @@ func updateUpcoming() {
 	upcomingLoading = t.RepoPath
 	repo := t.RepoPath
 	go func() {
-		working := loadWorking()    // the explicit in-flight marker
+		// the in-flight marker is a work-item id (#n); resolve it to "#n <title>".
+		working := ""
+		if id := loadWorking(); id != "" {
+			if n, e := strconv.ParseInt(id, 10, 64); e == nil && n > 0 && uiStore != nil {
+				if t, e2 := uiStore.Get(n); e2 == nil {
+					working = fmt.Sprintf("#%d %s", n, t.Title)
+				}
+			}
+		}
 		items := loadUpcoming(repo) // TODO tasks — file read + parse, off the render thread
 		upcomingMu.Lock()
 		upcomingStaged = &upcomingResult{repo: repo, working: working, items: items}

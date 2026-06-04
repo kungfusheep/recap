@@ -551,19 +551,49 @@ func cmdWorking(args []string) error {
 	fs := flag.NewFlagSet("working", flag.ExitOnError)
 	clearFlag := fs.Bool("clear", false, "clear the in-flight marker")
 	fs.Parse(args)
-	text := strings.TrimSpace(strings.Join(fs.Args(), " "))
-	if *clearFlag {
-		text = ""
+	rest := fs.Args()
+	if *clearFlag || (len(rest) == 1 && (rest[0] == "clear" || rest[0] == "none")) {
+		if err := saveWorking(""); err != nil {
+			return err
+		}
+		notify.Reload()
+		fmt.Println("cleared in-flight marker")
+		return nil
 	}
-	if err := saveWorking(text); err != nil {
+	st, err := Open()
+	if err != nil {
 		return err
 	}
-	notify.Reload() // refresh any open TUI's upcoming/in-flight cue
-	if text == "" {
-		fmt.Println("cleared in-flight marker")
-	} else {
-		fmt.Printf("working: %s\n", text)
+	defer st.Close()
+	if len(rest) == 0 { // show current
+		id := loadWorking()
+		if id == "" {
+			fmt.Println("not working on anything")
+			return nil
+		}
+		if n, e := parseID(id); e == nil {
+			if t, e2 := st.Get(n); e2 == nil {
+				fmt.Printf("working on #%d %s\n", n, t.Title)
+				return nil
+			}
+		}
+		fmt.Printf("working on #%s\n", id)
+		return nil
 	}
+	// the marker is a WORK ITEM reference (#n), not free text — "what I'm on".
+	id, err := parseID(strings.TrimPrefix(rest[0], "#"))
+	if err != nil {
+		return fmt.Errorf("usage: recap working #<task-id>   (a work item, not free text; or --clear)")
+	}
+	t, err := st.Get(id)
+	if err != nil {
+		return fmt.Errorf("no task #%d", id)
+	}
+	if err := saveWorking(strconv.FormatInt(id, 10)); err != nil {
+		return err
+	}
+	notify.Reload()
+	fmt.Printf("working on #%d %s\n", id, t.Title)
 	return nil
 }
 

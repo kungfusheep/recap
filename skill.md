@@ -60,22 +60,17 @@ never put a name in git commits.
 
 ## Signalling what you're working on (the in-flight marker)
 
-When you START a unit of work — a TODO task or a review you're fixing forward — mark it:
+When you START work on a recap item, point the marker at it — it takes a **work-item id,
+not free text** ("what I'm on", not a status feed):
 
 ```
-recap working "what you're on, concise"
+recap working #<task-id>     # e.g. recap working #50
+recap working --clear        # when you move off / go idle
 ```
 
-This drives the **in-flight flare** (▸) in the reviewer's upcoming panel, so they can see
-the item you're *actually* focused on (which may be review feedback, not the next TODO
-line). Update it as you move between units; clear it when idle:
-
-```
-recap working --clear
-```
-
-It nudges any open TUI to refresh, so the cue updates live. It's a cue only — it doesn't
-record work (that's `recap add`) or change task state.
+The reviewer's panel shows a spinner with that item's "#n title", resolved live. Update
+it as you move between items. It's a cue only — it doesn't record work (`recap add`) or
+change state — and it pushes, so an open TUI tracks it without a refresh.
 
 ## Reviewer replies — the read-receipt inbox
 
