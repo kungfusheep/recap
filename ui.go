@@ -116,7 +116,10 @@ type taskVM struct {
 // keep the raw anchor so selecting a row can scroll the diff to it.
 type draftCommentVM struct {
 	ID       int64  // comment id, for edit/delete
-	Location string // "file · line N" or "general"
+	ParentID int64  // 0 = top-level; else the comment this replies to
+	Who      string // "you" | "agent" (used to label replies)
+	Location string // "file · line N" / "general" / "↳ who" for a reply
+	Indent   string // leading spaces for nested replies (precomputed; build-once safe)
 	When     string // comment time (HH:MM) from CreatedAt
 	Snippet  string // the diff line commented on (may be empty)
 	Body     string
@@ -693,7 +696,7 @@ func loadDraftPane(taskID int64) {
 		if c.Draft {
 			drafts++
 		}
-		vm := draftCommentVM{ID: c.ID, Body: c.Body, File: c.File, Line: c.Line, Draft: c.Draft, When: hhmm(c.CreatedAt)}
+		vm := draftCommentVM{ID: c.ID, ParentID: c.ParentID, Who: c.Who, Body: c.Body, File: c.File, Line: c.Line, Draft: c.Draft, When: hhmm(c.CreatedAt)}
 		if c.File != "" {
 			vm.Location = c.File
 			if c.Line > 0 {
@@ -720,9 +723,31 @@ func loadDraftPane(taskID int64) {
 	if draftSel < 0 {
 		draftSel = 0
 	}
-	// general (top-level) comments first, then anchored ones grouped by file:line.
-	sort.SliceStable(draftComments, func(i, j int) bool {
-		a, b := draftComments[i], draftComments[j]
+	// order top-level comments (general first, then anchored by file:line) with each
+	// reply nested under its parent.
+	draftComments = threadComments(draftComments)
+}
+
+// threadComments orders a flat comment list into threads: top-level comments in
+// the display order (general before anchored, then by file:line), each followed by
+// its reply subtree (indented). Reply rows get an "↳ who" location + indent so the
+// build-once List template renders them uniformly (no per-row Go branching).
+func threadComments(vms []draftCommentVM) []draftCommentVM {
+	present := make(map[int64]bool, len(vms))
+	for _, v := range vms {
+		present[v.ID] = true
+	}
+	byParent := map[int64][]draftCommentVM{}
+	var top []draftCommentVM
+	for _, v := range vms {
+		if v.ParentID != 0 && present[v.ParentID] {
+			byParent[v.ParentID] = append(byParent[v.ParentID], v)
+		} else {
+			top = append(top, v)
+		}
+	}
+	sort.SliceStable(top, func(i, j int) bool {
+		a, b := top[i], top[j]
 		if (a.File == "") != (b.File == "") {
 			return a.File == "" // general (unanchored) before anchored
 		}
@@ -731,6 +756,23 @@ func loadDraftPane(taskID int64) {
 		}
 		return a.Line < b.Line
 	})
+	var out []draftCommentVM
+	var walk func(v draftCommentVM, depth int)
+	walk = func(v draftCommentVM, depth int) {
+		if depth > 0 { // a reply: relabel + indent, drop the repeated snippet
+			v.Location = "↳ " + dash(v.Who)
+			v.Indent = strings.Repeat("  ", depth)
+			v.Snippet = ""
+		}
+		out = append(out, v)
+		for _, r := range byParent[v.ID] {
+			walk(r, depth+1)
+		}
+	}
+	for _, v := range top {
+		walk(v, 0)
+	}
+	return out
 }
 
 func plural(n int) string {
@@ -1218,12 +1260,13 @@ func toggleHelp() { helpOpen = !helpOpen }
 func draftRow(c *draftCommentVM) Component {
 	// per-row body fill = full-width flat band (no list marker), focus-aware.
 	itemBG := If(&c.Selected).Then(&draftSelBG).Else(&cPaneBG)
+	// Indent (precomputed per row) nests replies; empty for top-level comments.
 	return VBox.Fill(itemBG).PaddingVH(1, 1)(
-		HBox(Text(&c.Location).FG(cSubtle), Space(), Text(&c.When).FG(cMuted)),
+		HBox(Text(&c.Indent), Text(&c.Location).FG(cSubtle), Space(), Text(&c.When).FG(cMuted)),
 		If(&c.Snippet).Then(Text(&c.Snippet).FG(cMuted)),
 		// TextBlock re-wraps to the column width, so a long comment flows onto
 		// several lines instead of truncating at one (Text clips to a single line).
-		TextBlock(&c.Body).FG(cFG),
+		HBox(Text(&c.Indent), TextBlock(&c.Body).FG(cFG)),
 	)
 }
 

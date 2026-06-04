@@ -675,3 +675,49 @@ func TestHHMM(t *testing.T) {
 		t.Fatalf("hhmm(date-only) = %q, want empty", got)
 	}
 }
+
+// threadComments nests replies under their parent: a reply follows its parent,
+// gets an "↳ who" location, an indent, and no repeated snippet. Top-level order is
+// general-before-anchored, then file:line.
+func TestThreadComments(t *testing.T) {
+	in := []draftCommentVM{
+		{ID: 1, Location: "main.go · line 5", File: "main.go", Line: 5, Snippet: "x"},
+		{ID: 2, ParentID: 1, Who: "agent", Body: "fixed"},
+		{ID: 3, Location: "general"}, // top-level general → sorts first
+	}
+	out := threadComments(in)
+	if len(out) != 3 {
+		t.Fatalf("got %d rows, want 3", len(out))
+	}
+	// general (id 3) first, then the anchored thread (1 then its reply 2)
+	if out[0].ID != 3 || out[1].ID != 1 || out[2].ID != 2 {
+		t.Fatalf("order = [%d %d %d], want [3 1 2]", out[0].ID, out[1].ID, out[2].ID)
+	}
+	reply := out[2]
+	if reply.Location != "↳ agent" {
+		t.Fatalf("reply location = %q, want ↳ agent", reply.Location)
+	}
+	if reply.Indent != "  " {
+		t.Fatalf("reply indent = %q, want two spaces", reply.Indent)
+	}
+	if reply.Snippet != "" {
+		t.Fatalf("reply should not carry a snippet, got %q", reply.Snippet)
+	}
+}
+
+// a reply row renders its "↳ who" label and body indented in the comments pane.
+func TestReplyRowRenders(t *testing.T) {
+	c := draftCommentVM{Location: "↳ agent", Indent: "  ", When: "10:20", Body: "renamed it"}
+	tmpl := Build(VBox.Width(50)(draftRow(&c)))
+	buf := NewBuffer(50, 6)
+	tmpl.Execute(buf, 50, 6)
+	var sb strings.Builder
+	for y := 0; y < 6; y++ {
+		sb.WriteString(buf.GetLine(y))
+		sb.WriteByte('\n')
+	}
+	out := sb.String()
+	if !strings.Contains(out, "↳ agent") || !strings.Contains(out, "renamed it") {
+		t.Fatalf("reply row missing label/body:\n%s", out)
+	}
+}
