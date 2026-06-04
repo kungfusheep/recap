@@ -53,7 +53,10 @@ func openTodoEditor() {
 	}
 	todoPath = path
 	todoItems = items
-	todoSel = 0
+	todoSel = len(items) - 1 // open scrolled to the bottom (newest items / where adds land)
+	if todoSel < 0 {
+		todoSel = 0
+	}
 	todoTitle = "TODO · " + t.Repo
 	todoPrep()
 	todoOpen = true
@@ -93,6 +96,14 @@ func todoMove(d int) {
 	}
 	todoPrep()
 }
+
+// vim-style navigation for the TODO list (matches the diff pane's g/G/C-d/C-u).
+const todoHalfPage = 10
+
+func todoTop()      { todoSel = 0; todoPrep() }
+func todoBottom()   { todoSel = len(todoItems) - 1; todoMove(0) } // clamps + preps
+func todoHalfDown() { todoMove(todoHalfPage) }
+func todoHalfUp()   { todoMove(-todoHalfPage) }
 
 func todoSave() {
 	if err := writeTodo(todoPath, todoItems); err != nil {
@@ -181,6 +192,10 @@ func todoEditorPanel() Component {
 		On.Modal(
 			Key("j", func() { todoMove(1) }),
 			Key("k", func() { todoMove(-1) }),
+			Key("g", todoTop),
+			Key("G", todoBottom),
+			Key("<C-d>", todoHalfDown),
+			Key("<C-u>", todoHalfUp),
 			Key("<Space>", todoToggle),
 			Key("x", todoToggle),
 			Key("a", todoAdd),
