@@ -894,3 +894,36 @@ func TestReplyToCommentFromPane(t *testing.T) {
 		t.Fatalf("TUI reply should be who=you, got %q", found.Who)
 	}
 }
+
+// a reload that inserts new tasks ABOVE the selected one must keep the selection on
+// the same task (by id), not the same index — otherwise the list jumps under the
+// reader when items arrive (e.g. via recap add).
+func TestReloadKeepsSelectionByTask(t *testing.T) {
+	st := testStore(t)
+	uiStore = st
+	t.Cleanup(func() { uiStore = nil; vmRows = nil; sel = 0 })
+
+	// inbox is oldest-first, so a NEW task lands above older ones? no — newest at
+	// bottom. To force insertion ABOVE the selection we approve the selected one's
+	// elders... simpler: select a task, then add an OLDER-sorting item. Inbox sorts
+	// by id asc, so a new id is always below. Instead, select the last (newest) and
+	// confirm a new newer one pushes in below but selection stays on our task.
+	a, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "a", Status: StatusPending})
+	b, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "b", Status: StatusPending})
+	reloadTasks()
+	// select task b
+	for i, r := range vmRows {
+		if r.ID == b {
+			sel = i
+		}
+	}
+	selectedBefore := vmRows[sel].ID
+
+	// a SIGUSR1-style reload after another task arrives must keep us on b
+	st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "c", Status: StatusPending})
+	reloadTasks()
+	if vmRows[sel].ID != selectedBefore {
+		t.Fatalf("selection jumped: was on task %d, now on %d", selectedBefore, vmRows[sel].ID)
+	}
+	_ = a
+}

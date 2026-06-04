@@ -339,6 +339,13 @@ func stateColor(s string) Color {
 }
 
 func reloadTasks() {
+	// remember which row is selected (by task id + revision) so a reload that
+	// inserts items above it doesn't shift the selection out from under the reader.
+	var prevID int64 = -1
+	prevRev := -99
+	if sel >= 0 && sel < len(vmRows) {
+		prevID, prevRev = vmRows[sel].ID, vmRows[sel].RevIdx
+	}
 	tasks, _ = uiStore.List("", repoFltr)
 	// derived state per task (computed from reviews, never a stale flag).
 	state := make(map[int64]string, len(tasks))
@@ -438,6 +445,16 @@ func reloadTasks() {
 					RevLabel: revLabel(j, r),
 					Summary:  r.Summary,
 				})
+			}
+		}
+	}
+	// restore the selection to the same row (task + revision) it was on before, so
+	// items arriving above it don't yank the view; fall back to clamping if it's gone.
+	if prevID >= 0 {
+		for i, r := range vmRows {
+			if r.ID == prevID && r.RevIdx == prevRev {
+				sel = i
+				break
 			}
 		}
 	}
