@@ -128,7 +128,8 @@ type draftCommentVM struct {
 	ID       int64  // comment id, for edit/delete
 	ParentID int64  // 0 = top-level; else the comment this replies to
 	Who      string // "you" | "agent" (used to label replies)
-	Emote    string // optional reaction shown on the row (e.g. 👍)
+	Emote    string // optional reaction shown below the body (e.g. 👍)
+	HasEmote bool   // gates the emote line; mirrors Emote != ""
 	Location string // "file · line N" / "general" / "↳ who" for a reply
 	Indent   string // leading spaces for nested replies (precomputed; build-once safe)
 	When     string // comment time (HH:MM) from CreatedAt
@@ -747,7 +748,7 @@ func loadDraftPane(taskID int64) {
 		if c.Draft {
 			drafts++
 		}
-		vm := draftCommentVM{ID: c.ID, ParentID: c.ParentID, Who: c.Who, Emote: c.Emote, Body: c.Body, File: c.File, Line: c.Line, Draft: c.Draft, When: hhmm(c.CreatedAt)}
+		vm := draftCommentVM{ID: c.ID, ParentID: c.ParentID, Who: c.Who, Emote: c.Emote, HasEmote: c.Emote != "", Body: c.Body, File: c.File, Line: c.Line, Draft: c.Draft, When: hhmm(c.CreatedAt)}
 		if c.File != "" {
 			vm.Location = c.File
 			if c.Line > 0 {
@@ -1321,11 +1322,14 @@ func draftRow(c *draftCommentVM) Component {
 	itemBG := If(&c.Selected).Then(&draftSelBG).Else(&cPaneBG)
 	// Indent (precomputed per row) nests replies; empty for top-level comments.
 	return VBox.Fill(itemBG).PaddingVH(1, 1)(
-		HBox(Text(&c.Indent), Text(&c.Location).FG(cSubtle), SpaceW(1), Text(&c.Emote), Space(), Text(&c.When).FG(cMuted)),
+		HBox(Text(&c.Indent), Text(&c.Location).FG(cSubtle), Space(), Text(&c.When).FG(cMuted)),
 		If(&c.Snippet).Then(Text(&c.Snippet).FG(cMuted)),
 		// TextBlock re-wraps to the column width, so a long comment flows onto
 		// several lines instead of truncating at one (Text clips to a single line).
 		HBox(Text(&c.Indent), TextBlock(&c.Body).FG(cFG)),
+		// the agent's reaction sits below the body, attributed (Text, not TextBlock,
+		// so the emoji renders cleanly).
+		If(&c.HasEmote).Then(HBox(Text(&c.Indent), Text(&c.Emote).FG(cBright), SpaceW(1), Text("agent").FG(cMuted))),
 	)
 }
 
