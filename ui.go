@@ -154,12 +154,16 @@ var (
 	diffBanner [][]Span       // optional context rows prepended to the diff
 
 	// line-comment "pick a line" mode: renderDiffLayer draws label chars in the
-	// gutter of visible commentable rows; diffLabelByRow maps label → row.
+	// gutter of visible commentable rows; diffLabelByRow maps the label string → row.
+	// Labels are 1 char when they fit, else 2 chars (easymotion-style) so a tall diff
+	// with many commentable rows never runs out. pickBuffer accumulates typed chars
+	// until they match a label (prefix-matched).
 	// pickMode mirrors diffCommentMode as a string so view conditionals (If.Eq)
 	// can gate key scopes on it ("on"/"off"); always set both via setPickMode.
 	diffCommentMode bool
 	pickMode        = "off"
-	diffLabelByRow  = map[rune]int{}
+	diffLabelByRow  = map[string]int{}
+	pickBuffer      string
 	// pickAction is what to do with the picked diff line (comment on it, or open it
 	// in $EDITOR). Set when entering pick mode; pickDiffLine calls it with the row.
 	pickAction func(diffLineMeta)
@@ -910,14 +914,23 @@ func renderDiffLayer() {
 
 	// in pick mode, label visible commentable rows; the label overwrites the
 	// 2-col gutter so all code stays visible. Recomputed each render so labels
-	// always match what's on screen.
-	const labels = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	top, vh, li := diffLayer.ScrollY(), diffLayer.ViewportHeight(), 0
+	// always match what's on screen. Labels are 1 char when they fit, else 2 chars
+	// (so a tall diff with many commentable rows never runs out of jump letters).
+	top, vh := diffLayer.ScrollY(), diffLayer.ViewportHeight()
+	var diffLabels []string // label per visible commentable row, in row order
 	if diffCommentMode {
 		for k := range diffLabelByRow {
 			delete(diffLabelByRow, k)
 		}
+		n := 0 // count visible commentable rows to size the label alphabet
+		for y := top; y < top+vh && y < len(diffMeta); y++ {
+			if diffMeta[y].Commentable {
+				n++
+			}
+		}
+		diffLabels = makePickLabels(n)
 	}
+	li := 0
 
 	for y := 0; y < h; y++ {
 		buf.ClearLineWithStyle(y, clear)
@@ -926,13 +939,13 @@ func renderDiffLayer() {
 		}
 		buf.WriteSpans(0, y, diffLines[y], textW)
 		switch {
-		case diffCommentMode && y >= top && y < top+vh && li < len(labels) &&
+		case diffCommentMode && y >= top && y < top+vh && li < len(diffLabels) &&
 			y < len(diffMeta) && diffMeta[y].Commentable:
 			// pick mode: overlay the selection label in the gutter
-			r := rune(labels[li])
+			lbl := diffLabels[li]
 			li++
-			diffLabelByRow[r] = y
-			buf.WriteSpans(0, y, []Span{{Text: string(r), Style: Style{FG: cBG, BG: cHunk, Attr: AttrBold}}}, w)
+			diffLabelByRow[lbl] = y
+			buf.WriteSpans(0, y, []Span{{Text: lbl, Style: Style{FG: cBG, BG: cHunk, Attr: AttrBold}}}, w)
 		case !diffCommentMode && y < len(diffMeta) && diffMeta[y].Commentable &&
 			commentedLines[lineKey(diffMeta[y].File, diffMeta[y].Line)]:
 			// normal: a bright filled gutter block marks a commented line, with a
@@ -1625,6 +1638,7 @@ func commentOnDiffLine(m diffLineMeta) {
 // string mirror in sync.
 func setPickMode(on bool) {
 	diffCommentMode = on
+	pickBuffer = "" // start each pick session with an empty label buffer
 	if on {
 		pickMode = "on"
 	} else {
@@ -1637,22 +1651,56 @@ func cancelDiffPick() {
 	diffLayer.Invalidate()
 }
 
-// pickDiffLine resolves a label to its row, leaves pick mode, and runs the action
-// chosen when pick mode was entered (comment on the line, or open it in $EDITOR).
+// makePickLabels returns n jump labels: single chars (a-zA-Z) while they fit,
+// otherwise 2-char combos (aa, ab, …) so a tall diff with many commentable rows
+// never runs out of labels. A render uses one scheme or the other, never mixed,
+// so prefix matching in pickDiffLine is unambiguous.
+func makePickLabels(n int) []string {
+	if n <= 0 {
+		return nil
+	}
+	const single = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	out := make([]string, 0, n)
+	if n <= len(single) {
+		for i := 0; i < n; i++ {
+			out = append(out, string(single[i]))
+		}
+		return out
+	}
+	const a = "abcdefghijklmnopqrstuvwxyz"
+	for i := 0; i < n && i < len(a)*len(a); i++ {
+		out = append(out, string(a[i/len(a)])+string(a[i%len(a)]))
+	}
+	return out
+}
+
+// pickDiffLine accumulates typed chars into pickBuffer and resolves them against
+// the label map: an exact match picks the row (and runs the chosen action); a
+// prefix of some label keeps waiting for the next char; anything else resets.
 func pickDiffLine(r rune) {
 	if !diffCommentMode {
 		return
 	}
-	row, ok := diffLabelByRow[r]
-	if !ok || row < 0 || row >= len(diffMeta) || !diffMeta[row].Commentable {
+	pickBuffer += string(r)
+	if row, ok := diffLabelByRow[pickBuffer]; ok {
+		if row >= 0 && row < len(diffMeta) && diffMeta[row].Commentable {
+			m := diffMeta[row]
+			setPickMode(false) // also clears pickBuffer
+			diffLayer.Invalidate()
+			if pickAction != nil {
+				pickAction(m)
+			}
+			return
+		}
+		pickBuffer = ""
 		return
 	}
-	m := diffMeta[row]
-	setPickMode(false)
-	diffLayer.Invalidate()
-	if pickAction != nil {
-		pickAction(m)
+	for lbl := range diffLabelByRow {
+		if strings.HasPrefix(lbl, pickBuffer) {
+			return // valid prefix — wait for the next char
+		}
 	}
+	pickBuffer = "" // dead end — reset so the next key starts fresh
 }
 
 func saveLineComment() {
