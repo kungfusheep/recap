@@ -83,16 +83,8 @@ func updateUpcoming() {
 	upcomingLoading = t.RepoPath
 	repo := t.RepoPath
 	go func() {
-		// the in-flight marker is a work-item id (#n); resolve it to "#n <title>".
-		working := ""
-		if id := loadWorking(); id != "" {
-			if n, e := strconv.ParseInt(id, 10, 64); e == nil && n > 0 && uiStore != nil {
-				if t, e2 := uiStore.Get(n); e2 == nil {
-					working = fmt.Sprintf("#%d %s", n, t.Title)
-				}
-			}
-		}
-		items := loadUpcoming(repo) // TODO tasks — file read + parse, off the render thread
+		working := workingDisplay(uiStore) // resolve the in-flight marker (#n) to "#n <title>"
+		items := loadUpcoming(repo)        // TODO tasks — file read + parse, off the render thread
 		upcomingMu.Lock()
 		upcomingStaged = &upcomingResult{repo: repo, working: working, items: items}
 		upcomingMu.Unlock()
@@ -119,6 +111,25 @@ func loadUpcoming(repoPath string) []string {
 		return nil
 	}
 	return upcomingFromItems(items)
+}
+
+// workingDisplay resolves the in-flight marker (a work-item id) to "#n <title>" for
+// the spinner, or "" when nothing's set / the task is gone. The testable core of the
+// spinner: feed it a saved marker + store and it returns exactly what renders.
+func workingDisplay(s *Store) string {
+	id := loadWorking()
+	if id == "" || s == nil {
+		return ""
+	}
+	n, err := strconv.ParseInt(id, 10, 64)
+	if err != nil || n <= 0 {
+		return ""
+	}
+	t, err := s.Get(n)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("#%d %s", n, t.Title)
 }
 
 // buildUpcomingRows turns the upcoming task texts into plain bulleted rows. Runs on

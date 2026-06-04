@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -54,5 +56,39 @@ func TestBuildUpcomingRows(t *testing.T) {
 	}
 	if len(buildUpcomingRows(nil)) != 0 {
 		t.Fatal("empty input should give empty rows")
+	}
+}
+
+// the spinner pipeline end-to-end: a saved in-flight marker (#n) resolves to
+// "#n <title>" via the store; cleared/unknown ids yield "" (no spinner). This is the
+// test that was missing — it catches the spinner showing nothing or stale text.
+func TestWorkingDisplay(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RECAP_DB", dir+"/recap.db")
+	st, err := Open()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer st.Close()
+	id, _ := st.Add(Task{Repo: "r", Title: "wire the frobnicator"})
+
+	if got := workingDisplay(st); got != "" {
+		t.Fatalf("no marker → empty, got %q", got)
+	}
+	if err := saveWorking(strconv.FormatInt(id, 10)); err != nil {
+		t.Fatalf("saveWorking: %v", err)
+	}
+	want := fmt.Sprintf("#%d wire the frobnicator", id)
+	if got := workingDisplay(st); got != want {
+		t.Fatalf("marker set → %q, want %q", got, want)
+	}
+	// a marker pointing at a non-existent task shows nothing (not a crash)
+	saveWorking("99999")
+	if got := workingDisplay(st); got != "" {
+		t.Fatalf("stale marker → empty, got %q", got)
+	}
+	saveWorking("")
+	if got := workingDisplay(st); got != "" {
+		t.Fatalf("cleared → empty, got %q", got)
 	}
 }
