@@ -78,6 +78,7 @@ type Comment struct {
 	ID        int64
 	TaskID    int64
 	ReviewID  int64 // 0 = loose thread message
+	ParentID  int64 // 0 = top-level; else the comment this one replies to
 	Who       string
 	Body      string
 	File      string
@@ -150,6 +151,7 @@ var addColumns = []struct{ table, col, decl string }{
 	{"comments", "line", "INTEGER"},
 	{"comments", "anchor", "TEXT"},
 	{"comments", "snippet", "TEXT"},
+	{"comments", "parent_id", "INTEGER"},
 }
 
 func (s *Store) hasColumn(table, col string) (bool, error) {
@@ -338,15 +340,44 @@ func (s *Store) AddComment(taskID int64, who, body string) (int64, error) {
 	return res.LastInsertId()
 }
 
-const commentCols = `id, task_id, COALESCE(review_id,0), who, body, COALESCE(file,''), COALESCE(line,0), COALESCE(anchor,''), COALESCE(snippet,''), created_at`
+// AddReply records a reply to an existing comment — the threading primitive. The
+// reply inherits the parent's task and review context (so a reply to a line
+// comment stays anchored to that review, and a reply to a loose thread message
+// stays loose) and points at the parent via parent_id. who defaults to "agent"
+// (the loop replying to reviewer feedback). Works the same for general and line
+// comments since it keys only on the parent's id, not its anchoring.
+func (s *Store) AddReply(parentID int64, who, body string) (int64, error) {
+	if body == "" {
+		return 0, fmt.Errorf("reply body is required")
+	}
+	if who == "" {
+		who = "agent"
+	}
+	var taskID, reviewID int64
+	if err := s.db.QueryRow(
+		`SELECT task_id, COALESCE(review_id,0) FROM comments WHERE id = ?`,
+		parentID).Scan(&taskID, &reviewID); err != nil {
+		return 0, fmt.Errorf("parent comment %d: %w", parentID, err)
+	}
+	res, err := s.db.Exec(
+		`INSERT INTO comments (task_id, review_id, parent_id, who, body, created_at)
+		 VALUES (?,?,?,?,?,?)`,
+		taskID, nullID(reviewID), parentID, who, body, nowStamp())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+const commentCols = `id, task_id, COALESCE(review_id,0), COALESCE(parent_id,0), who, body, COALESCE(file,''), COALESCE(line,0), COALESCE(anchor,''), COALESCE(snippet,''), created_at`
 
 // commentColsC is commentCols qualified to the comments alias "c", for queries
 // that join reviews (so column names aren't ambiguous).
-const commentColsC = `c.id, c.task_id, COALESCE(c.review_id,0), c.who, c.body, COALESCE(c.file,''), COALESCE(c.line,0), COALESCE(c.anchor,''), COALESCE(c.snippet,''), c.created_at`
+const commentColsC = `c.id, c.task_id, COALESCE(c.review_id,0), COALESCE(c.parent_id,0), c.who, c.body, COALESCE(c.file,''), COALESCE(c.line,0), COALESCE(c.anchor,''), COALESCE(c.snippet,''), c.created_at`
 
 func scanComment(row interface{ Scan(...any) error }) (Comment, error) {
 	var c Comment
-	err := row.Scan(&c.ID, &c.TaskID, &c.ReviewID, &c.Who, &c.Body, &c.File, &c.Line, &c.Anchor, &c.Snippet, &c.CreatedAt)
+	err := row.Scan(&c.ID, &c.TaskID, &c.ReviewID, &c.ParentID, &c.Who, &c.Body, &c.File, &c.Line, &c.Anchor, &c.Snippet, &c.CreatedAt)
 	return c, err
 }
 
@@ -392,7 +423,7 @@ func (s *Store) TaskReviewComments(taskID int64) ([]TaskComment, error) {
 	for rows.Next() {
 		var c Comment
 		var state string
-		if err := rows.Scan(&c.ID, &c.TaskID, &c.ReviewID, &c.Who, &c.Body,
+		if err := rows.Scan(&c.ID, &c.TaskID, &c.ReviewID, &c.ParentID, &c.Who, &c.Body,
 			&c.File, &c.Line, &c.Anchor, &c.Snippet, &c.CreatedAt, &state); err != nil {
 			return nil, err
 		}

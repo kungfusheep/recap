@@ -146,3 +146,83 @@ func TestDoneOrderLastCompletedFirst(t *testing.T) {
 		t.Fatalf("done order = %v, want %v (last completed first)", done, want)
 	}
 }
+
+// AddReply threads a reply under an existing comment: it inherits the parent's
+// task + review context, sets parent_id, and defaults who to "agent". Works the
+// same whether the parent is a line comment (review-scoped) or a loose message.
+func TestAddReplyThreads(t *testing.T) {
+	st := testStore(t)
+	tid, _ := st.Add(Task{Repo: "wed", Title: "t"})
+
+	// reply to a review (line) comment → inherits its review_id
+	pid, err := st.AddReviewComment(tid, "you", "fix this", "main.go", 10, "@@", "x := 1")
+	if err != nil {
+		t.Fatalf("parent review comment: %v", err)
+	}
+	rid, err := st.AddReply(pid, "", "done, see new diff")
+	if err != nil {
+		t.Fatalf("AddReply: %v", err)
+	}
+	cs, _ := st.Comments(tid)
+	var reply *Comment
+	for i := range cs {
+		if cs[i].ID == rid {
+			reply = &cs[i]
+		}
+	}
+	if reply == nil {
+		t.Fatal("reply not stored on the task")
+	}
+	if reply.ParentID != pid {
+		t.Fatalf("reply.ParentID = %d, want %d", reply.ParentID, pid)
+	}
+	if reply.Who != "agent" {
+		t.Fatalf("reply.Who = %q, want agent (default)", reply.Who)
+	}
+	parent := cs[0]
+	if reply.ReviewID == 0 || reply.ReviewID != parent.ReviewID {
+		t.Fatalf("reply.ReviewID = %d, want parent's %d", reply.ReviewID, parent.ReviewID)
+	}
+
+	// reply to a loose thread message → stays loose (review_id 0)
+	lid, _ := st.AddComment(tid, "you", "a loose note")
+	lr, err := st.AddReply(lid, "agent", "loose reply")
+	if err != nil {
+		t.Fatalf("AddReply loose: %v", err)
+	}
+	cs, _ = st.Comments(tid)
+	for _, c := range cs {
+		if c.ID == lr {
+			if c.ParentID != lid || c.ReviewID != 0 {
+				t.Fatalf("loose reply: parent=%d review=%d, want parent=%d review=0", c.ParentID, c.ReviewID, lid)
+			}
+		}
+	}
+
+	// replying to a non-existent comment errors, doesn't silently no-op
+	if _, err := st.AddReply(99999, "agent", "x"); err == nil {
+		t.Fatal("AddReply to missing parent should error")
+	}
+}
+
+// splitThread separates top-level comments from replies and indexes replies by
+// parent; an orphan reply (parent absent) is surfaced as top-level, never hidden.
+func TestSplitThread(t *testing.T) {
+	cs := []Comment{
+		{ID: 1, ParentID: 0, Body: "top a"},
+		{ID: 2, ParentID: 1, Body: "reply to a"},
+		{ID: 3, ParentID: 0, Body: "top b"},
+		{ID: 4, ParentID: 2, Body: "reply to reply"},
+		{ID: 5, ParentID: 999, Body: "orphan"},
+	}
+	top, byParent := splitThread(cs)
+	if len(top) != 3 { // 1, 3, and the orphan 5
+		t.Fatalf("top = %d, want 3: %+v", len(top), top)
+	}
+	if len(byParent[1]) != 1 || byParent[1][0].ID != 2 {
+		t.Fatalf("replies of 1 wrong: %+v", byParent[1])
+	}
+	if len(byParent[2]) != 1 || byParent[2][0].ID != 4 {
+		t.Fatalf("nested reply of 2 wrong: %+v", byParent[2])
+	}
+}

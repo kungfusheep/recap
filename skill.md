@@ -64,6 +64,20 @@ Do **not** use `recap add --parent` for amend fixes — that spawns a near-dupli
 inbox item per fix. One task accumulates its whole change history via `revise`. (`recap
 review resolve <id>` on its own is still fine when there's nothing new to attach.)
 
+### Replying to a comment (threading)
+
+To answer a specific reviewer comment in place — to ask a clarifying question, explain a
+decision, or note what you changed — reply to it rather than leaving a loose task comment:
+
+```
+recap reply <comment-id> --body "what you did / why"
+```
+
+`recap review show <id>` prints every comment with its id as `[cN]`; pass that N. The
+reply nests under the comment (and replies can themselves be replied to) and shows the
+same way for general and line comments. `--who` defaults to `agent`. This is for
+discussion only — it does **not** resolve the review; use `revise` for the fix-forward.
+
 A `request_changes` review also drops a breadcrumb line into the repo's TODO
 (`address recap review #<id> (recap review show <id>)`); treat that TODO line and the
 `recap review show` work order as two views of the same item — `revise` completes it.

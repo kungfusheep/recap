@@ -48,6 +48,8 @@ func main() {
 		err = cmdRedo(args)
 	case "comment":
 		err = cmdComment(args)
+	case "reply":
+		err = cmdReply(args)
 	case "review":
 		err = cmdReview(args)
 	case "set":
@@ -419,6 +421,43 @@ func cmdComment(args []string) error {
 	return nil
 }
 
+// cmdReply records a reply to a specific comment (threading). The agent uses this
+// to answer reviewer feedback in place; the reply nests under the comment in
+// `recap review show` and the comments pane. who defaults to "agent".
+func cmdReply(args []string) error {
+	fs := flag.NewFlagSet("reply", flag.ExitOnError)
+	who := fs.String("who", "agent", "you|agent")
+	body := fs.String("body", "", "reply text")
+	idStr, rest := splitID(args)
+	fs.Parse(rest)
+	if idStr == "" {
+		idStr = fs.Arg(0)
+	}
+	if idStr == "" {
+		return fmt.Errorf("usage: recap reply <comment-id> --body TEXT [--who you|agent]")
+	}
+	commentID, err := parseID(idStr)
+	if err != nil {
+		return err
+	}
+	if *who != "you" && *who != "agent" {
+		return fmt.Errorf("--who must be 'you' or 'agent'")
+	}
+	if *body == "" {
+		return fmt.Errorf("--body is required")
+	}
+	st, err := Open()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	if _, err := st.AddReply(commentID, *who, *body); err != nil {
+		return err
+	}
+	fmt.Printf("replied to comment #%d\n", commentID)
+	return nil
+}
+
 // cmdDelete removes one or more tasks (and their reviews/comments). It's a
 // user-invoked verb — the autonomous loop never deletes — so it acts directly,
 // reporting each task it removed by title for an audit trail.
@@ -683,9 +722,9 @@ func cmdReviewShow(args []string) error {
 	}
 
 	comments, _ := st.ReviewComments(rv.ID)
-	if len(comments) > 0 {
-		fmt.Printf("\ncomments (%d):\n", len(comments))
-		for _, c := range comments {
+	if top, byParent := splitThread(comments); len(top) > 0 {
+		fmt.Printf("\ncomments (%d):\n", len(top))
+		for _, c := range top {
 			if c.File != "" {
 				loc := c.File
 				if c.Anchor != "" {
@@ -694,14 +733,16 @@ func cmdReviewShow(args []string) error {
 				if c.Line > 0 {
 					loc += fmt.Sprintf("  (line %d)", c.Line)
 				}
-				fmt.Printf("  ┌ %s\n", loc)
+				fmt.Printf("  ┌ [c%d] %s\n", c.ID, loc)
 				if c.Snippet != "" {
 					fmt.Printf("  │   %s\n", c.Snippet)
 				}
-				fmt.Printf("  └ %s\n\n", c.Body)
+				fmt.Printf("  └ %s\n", c.Body)
 			} else {
-				fmt.Printf("  • %s\n", c.Body)
+				fmt.Printf("  • [c%d] %s\n", c.ID, c.Body)
 			}
+			printReplies(c.ID, byParent, 0)
+			fmt.Println()
 		}
 	}
 
@@ -714,14 +755,44 @@ func cmdReviewShow(args []string) error {
 				loose = append(loose, c)
 			}
 		}
-		if len(loose) > 0 {
-			fmt.Printf("\nthread (%d):\n", len(loose))
-			for _, c := range loose {
-				fmt.Printf("  • %s (%s): %s\n", c.Who, c.CreatedAt, c.Body)
+		if top, byParent := splitThread(loose); len(top) > 0 {
+			fmt.Printf("\nthread (%d):\n", len(top))
+			for _, c := range top {
+				fmt.Printf("  • [c%d] %s (%s): %s\n", c.ID, c.Who, c.CreatedAt, c.Body)
+				printReplies(c.ID, byParent, 0)
 			}
 		}
 	}
 	return nil
+}
+
+// splitThread separates top-level comments from replies, returning the top-level
+// ones (in order) and a parent_id → replies index for nesting. A reply whose
+// parent isn't in the set (shouldn't happen) is treated as top-level so it's
+// never hidden.
+func splitThread(cs []Comment) (top []Comment, byParent map[int64][]Comment) {
+	byParent = map[int64][]Comment{}
+	present := map[int64]bool{}
+	for _, c := range cs {
+		present[c.ID] = true
+	}
+	for _, c := range cs {
+		if c.ParentID != 0 && present[c.ParentID] {
+			byParent[c.ParentID] = append(byParent[c.ParentID], c)
+		} else {
+			top = append(top, c)
+		}
+	}
+	return top, byParent
+}
+
+// printReplies renders a comment's reply subtree, indented by depth (general
+// threading: a reply can itself have replies).
+func printReplies(parentID int64, byParent map[int64][]Comment, depth int) {
+	for _, r := range byParent[parentID] {
+		fmt.Printf("%s↳ [c%d] %s (%s): %s\n", strings.Repeat("  ", depth+2), r.ID, r.Who, r.CreatedAt, r.Body)
+		printReplies(r.ID, byParent, depth+1)
+	}
 }
 
 func cmdReviewResolve(args []string) error {
