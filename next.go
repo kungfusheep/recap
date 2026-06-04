@@ -48,11 +48,14 @@ func buildQueue(st *Store, repo, repoPath string) []WorkItem {
 		}
 	}
 
-	// 2. replies — unread reviewer thread replies, on tasks not already in amends.
+	// 2. replies/comments — EVERY unread reviewer comment, except those on a task
+	// that's already an amends item (its review's comments ride with it). This must
+	// include top-level comments (parent_id == 0), not just threaded replies — else a
+	// plain reviewer comment on a non-amends task is silently dropped from the intake.
 	if cs, err := st.UnreadByAgent(repo); err == nil {
 		for _, c := range cs {
-			if c.ParentID == 0 || amendsTasks[c.TaskID] {
-				continue // top-level review comments ride with their amends task
+			if amendsTasks[c.TaskID] {
+				continue // covered by the amends work order (recap review show lists its comments)
 			}
 			q = append(q, WorkItem{Kind: "reply", Repo: repo, TaskID: c.TaskID, CommentID: c.ID,
 				Title: firstLine(c.Body), Ref: fmt.Sprintf("reply:%d", c.ID)})
@@ -79,9 +82,12 @@ func buildQueue(st *Store, repo, repoPath string) []WorkItem {
 	return q
 }
 
-// advance returns the item AFTER currentRef in the queue (wrapping at the end), and
-// whether currentRef was skipped — i.e. still present (not completed) when we moved
-// past it. With no current (or it's gone from the queue), it returns the first item.
+// advance picks the next work item given the current cursor. The queue is tier-ordered
+// (amends → replies → todos). With no current (or it's been completed and is gone), it
+// returns the highest-priority item. Otherwise it walks forward past the current (a
+// skip), wrapping at the end — EXCEPT it never lets a parked todo cursor hide
+// higher-priority work: if the current is a todo but amends/replies exist, it leads with
+// the highest (not a skip — the queue re-prioritised, the agent didn't pass the todo).
 func advance(q []WorkItem, currentRef string) (next WorkItem, skipped bool, ok bool) {
 	if len(q) == 0 {
 		return WorkItem{}, false, false
@@ -94,7 +100,12 @@ func advance(q []WorkItem, currentRef string) (next WorkItem, skipped bool, ok b
 		}
 	}
 	if idx < 0 {
-		return q[0], false, true // current gone (completed) or unset → start of queue
+		return q[0], false, true // current gone (completed) or unset → highest priority
+	}
+	// amends/replies must never wait behind a parked todo cursor (they sort before
+	// todos, so anything earlier than a todo current is higher-priority): lead with it.
+	if q[idx].Kind == "todo" && idx > 0 {
+		return q[0], false, true
 	}
 	skipped = true // current is still in the queue → we're passing it without completing
 	return q[(idx+1)%len(q)], skipped, true

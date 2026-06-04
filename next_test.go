@@ -46,33 +46,43 @@ func TestMarkTodoLineDone(t *testing.T) {
 // and restarts at the top when the current is gone (completed) or unset.
 func TestAdvance(t *testing.T) {
 	q := []WorkItem{
-		{Ref: "amends:1", Title: "a"},
-		{Ref: "reply:2", Title: "b"},
-		{Ref: "todo:3", Title: "c"},
+		{Kind: "amends", Ref: "amends:1"},
+		{Kind: "reply", Ref: "reply:2"},
+		{Kind: "todo", Ref: "todo:3"},
 	}
 
-	// no current → first item, not a skip
+	// no current → highest priority, not a skip
 	got, skipped, ok := advance(q, "")
 	if !ok || skipped || got.Ref != "amends:1" {
 		t.Fatalf("empty cursor: got %q skip=%v ok=%v", got.Ref, skipped, ok)
 	}
 
-	// current still present → advance to the next AND flag the skip
+	// skipping a non-todo current → walk forward, flagged as a skip
 	got, skipped, ok = advance(q, "amends:1")
 	if !ok || !skipped || got.Ref != "reply:2" {
 		t.Fatalf("from amends:1: got %q skip=%v", got.Ref, skipped)
 	}
 
-	// wrap at the end
-	got, _, _ = advance(q, "todo:3")
-	if got.Ref != "amends:1" {
-		t.Fatalf("wrap: got %q, want amends:1", got.Ref)
-	}
-
-	// current gone from queue (completed) → restart at top, NOT a skip
+	// current gone (completed) → highest priority, NOT a skip
 	got, skipped, _ = advance(q, "amends:99")
 	if skipped || got.Ref != "amends:1" {
 		t.Fatalf("completed cursor: got %q skip=%v", got.Ref, skipped)
+	}
+
+	// a parked TODO cursor must lead with higher-priority work (amends/reply), not
+	// walk to the next todo — the priority-inversion bug. Not flagged as a skip.
+	got, skipped, _ = advance(q, "todo:3")
+	if skipped || got.Ref != "amends:1" {
+		t.Fatalf("parked todo cursor: got %q skip=%v, want amends:1 (lead, no skip)", got.Ref, skipped)
+	}
+
+	// within the todo tier only (no higher-priority work), walk forward, then wrap
+	tq := []WorkItem{{Kind: "todo", Ref: "todo:7"}, {Kind: "todo", Ref: "todo:8"}}
+	if got, sk, _ := advance(tq, "todo:7"); !sk || got.Ref != "todo:8" {
+		t.Fatalf("todo-only walk: got %q skip=%v, want todo:8 skip=true", got.Ref, sk)
+	}
+	if got, _, _ := advance(tq, "todo:8"); got.Ref != "todo:7" {
+		t.Fatalf("todo-only wrap: got %q, want todo:7", got.Ref)
 	}
 
 	// empty queue → nothing
