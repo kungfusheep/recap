@@ -87,33 +87,27 @@ an open TUI tracks the flare without a refresh.
 
 The loop's intake is auto-scoped to the CURRENT repo (the cwd's git root): `recap review ls`, `recap redo`, and `recap unread` only show THIS project's items, so a loop running in another codebase never drains or answers another project's work. Pass `--all` to cross repos deliberately.
 
-## Reviewer replies — the read-receipt inbox
+## Don't sweep the channels by hand — `recap next` IS the intake
 
-Reviewer **replies** (via `recap reply` or the TUI `r`) are thread comments, NOT new
-submitted reviews — so they don't show in `recap review ls`. Check for them every cycle:
+`recap next` already unifies amends + reviewer replies + todos in priority order from
+the db, so **do not** run `recap review ls` / `recap unread` / `recap redo` as a per-cycle
+sweep — that's the old pre-`next` workflow. Just call `recap next`; it hands you the next
+thing. Those verbs are now **inspection-only** (ad-hoc "show me everything"), not loop
+steps. The read-receipt mechanics still matter: when `recap next` hands you a reply,
+`recap read <cN>` marks it read (clears the receipt; each comment shows an agent ●/○ and
+a user read dot, pushed live). `recap read` is how you ack a reply — not a sweep.
 
-```
-recap unread       # reviewer comments the agent hasn't read yet, with [cN] ids
-recap read <cN> …  # mark read once you've acted (clears the receipt)
-```
+## Acting on what `recap next` hands you
 
-Each comment carries two read dots in the TUI — agent (●/○) and user — so both sides
-see receipt; marking read pushes live (no refresh). Treat `recap unread` as part of the
-loop's feedback intake alongside `recap review ls`.
+When `recap next` returns an **amends** item, it outranks todos (that's why it's the top
+tier) — act on it first:
 
-## Picking up review feedback (inbox → fix-forward work)
-
-At the **start of each loop cycle**, before reading the TODO, check for reviews the human
-has submitted and act on them first — they outrank fresh TODO items.
-
-1. List submitted, unresolved reviews for this repo: `recap review ls --state submitted`
-   (scoped to the current repo by default; pass `--all` to see every repo).
-2. Read the full work order: `recap review show <review-id>`. It carries the verdict, the
+1. Read the full work order: `recap review show <review-id>`. It carries the verdict, the
    reviewer's summary (the "what to change"), and any line-anchored comments with the code
    captured at review time, plus the task's original criterion.
-3. Fix **forward** — never rewrite the reviewed commit. Make the change, satisfy the
+2. Fix **forward** — never rewrite the reviewed commit. Make the change, satisfy the
    original criterion *and* the reviewer's notes, then commit on the current branch.
-4. Attach the fix to the **same** task as a new revision — do NOT create a separate
+3. Attach the fix to the **same** task as a new revision — do NOT create a separate
    task: `recap revise <task-id> --summary "what changed"` (sha defaults to the repo's
    short HEAD). This appends the fix-forward diff to the existing item and resolves the
    open `request_changes` review in one step, returning the item to the inbox for
