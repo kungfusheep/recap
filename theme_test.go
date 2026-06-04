@@ -56,22 +56,24 @@ func TestThemeRepaintsDiffLayer(t *testing.T) {
 		return Color{}, false
 	}
 
+	wantDark := cAdd // derived add colour for the dark theme (set above)
 	darkFG, ok := addLineFG()
 	if !ok {
 		t.Fatal("no added line found in diff")
 	}
-	if darkFG != themeDark.Success {
-		t.Fatalf("dark add-line colour = %v, want %v", darkFG, themeDark.Success)
+	if darkFG != wantDark {
+		t.Fatalf("dark add-line colour = %v, want %v", darkFG, wantDark)
 	}
 
 	amber, _ := themeByName("mfd-amber")
 	applyTheme("mfd-amber", amber)
+	wantAmber := cAdd // derived add colour for amber
 	amberFG, ok := addLineFG()
 	if !ok {
 		t.Fatal("no added line after theme switch")
 	}
-	if amberFG != amber.Success {
-		t.Fatalf("after switch: add-line colour = %v, want amber %v", amberFG, amber.Success)
+	if amberFG != wantAmber {
+		t.Fatalf("after switch: add-line colour = %v, want %v", amberFG, wantAmber)
 	}
 	if amberFG == darkFG {
 		t.Fatal("diff colour did not change on theme switch (the layer-repaint bug)")
