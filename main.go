@@ -566,8 +566,9 @@ func cmdWhoami(args []string) error {
 		}
 	}
 	name := strings.TrimSpace(strings.Join(nameParts, " "))
+	repo := currentRepo() // identity is per-repo, like the cursor
 	if name == "" && color == "" {
-		cur, c := loadIdentity()
+		cur, c := loadIdentity(repo)
 		if cur == "" {
 			fmt.Println("agent has not named itself yet")
 		} else {
@@ -578,7 +579,7 @@ func cmdWhoami(args []string) error {
 		}
 		return nil
 	}
-	if err := saveIdentity(name, color); err != nil {
+	if err := saveIdentity(repo, name, color); err != nil {
 		return err
 	}
 	notify.Reload() // push: the name/colour shows in any open TUI without a refresh

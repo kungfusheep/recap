@@ -23,21 +23,29 @@ var (
 	agentName  string
 	agentColor = Hex(0x6f8fa8) // sensible default until the agent names itself
 	agentLabel = "agent"       // agentName, or "agent" when unnamed — for display
+	uiRepo     string          // the TUI's repo, cached at startup — refreshIdentity runs on the render thread and can't shell out to git
 )
 
-func identityPath() (string, error) {
+// identityPath is PER-REPO (identity-<repo>) so an agent's name is scoped to the
+// project it's working — otherwise a loop in another repo reads this repo's identity
+// and "keeps" it (the "everyone names themselves Kestrel" bug). "" repo → shared file.
+func identityPath(repo string) (string, error) {
 	db, err := dbPath()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(filepath.Dir(db), "identity"), nil
+	name := "identity"
+	if repo != "" {
+		name = "identity-" + strings.ReplaceAll(repo, string(os.PathSeparator), "_")
+	}
+	return filepath.Join(filepath.Dir(db), name), nil
 }
 
-// loadIdentity reads the stored name + colour ("" / default if unset). Tiny file —
-// read on the reload path alongside the inbox reload.
-func loadIdentity() (name string, color Color) {
+// loadIdentity reads the repo's stored name + colour ("" / default if unset). Tiny
+// file — read on the reload path alongside the inbox reload.
+func loadIdentity(repo string) (name string, color Color) {
 	color = Hex(0x6f8fa8)
-	p, err := identityPath()
+	p, err := identityPath(repo)
 	if err != nil {
 		return "", color
 	}
@@ -55,18 +63,20 @@ func loadIdentity() (name string, color Color) {
 	return name, color
 }
 
-// refreshIdentity reloads the identity into the TUI's agentName/agentColor/agentLabel.
+// refreshIdentity reloads the TUI's repo identity into agentName/agentColor/agentLabel.
+// Uses the cached uiRepo (set at startup) — it runs on the render thread, so it must
+// not call currentRepo() (which shells out to git).
 func refreshIdentity() {
-	agentName, agentColor = loadIdentity()
+	agentName, agentColor = loadIdentity(uiRepo)
 	agentLabel = agentName
 	if agentLabel == "" {
 		agentLabel = "agent"
 	}
 }
 
-// saveIdentity persists the agent's chosen name + colour (empty name clears it).
-func saveIdentity(name, hex string) error {
-	p, err := identityPath()
+// saveIdentity persists the repo's chosen name + colour (empty name clears it).
+func saveIdentity(repo, name, hex string) error {
+	p, err := identityPath(repo)
 	if err != nil {
 		return err
 	}
@@ -88,7 +98,7 @@ func saveIdentity(name, hex string) error {
 // identityWho returns the agent's session name for authoring comments, or "agent"
 // if it hasn't named itself. Used by the CLI verbs.
 func identityWho() string {
-	if name, _ := loadIdentity(); name != "" {
+	if name, _ := loadIdentity(currentRepo()); name != "" {
 		return name
 	}
 	return "agent"

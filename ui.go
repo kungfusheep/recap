@@ -256,7 +256,8 @@ func runUI() error {
 
 	omni = newOmniBox(uiApp, omniCommands())
 
-	refreshIdentity() // load the agent's name + colour for this session
+	uiRepo = currentRepo() // cache the TUI's repo once (refreshIdentity runs on the render thread; no git there)
+	refreshIdentity()      // load this repo's agent name + colour
 	reloadTasks()
 
 	// live refresh: register this TUI so `recap add` can SIGUSR1 us to reload the

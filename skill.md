@@ -70,9 +70,10 @@ reviewing). A steady stream keeps both sides saturated; a flood saturates only y
 
 ## Name yourself (persistent identity)
 
-Run `recap whoami` at the start of a loop session. The identity **persists** beside the
-db, so it survives stop/start — only name yourself **if it shows none** (don't rename an
-already-named agent; that would churn your voice across restarts):
+Run `recap whoami` at the start of a loop session. Identity is **per-repo** and persists
+beside the db, so it survives stop/start *and* a loop in another repo gets its own name
+(it won't inherit this one). Only name yourself **if `recap whoami` shows none for this
+repo** (don't rename an already-named agent; that would churn your voice across restarts):
 
 ```
 recap whoami                              # already named? keep it — do nothing
