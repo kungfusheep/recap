@@ -768,3 +768,59 @@ func TestGeneralCommentAppearsAfterSave(t *testing.T) {
 		t.Fatalf("general comment not shown after save (lost): %+v", draftComments)
 	}
 }
+
+// the detail briefing follows the selected row's revision: the header shows the
+// latest revision's summary (so it updates when a revise lands), and selecting an
+// older revision child shows that revision's own summary in full — not the
+// original task summary, and not the truncated left-column label.
+func TestSummaryFollowsSelectedRevision(t *testing.T) {
+	prev, prevLayer := uiStore, diffLayer
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	diffLayer = NewLayer()
+	diffLayer.Render = func() {}
+	t.Cleanup(func() {
+		uiStore = prev
+		uiApp = nil
+		omni = nil
+		diffLayer = prevLayer
+		clear(expandedTasks)
+		detailDirty = false
+	})
+	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending, Summary: "original briefing"})
+	if _, err := st.AddRevision(id, "deadbeef", "revised briefing"); err != nil {
+		t.Fatalf("AddRevision: %v", err)
+	}
+	expandedTasks[id] = true
+	reloadTasks()
+	uiApp.SetView(buildMain())
+
+	// vmRows: [header(-1), child rev1 "revised", child rev0 "original"]
+	hdr, origChild := -1, -1
+	for i, r := range vmRows {
+		if r.RevIdx < 0 {
+			hdr = i
+		} else if r.RevIdx == 0 {
+			origChild = i
+		}
+	}
+	if hdr < 0 || origChild < 0 {
+		t.Fatalf("expected a header + an original-revision child row, got %+v", vmRows)
+	}
+
+	sel = hdr
+	detailDirty = true
+	refreshDetail()
+	if b := flattenSpans(diffBanner); !contains2(b, "revised briefing") {
+		t.Fatalf("header should show the latest revision summary, banner=%q", b)
+	}
+
+	sel = origChild
+	detailDirty = true
+	refreshDetail()
+	if b := flattenSpans(diffBanner); !contains2(b, "original briefing") {
+		t.Fatalf("selecting rev 0 should show its own summary, banner=%q", b)
+	}
+}

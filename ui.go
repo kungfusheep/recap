@@ -109,6 +109,7 @@ type taskVM struct {
 	Grouped    bool   // child only: drives the indented, distinct-bg rendering
 	ExpandPill string // header only: revision-count cue, e.g. "▸ 3" / "▾ 3"
 	RevLabel   string // child only: e.g. "rev 2 · a1b2c3 · added line two"
+	Summary    string // this row's reviewer briefing (header = latest revision's; child = its own)
 }
 
 // draftCommentVM is one row in the draft-review overview pane: the location
@@ -382,7 +383,10 @@ func reloadTasks() {
 		// more than one diff is expandable (`o`) into one child row per revision.
 		revs, _ := uiStore.Revisions(t.ID)
 		if len(revs) > 0 {
-			vm.DiffSHA = revs[len(revs)-1].SHA // latest
+			vm.DiffSHA = revs[len(revs)-1].SHA     // latest
+			vm.Summary = revs[len(revs)-1].Summary // briefing follows the latest revision
+		} else {
+			vm.Summary = t.Summary
 		}
 		if len(revs) > 1 {
 			vm.Expanded = expandedTasks[t.ID]
@@ -409,6 +413,7 @@ func reloadTasks() {
 					DiffSHA:  r.SHA,
 					Grouped:  true,
 					RevLabel: revLabel(j, r),
+					Summary:  r.Summary,
 				})
 			}
 		}
@@ -563,6 +568,10 @@ func refreshDetail() {
 	metaResult = dash(t.Result)
 	metaResultColor = resultColor(t.Result)
 	loadDraftPane(t.ID)
+	// the briefing follows the row in view: the header shows the latest revision's
+	// summary (so it updates when a revise lands), a revision child shows its own —
+	// in full, not the truncated left-column label.
+	t.Summary = row.Summary
 	// the review-context banner (amends summary / re-review header) sits above the
 	// task's own diff, which still shows for context.
 	diffBanner = buildBanner(t)
