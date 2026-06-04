@@ -1380,9 +1380,14 @@ func taskRow(r *taskVM) Component {
 			// glance (so you don't fire `t` on the wrong repo's TODO).
 			Text("▌").FG(&r.RepoColor),
 			SpaceW(1),
-			If(&r.InFlight).
-				Then(Spinner(&spinFrame).Frames(SpinnerDots).FG(&cBright)).
-				Else(Text(&r.Glyph).FG(&r.GlyphColor)),
+			// fixed 1-col slot: glyph's If reserves the WIDER branch, and a bare Spinner
+			// measures ~10 cols — which padded every row's status slot and shoved titles
+			// right ("mental" spacing). Width(1) clamps it so the dot/spinner stay 1 col.
+			HBox.Width(1)(
+				If(&r.InFlight).
+					Then(Spinner(&spinFrame).Frames(SpinnerDots).FG(&cBright)).
+					Else(Text(&r.Glyph).FG(&r.GlyphColor)),
+			),
 			SpaceW(1),
 			HBox.Grow(1)(
 				// FG must live inside Style: .Style() replaces the whole style, so a
