@@ -113,7 +113,7 @@ func todoSave() {
 	// editing the TODO in-app changes the same file the upcoming section reads, but
 	// that's an in-process write (no SIGUSR1, same repo), so force the upcoming list
 	// to reload — otherwise a just-added todo wouldn't appear until the repo changed.
-	upcomingRepo = ""
+	invalidateUpcoming()
 	if uiApp != nil {
 		uiApp.RequestRender()
 	}

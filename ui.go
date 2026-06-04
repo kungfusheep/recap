@@ -551,7 +551,7 @@ func refreshDetail() {
 	// do it here on the render thread, then force the detail to rebuild.
 	if reloadRequested.CompareAndSwap(true, false) {
 		reloadTasks()
-		upcomingRepo = "" // force the in-flight marker + upcoming list to reload (e.g. after `recap working`)
+		invalidateUpcoming() // force the in-flight marker + upcoming list to reflect current state (e.g. after `recap working`)
 		detailDirty = true
 	}
 	// peek at the selected repo's next TODO tasks + in-flight marker (loaded async;

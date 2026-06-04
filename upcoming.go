@@ -42,6 +42,18 @@ type upcomingResult struct {
 
 const upcomingMax = 5 // how many upcoming tasks to surface
 
+// invalidateUpcoming forces the next updateUpcoming to reload from disk: clears the
+// shown-repo + in-flight guard and discards any stale staged result. Call it after
+// anything that changes the source (the in-flight marker, an in-app TODO edit, or a
+// SIGUSR1 reload) so the upcoming section + spinner reflect current state on push.
+func invalidateUpcoming() {
+	upcomingRepo = ""
+	upcomingLoading = ""
+	upcomingMu.Lock()
+	upcomingStaged = nil
+	upcomingMu.Unlock()
+}
+
 // updateUpcoming runs on the render thread (from refreshDetail). It swaps in any
 // finished async load, then kicks off a new load when the selected task's repo
 // differs from what's shown. Cheap and idempotent — safe to call every frame.
@@ -52,6 +64,7 @@ func updateUpcoming() {
 	upcomingMu.Unlock()
 	if staged != nil {
 		upcomingRepo = staged.repo
+		upcomingLoading = "" // load landed — clear the in-flight guard so forced reloads work
 		workingText = staged.working
 		hasWorking = workingText != ""
 		upcomingItems = buildUpcomingRows(staged.items)
