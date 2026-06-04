@@ -1351,9 +1351,10 @@ func draftRow(c *draftCommentVM) Component {
 		// one read-receipt dot: has the OTHER party read this? (● read / ○ unread)
 		HBox(Text(&c.Indent), Text(&c.ReadDot).FG(cHunk), SpaceW(1), Text(&c.Location).FG(&c.LocColor), Space(), Text(&c.When).FG(cMuted)),
 		If(&c.Snippet).Then(Text(&c.Snippet).FG(cMuted)),
-		// TextBlock re-wraps to the column width, so a long comment flows onto
-		// several lines instead of truncating at one (Text clips to a single line).
-		HBox(Text(&c.Indent), TextBlock(&c.Body).FG(cFG)),
+		// TextBlock must be bounded to the width LEFT after the indent, else it wraps to
+		// the full column and the indent shoves it off the right edge (worse the deeper a
+		// reply nests). Grow(1) gives it exactly the remaining column width to wrap into.
+		HBox(Text(&c.Indent), VBox.Grow(1)(TextBlock(&c.Body).FG(cFG))),
 		// the agent's reaction sits below the body, attributed to the agent's name in
 		// its personal colour (Text, not TextBlock, so the emoji renders cleanly).
 		If(&c.HasEmote).Then(HBox(Text(&c.Indent), Text(&c.Emote), SpaceW(1), Text(&agentLabel).FG(&agentColor))),
