@@ -63,6 +63,15 @@ var (
 	cCommentBG = Hex(0x23282e) // faint blue wash on a commented diff line
 )
 
+// canonical diff hues. setThemeVars blends these toward each theme's fg so the
+// diff stays add=green / del=red / hunk=blue (distinct + readable) while taking on
+// the theme's tone (light vs dark, warm vs cool) instead of clashing.
+var (
+	diffAddBase  = Hex(0x8aa872)
+	diffDelBase  = Hex(0xc08a72)
+	diffHunkBase = Hex(0x6f8fa8)
+)
+
 // repo identity bar colours (like mail's per-sender tick).
 var repoPalette = []Color{
 	Hex(0x6f8fa8), Hex(0x8aa872), Hex(0xc08a72), Hex(0xa88fb0),

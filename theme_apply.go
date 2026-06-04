@@ -67,9 +67,13 @@ func setThemeVars(t Theme) {
 	cSelBG = t.SelBG
 	cGroupBG = t.GroupBG
 	cFloat = t.GroupBG
-	cAdd = t.Success
-	cDel = t.Error
-	cHunk = t.Info
+	// diff colours: blend the canonical add/del/hunk hues toward the theme's fg so
+	// they stay distinct (green/red/blue) but sympathetic to the palette's tone —
+	// the mfd themes map Success/Error/Info to fg/bright/fg, which made +/@@ identical
+	// and the diff unreadable, so derive them instead.
+	cAdd = Lerp(diffAddBase, t.FG, 0.25)
+	cDel = Lerp(diffDelBase, t.FG, 0.25)
+	cHunk = Lerp(diffHunkBase, t.FG, 0.25)
 	cCommentBG = Lerp(t.BG, t.Info, 0.18) // faint wash of the accent over the bg
 	listBaseStyle = Style{BG: cPaneBG}
 	paneStyle = Style{Fill: cPaneBG, BG: cPaneBG, FG: cFG}

@@ -308,3 +308,18 @@ func TestMutedNudgedTowardFG(t *testing.T) {
 		t.Fatalf("cMuted should stay dimmer than fg (not equal)")
 	}
 }
+
+// diff colours stay distinct (add≠del≠hunk) and theme-sympathetic across the pack:
+// the mfd themes used to map +/@@ to the same fg, making the diff unreadable. They
+// must differ from each other and not collapse onto the plain fg.
+func TestDiffColoursDistinctPerTheme(t *testing.T) {
+	for _, nt := range allThemes() {
+		setThemeVars(nt.Palette)
+		if cAdd == cDel || cAdd == cHunk || cDel == cHunk {
+			t.Fatalf("%s: diff colours not distinct: add=%v del=%v hunk=%v", nt.Name, cAdd, cDel, cHunk)
+		}
+		if cAdd == nt.Palette.FG && cHunk == nt.Palette.FG {
+			t.Fatalf("%s: diff colours collapsed onto fg (the old bug)", nt.Name)
+		}
+	}
+}
