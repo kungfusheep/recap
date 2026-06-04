@@ -59,21 +59,13 @@ func editDiffLine(m diffLineMeta) {
 	runEditorAt(t.RepoPath, m.File, m.Line)
 }
 
-// openEditorPick enters jump-label mode over the diff; picking a labelled line
-// opens THAT line in $EDITOR (mirrors the comment line-picker, per review #148).
+// openEditorPick enters glyph's jump-label mode over the diff; picking a labelled
+// line opens THAT line in $EDITOR (mirrors the comment line-picker, per review #148).
 func openEditorPick() {
-	has := false
-	for _, m := range diffMeta {
-		if m.Commentable {
-			has = true
-			break
-		}
-	}
-	if !has {
+	if !anyCommentableRow() {
 		statusMsg = "(no diff lines to open)"
 		return
 	}
 	pickAction = editDiffLine
-	setPickMode(true)
-	diffLayer.Invalidate()
+	uiApp.EnterJumpMode()
 }

@@ -14,7 +14,6 @@ import (
 
 	. "github.com/kungfusheep/glyph"
 	"github.com/kungfusheep/recap/notify"
-	"github.com/kungfusheep/riffkey"
 )
 
 // cleanLine makes arbitrary text safe to render as one terminal row: tabs are
@@ -153,19 +152,16 @@ var (
 	diffMeta   []diffLineMeta // parallel to diffLines: anchor info per row
 	diffBanner [][]Span       // optional context rows prepended to the diff
 
-	// line-comment "pick a line" mode: renderDiffLayer draws label chars in the
-	// gutter of visible commentable rows; diffLabelByRow maps the label string → row.
-	// Labels are 1 char when they fit, else 2 chars (easymotion-style) so a tall diff
-	// with many commentable rows never runs out. pickBuffer accumulates typed chars
-	// until they match a label (prefix-matched).
-	// pickMode mirrors diffCommentMode as a string so view conditionals (If.Eq)
-	// can gate key scopes on it ("on"/"off"); always set both via setPickMode.
-	diffCommentMode bool
-	pickMode        = "off"
-	diffLabelByRow  = map[string]int{}
-	pickBuffer      string
-	// pickAction is what to do with the picked diff line (comment on it, or open it
-	// in $EDITOR). Set when entering pick mode; pickDiffLine calls it with the row.
+	// line-comment "pick a line" mode rides glyph's jump-label engine: while
+	// uiApp.JumpModeActive(), renderDiffLayer registers one jump target per visible
+	// commentable row at its on-screen position. glyph assigns the labels (home-row,
+	// multi-char automatically when there are many), paints them onto the frame, and
+	// routes the keystrokes (including multi-char prefixes + Esc). The diff is a
+	// scrolled layer so the row→screen mapping is ours (diffViewRef = the LayerView's
+	// screen rect); only the label engine is glyph's (review #162).
+	diffViewRef NodeRef // screen rect of the diff LayerView, for jump-target coords
+	// pickAction is what to do with the picked diff line (comment on it, or open it in
+	// $EDITOR). Set before EnterJumpMode; the picked target's onSelect calls it.
 	pickAction func(diffLineMeta)
 
 	// commentedLines marks diff rows that already carry a draft comment, keyed by
@@ -262,19 +258,8 @@ func runUI() error {
 	uiApp.SetView(buildMain())
 	uiApp.OnBeforeRender(refreshDetail)
 	uiApp.Router().NoCounts()
-	// while picking a diff line, label letters overlap many bound keys, so the
-	// view scopes are suppressed (see buildMain) and the labels are caught here
-	// at the root, taking priority over nothing else once those scopes are off.
-	if r := uiApp.Router(); r != nil {
-		r.HandleUnmatched(func(k riffkey.Key) bool {
-			if diffCommentMode && k.Rune != 0 && k.Mod == 0 {
-				pickDiffLine(k.Rune)
-				uiApp.RequestRender()
-				return true
-			}
-			return false
-		})
-	}
+	// diff line-picking uses glyph's jump engine (EnterJumpMode pushes its own
+	// router for the label keystrokes), so no root unmatched handler is needed.
 	return uiApp.Run()
 }
 
@@ -802,9 +787,9 @@ func setDiff() {
 	} else {
 		diffLines, diffMeta = lines, meta
 	}
-	// note: comment mode is owned by openDiffLineComment/pickDiffLine/
-	// cancelDiffPick, never reset here — setDiff can run mid-pick (via the
-	// OnBeforeRender refresh) and would otherwise clobber the labels.
+	// jump mode (line-picking) is owned by glyph, not reset here — setDiff can run
+	// mid-pick (via the OnBeforeRender refresh); the next render just re-registers
+	// targets from the new diffMeta.
 	if diffLayer != nil {
 		diffLayer.ScrollToTop()
 		diffLayer.Invalidate()
@@ -912,25 +897,14 @@ func renderDiffLayer() {
 		textW = w
 	}
 
-	// in pick mode, label visible commentable rows; the label overwrites the
-	// 2-col gutter so all code stays visible. Recomputed each render so labels
-	// always match what's on screen. Labels are 1 char when they fit, else 2 chars
-	// (so a tall diff with many commentable rows never runs out of jump letters).
+	// while glyph's jump mode is active, register one jump target per visible
+	// commentable row at its on-screen position; glyph assigns + paints the labels
+	// (home-row, multi-char as needed) and routes the keystrokes. Picking a label
+	// fires pickAction with that row's meta. The screen mapping is ours because the
+	// diff is a scrolled layer: screenY = layer top (diffViewRef.Y) + (row - scroll).
 	top, vh := diffLayer.ScrollY(), diffLayer.ViewportHeight()
-	var diffLabels []string // label per visible commentable row, in row order
-	if diffCommentMode {
-		for k := range diffLabelByRow {
-			delete(diffLabelByRow, k)
-		}
-		n := 0 // count visible commentable rows to size the label alphabet
-		for y := top; y < top+vh && y < len(diffMeta); y++ {
-			if diffMeta[y].Commentable {
-				n++
-			}
-		}
-		diffLabels = makePickLabels(n)
-	}
-	li := 0
+	jumping := uiApp != nil && uiApp.JumpModeActive()
+	lblStyle := Style{FG: cBG, BG: cHunk, Attr: AttrBold}
 
 	for y := 0; y < h; y++ {
 		buf.ClearLineWithStyle(y, clear)
@@ -939,14 +913,15 @@ func renderDiffLayer() {
 		}
 		buf.WriteSpans(0, y, diffLines[y], textW)
 		switch {
-		case diffCommentMode && y >= top && y < top+vh && li < len(diffLabels) &&
-			y < len(diffMeta) && diffMeta[y].Commentable:
-			// pick mode: overlay the selection label in the gutter
-			lbl := diffLabels[li]
-			li++
-			diffLabelByRow[lbl] = y
-			buf.WriteSpans(0, y, []Span{{Text: lbl, Style: Style{FG: cBG, BG: cHunk, Attr: AttrBold}}}, w)
-		case !diffCommentMode && y < len(diffMeta) && diffMeta[y].Commentable &&
+		case jumping && y >= top && y < top+vh && y < len(diffMeta) && diffMeta[y].Commentable:
+			row := y // capture per target so each onSelect picks its own row
+			sx, sy := diffViewRef.X, diffViewRef.Y+(y-top)
+			uiApp.AddJumpTarget(int16(sx), int16(sy), func() {
+				if pickAction != nil && row < len(diffMeta) {
+					pickAction(diffMeta[row])
+				}
+			}, lblStyle)
+		case !jumping && y < len(diffMeta) && diffMeta[y].Commentable &&
 			commentedLines[lineKey(diffMeta[y].File, diffMeta[y].Line)]:
 			// normal: a bright filled gutter block marks a commented line, with a
 			// faint tinted wash across the row so it's easy to spot at a glance.
@@ -974,9 +949,10 @@ func dash(s string) string {
 
 func buildMain() Component {
 	return VBox.Fill(cBG).CascadeStyle(&Style{Fill: cBG, BG: cBG, FG: cFG})(
-		// global keys — suppressed while picking a diff line, so the label
-		// letters (which overlap a/c/d/g/…) route to the in-place picker instead.
-		If(&pickMode).Eq("off").Then(On(
+		// global keys. While picking a diff line glyph's jump router is pushed on top
+		// of the input stack and intercepts every keystroke (labels + Esc + cancel),
+		// so these are shadowed automatically — no manual suppression needed.
+		On(
 			Key("q", uiApp.Stop),
 			Key("?", toggleHelp),
 			Key("<Space>", func() { omni.Open() }),
@@ -988,13 +964,7 @@ func buildMain() Component {
 			Key("S", submitSelected),
 			Key("U", unsubmitSelected),
 			Key("t", openTodoEditor),
-		)),
-		// pick-a-line scope: Esc cancels. The label letters themselves are caught
-		// by the main router's unmatched handler (see runUI) since they overlap
-		// many bound keys and must take priority while picking.
-		If(&pickMode).Eq("on").Then(On(
-			Key("<Esc>", cancelDiffPick),
-		)),
+		),
 		// the TODO editor takes over the column area when open (it's a panel inside
 		// this view, not a separate PushView, so the prompt over it behaves like the
 		// inbox: single Esc, working screen effects).
@@ -1054,16 +1024,20 @@ func buildMain() Component {
 					// with height 0 is auto-stretched to fill the row, so it tracks the
 					// full column height (same structure ScrollView builds internally).
 					// It fades in only while the diff column has focus (mail's cue).
-					HBox.Grow(1)(
+					// NodeRef on this HBox gives the diff LayerView's screen rect (it's
+					// the first child at x=0): renderDiffLayer maps commentable rows to
+					// screen coords from it when registering glyph jump targets.
+					HBox.Grow(1).NodeRef(&diffViewRef)(
 						LayerView(diffLayer).Grow(1),
 						ScrollbarForLayer(diffLayer).
 							TrackStyle(Style{FG: cMuted, BG: cBG}).
 							ThumbStyle(Style{FG: cSubtle, BG: cBG}).
 							Opacity(Animate(&diffFocused)),
 					),
-					// diff-focused keys (suppressed during pick mode so label letters
-					// like c/j/k/d/g aren't swallowed before the picker sees them).
-					If(&pickMode).Eq("off").Then(If(&pane).Eq(paneDiff).Then(On(
+					// diff-focused keys. During a line-pick glyph's jump router is
+					// pushed on top and intercepts the label keystrokes, so these stay
+					// active here without a manual pick-mode guard.
+					If(&pane).Eq(paneDiff).Then(On(
 						Key("j", diffDown),
 						Key("k", diffUp),
 						Key("d", diffHalfDown),
@@ -1074,7 +1048,7 @@ func buildMain() Component {
 						Key("e", openEditorPick), // jump-pick a line → open it in $EDITOR
 						Key("<Enter>", func() { setPane(paneList) }),
 						Key("<Esc>", func() { setPane(paneList) }),
-					))),
+					)),
 				),
 				// right — comments overview (shown whenever the task has any comments)
 				If(&hasDraft).Then(
@@ -1600,27 +1574,30 @@ func rerun() {
 
 // --- review UI (line comments + submit) ------------------------------------
 
-// openDiffLineComment toggles "pick a line" mode in place: renderDiffLayer draws
-// labels over the visible commentable rows of the diff that's already on screen
-// (no view switch). The diff-pane key scope captures the label keystroke.
+// anyCommentableRow reports whether the current diff has at least one line that
+// can be picked (commented on / opened) — used to gate the jump-label picker.
+func anyCommentableRow() bool {
+	for _, m := range diffMeta {
+		if m.Commentable {
+			return true
+		}
+	}
+	return false
+}
+
+// openDiffLineComment starts a line-pick over the on-screen diff using glyph's
+// jump labels (no view switch): EnterJumpMode renders, renderDiffLayer registers a
+// target per visible commentable row, and picking a label runs pickAction on it.
 func openDiffLineComment() {
 	if len(tasks) == 0 {
 		return
 	}
-	has := false
-	for _, m := range diffMeta {
-		if m.Commentable {
-			has = true
-			break
-		}
-	}
-	if !has {
+	if !anyCommentableRow() {
 		statusMsg = "(no diff lines to comment on)"
 		return
 	}
 	pickAction = commentOnDiffLine
-	setPickMode(true)
-	diffLayer.Invalidate()
+	uiApp.EnterJumpMode()
 }
 
 // commentOnDiffLine captures the picked line's anchor and opens the body prompt.
@@ -1632,75 +1609,6 @@ func commentOnDiffLine(m diffLineMeta) {
 		pcSnippetView = pcSnippetView[:67] + "…"
 	}
 	openInputPrompt("line comment", pcLocation, pcSnippetView, "", saveLineComment)
-}
-
-// setPickMode toggles in-place label mode, keeping the bool and the conditional
-// string mirror in sync.
-func setPickMode(on bool) {
-	diffCommentMode = on
-	pickBuffer = "" // start each pick session with an empty label buffer
-	if on {
-		pickMode = "on"
-	} else {
-		pickMode = "off"
-	}
-}
-
-func cancelDiffPick() {
-	setPickMode(false)
-	diffLayer.Invalidate()
-}
-
-// makePickLabels returns n jump labels: single chars (a-zA-Z) while they fit,
-// otherwise 2-char combos (aa, ab, …) so a tall diff with many commentable rows
-// never runs out of labels. A render uses one scheme or the other, never mixed,
-// so prefix matching in pickDiffLine is unambiguous.
-func makePickLabels(n int) []string {
-	if n <= 0 {
-		return nil
-	}
-	const single = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	out := make([]string, 0, n)
-	if n <= len(single) {
-		for i := 0; i < n; i++ {
-			out = append(out, string(single[i]))
-		}
-		return out
-	}
-	const a = "abcdefghijklmnopqrstuvwxyz"
-	for i := 0; i < n && i < len(a)*len(a); i++ {
-		out = append(out, string(a[i/len(a)])+string(a[i%len(a)]))
-	}
-	return out
-}
-
-// pickDiffLine accumulates typed chars into pickBuffer and resolves them against
-// the label map: an exact match picks the row (and runs the chosen action); a
-// prefix of some label keeps waiting for the next char; anything else resets.
-func pickDiffLine(r rune) {
-	if !diffCommentMode {
-		return
-	}
-	pickBuffer += string(r)
-	if row, ok := diffLabelByRow[pickBuffer]; ok {
-		if row >= 0 && row < len(diffMeta) && diffMeta[row].Commentable {
-			m := diffMeta[row]
-			setPickMode(false) // also clears pickBuffer
-			diffLayer.Invalidate()
-			if pickAction != nil {
-				pickAction(m)
-			}
-			return
-		}
-		pickBuffer = ""
-		return
-	}
-	for lbl := range diffLabelByRow {
-		if strings.HasPrefix(lbl, pickBuffer) {
-			return // valid prefix — wait for the next char
-		}
-	}
-	pickBuffer = "" // dead end — reset so the next key starts fresh
 }
 
 func saveLineComment() {
