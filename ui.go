@@ -269,15 +269,18 @@ func runUI() error {
 	go func() {
 		for range sigReload {
 			reloadRequested.Store(true)
-			uiApp.RequestRender()
+			if !inEditor.Load() {
+				uiApp.RequestRender() // defer the repaint if vim owns the screen; ForceRedraw on exit picks it up
+			}
 		}
 	}()
 
-	// animate the in-flight spinner flare, but only while there's an in-flight
-	// marker — no idle re-renders when nothing's in progress.
+	// animate the in-flight spinner flare, but only while there's an in-flight marker
+	// (no idle re-renders) and not while an external $EDITOR owns the terminal (else
+	// the flare draws over vim).
 	go func() {
 		for range time.Tick(120 * time.Millisecond) {
-			if hasCurrent {
+			if spinnerActive() {
 				spinFrame++
 				uiApp.RequestRender()
 			}

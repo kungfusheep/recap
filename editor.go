@@ -5,7 +5,19 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync/atomic"
 )
+
+// inEditor is true while an external $EDITOR owns the terminal. The spinner animation
+// goroutine checks it so it stops calling RequestRender — otherwise glyph keeps drawing
+// the flare over the editor (the braille spinner bleeding into vim's gutter).
+var inEditor atomic.Bool
+
+// spinnerActive reports whether the in-flight flare should animate: there's an in-flight
+// item AND no external editor owns the terminal. The testable core of the spinner guard.
+func spinnerActive() bool {
+	return hasCurrent && !inEditor.Load()
+}
 
 // editorArgs builds argv to open file at line. The +N form positions the cursor in
 // vim/nvim/nano/emacs (the user runs neovim); line 0 just opens the file. EDITOR
@@ -37,9 +49,11 @@ func runEditorAt(repo, file string, line int) {
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 
 	sc := uiApp.Screen()
+	inEditor.Store(true) // hold off the spinner's RequestRender while vim owns the screen
 	_ = sc.ExitRawMode()
 	runErr := cmd.Run()
 	_ = sc.EnterRawMode()
+	inEditor.Store(false)
 	uiApp.ForceRedraw()
 	if runErr != nil {
 		statusMsg = "editor: " + runErr.Error()

@@ -7,6 +7,30 @@ import (
 	. "github.com/kungfusheep/glyph"
 )
 
+// the spinner flare animates only when there's an in-flight item AND no external
+// editor owns the terminal — so dropping into $EDITOR stops the flare drawing over it.
+func TestSpinnerActiveGuard(t *testing.T) {
+	defer func() { hasCurrent = false; inEditor.Store(false) }()
+
+	hasCurrent = false
+	inEditor.Store(false)
+	if spinnerActive() {
+		t.Fatal("no in-flight item → spinner must be idle")
+	}
+	hasCurrent = true
+	if !spinnerActive() {
+		t.Fatal("in-flight + no editor → spinner should animate")
+	}
+	inEditor.Store(true)
+	if spinnerActive() {
+		t.Fatal("editor owns the terminal → spinner must NOT animate (no overdraw)")
+	}
+	inEditor.Store(false)
+	if !spinnerActive() {
+		t.Fatal("editor closed → spinner resumes")
+	}
+}
+
 // editorArgs builds +line argv for vim-family editors, splits EDITOR flags, and
 // omits the +N when there's no real line.
 func TestEditorArgs(t *testing.T) {
