@@ -848,3 +848,49 @@ func TestInboxOrderLatestAtBottom(t *testing.T) {
 		t.Fatalf("inbox order = %v, want [%d %d %d] (oldest→newest, latest at bottom)", ids, a, b, c)
 	}
 }
+
+// the comments pane can reply to the selected comment ('r'): saveReply threads a
+// reply under it (who="you") and it shows nested in the pane.
+func TestReplyToCommentFromPane(t *testing.T) {
+	prev := uiStore
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	t.Cleanup(func() {
+		uiStore = prev
+		uiApp = nil
+		draftComments = nil
+		draftSel = 0
+		commentField = InputState{}
+		replyingToID = 0
+	})
+
+	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	parent, _ := st.AddReviewComment(id, "you", "the original", "", 0, "", "")
+	loadDraftPane(id)
+	draftSel = 0
+	if selectedDraft() == nil || selectedDraft().ID != parent {
+		t.Fatalf("setup: selected draft should be the parent comment")
+	}
+
+	replyToComment()
+	if replyingToID != parent {
+		t.Fatalf("replyToComment should target the selected comment %d, got %d", parent, replyingToID)
+	}
+	commentField.Value = "my reply"
+	saveReply()
+
+	cs, _ := st.Comments(id)
+	var found *Comment
+	for i := range cs {
+		if cs[i].ParentID == parent && cs[i].Body == "my reply" {
+			found = &cs[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("reply not threaded under the parent: %+v", cs)
+	}
+	if found.Who != "you" {
+		t.Fatalf("TUI reply should be who=you, got %q", found.Who)
+	}
+}

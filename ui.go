@@ -199,6 +199,7 @@ var (
 
 	// comment view/edit: which draft comment is open, and its display strings.
 	editingCommentID int64
+	replyingToID     int64 // comment being replied to (TUI 'r' in the comments pane)
 	cvLocation       string
 	cvSnippet        string
 	cvBodyLines      []string // body wrapped to the modal width
@@ -1159,6 +1160,7 @@ func buildMain() Component {
 							Key("j", func() { moveDraft(1) }),
 							Key("k", func() { moveDraft(-1) }),
 							Key("<Enter>", openCommentView),
+							Key("r", replyToComment), // reply to the selected comment (threads under it)
 							Key("e", editDraftComment),
 							Key("d", deleteDraftComment),
 							Key("O", openDraftLinks), // open [[file]] refs (e.g. screenshots)
@@ -1493,6 +1495,31 @@ func wrapText(s string, width int) []string {
 		out = append(out, line)
 	}
 	return out
+}
+
+// replyToComment opens the body prompt to reply to the selected comment; saving
+// threads the reply under it (who="you", the reviewer). Works on any comment,
+// submitted or draft — replies are discussion, not edits.
+func replyToComment() {
+	c := selectedDraft()
+	if c == nil {
+		return
+	}
+	replyingToID = c.ID
+	openInputPrompt("reply", c.Location, "  "+c.Body, "", saveReply)
+}
+
+func saveReply() {
+	body := strings.TrimSpace(commentField.Value)
+	if replyingToID == 0 || body == "" {
+		return
+	}
+	if _, err := uiStore.AddReply(replyingToID, "you", body); err != nil {
+		statusMsg = "error: " + err.Error()
+		return
+	}
+	statusMsg = "replied"
+	detailDirty = true
 }
 
 // editDraftComment opens the body prompt pre-filled with the selected comment's
