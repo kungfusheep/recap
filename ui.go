@@ -1376,6 +1376,10 @@ func taskRow(r *taskVM) Component {
 			// and every icon falls back to the inherited (cyan) cascade. The pointer
 			// is re-read per row each frame. The in-flight item flares in place — its
 			// status dot becomes the animated spinner.
+			// repo-coloured left margin: makes cross-repo items obviously different at a
+			// glance (so you don't fire `t` on the wrong repo's TODO).
+			Text("▌").FG(&r.RepoColor),
+			SpaceW(1),
 			If(&r.InFlight).
 				Then(Spinner(&spinFrame).Frames(SpinnerDots).FG(&cBright)).
 				Else(Text(&r.Glyph).FG(&r.GlyphColor)),
@@ -1395,8 +1399,9 @@ func taskRow(r *taskVM) Component {
 			Text(&r.When).FG(cSubtle),
 		),
 		HBox(
-			SpaceW(2),
-			Text(&r.Repo).FG(cSubtle), // match the right column's muted meta, not a cyan tint
+			Text("▌").FG(&r.RepoColor), // continue the repo margin down the second line
+			SpaceW(1),
+			Text(&r.Repo).FG(&r.RepoColor), // repo tinted with its identity colour
 			Space(),
 			Text(&r.IDText).FG(cMuted), // dim id for cross-referencing
 			SpaceW(1),
