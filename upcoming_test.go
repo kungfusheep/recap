@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -43,7 +44,9 @@ func TestUpcomingFromItems(t *testing.T) {
 // buildUpcomingRows renders the TODO tasks as plain bulleted rows (the in-flight
 // marker is rendered separately with a spinner, not as a row here).
 func TestBuildUpcomingRows(t *testing.T) {
-	rows := buildUpcomingRows([]string{"first", "second", "third"})
+	// the in-flight ref marks exactly the matching row (in-place flare); others are plain.
+	inflight := fmt.Sprintf("todo:%08x", fnvHash("second"))
+	rows := buildUpcomingRows([]string{"first", "second", "third"}, inflight)
 	if len(rows) != 3 {
 		t.Fatalf("got %d rows, want 3", len(rows))
 	}
@@ -52,7 +55,10 @@ func TestBuildUpcomingRows(t *testing.T) {
 			t.Fatalf("row %d line = %q, want '· ' prefix", i, r.Line)
 		}
 	}
-	if len(buildUpcomingRows(nil)) != 0 {
+	if !rows[1].InFlight || rows[0].InFlight || rows[2].InFlight {
+		t.Fatalf("only the matching ('second') row should be in-flight: %+v", rows)
+	}
+	if len(buildUpcomingRows(nil, "")) != 0 {
 		t.Fatal("empty input should give empty rows")
 	}
 }

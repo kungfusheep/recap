@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -17,8 +18,8 @@ import (
 var (
 	upcomingItems   []upcomingRow // the next ≤upcomingMax TODO tasks (plain bullets)
 	hasUpcoming     bool          // gates the whole section
-	currentText     string        // the in-flight item's flare text ("" = none)
-	hasCurrent      bool          // gates the spinner flare row; mirrors currentText != ""
+	currentRef      string        // the in-flight item's ref (amends:N / todo:hash) — for in-place flaring
+	hasCurrent      bool          // true when something is in flight; gates the spinner animation
 	upcomingRepo    string        // repo path currently shown (render-thread owned)
 	upcomingLoading string        // repo path being loaded (render-thread owned, dedupe)
 
@@ -31,14 +32,15 @@ var (
 // marker is NOT a row — it's rendered separately above the list with an animated
 // spinner flare (the "in progress" cue), set by `recap next` (the cursor's title).
 type upcomingRow struct {
-	Line string
-	FG   Color
+	Line     string
+	FG       Color
+	InFlight bool // this row is the in-flight item → flare it in place (spinner)
 }
 
 type upcomingResult struct {
-	repo    string
-	current string // the in-flight item's flare text at load time
-	items   []string
+	repo  string
+	ref   string // the in-flight item's ref at load time
+	items []string
 }
 
 const upcomingMax = 5 // how many upcoming tasks to surface
@@ -66,10 +68,10 @@ func updateUpcoming() {
 	if staged != nil {
 		upcomingRepo = staged.repo
 		upcomingLoading = "" // load landed — clear the in-flight guard so forced reloads work
-		currentText = staged.current
-		hasCurrent = currentText != ""
-		upcomingItems = buildUpcomingRows(staged.items)
-		hasUpcoming = hasCurrent || len(upcomingItems) > 0
+		currentRef = staged.ref
+		hasCurrent = currentRef != ""
+		upcomingItems = buildUpcomingRows(staged.items, currentRef)
+		hasUpcoming = len(upcomingItems) > 0
 	}
 
 	t, ok := selectedTask()
@@ -82,10 +84,10 @@ func updateUpcoming() {
 	upcomingLoading = t.RepoPath
 	repo := t.RepoPath
 	go func() {
-		current := currentTitle(filepath.Base(repo)) // the displayed repo's in-flight item (flare)
-		items := loadUpcoming(repo)                  // TODO tasks — file read + parse, off the render thread
+		ref, _ := loadCurrent(filepath.Base(repo)) // the displayed repo's in-flight item ref
+		items := loadUpcoming(repo)                // TODO tasks — file read + parse, off the render thread
 		upcomingMu.Lock()
-		upcomingStaged = &upcomingResult{repo: repo, current: current, items: items}
+		upcomingStaged = &upcomingResult{repo: repo, ref: ref, items: items}
 		upcomingMu.Unlock()
 		if uiApp != nil {
 			uiApp.RequestRender()
@@ -115,10 +117,11 @@ func loadUpcoming(repoPath string) []string {
 // buildUpcomingRows turns the upcoming task texts into plain bulleted rows. Runs on
 // the render thread so it can read the current theme colours. (The in-flight marker
 // is rendered separately with a spinner, not as one of these rows.)
-func buildUpcomingRows(texts []string) []upcomingRow {
+func buildUpcomingRows(texts []string, currentRef string) []upcomingRow {
 	rows := make([]upcomingRow, 0, len(texts))
 	for _, txt := range texts {
-		rows = append(rows, upcomingRow{Line: "· " + txt, FG: cSubtle})
+		inFlight := currentRef != "" && fmt.Sprintf("todo:%08x", fnvHash(strings.TrimSpace(txt))) == currentRef
+		rows = append(rows, upcomingRow{Line: "· " + txt, FG: cSubtle, InFlight: inFlight})
 	}
 	return rows
 }

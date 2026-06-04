@@ -106,6 +106,7 @@ type taskVM struct {
 	ReReview     bool   // fix-forward task awaiting re-review
 	ReReviewPill string // e.g. "↩ #9"
 	Selected     bool
+	InFlight     bool // this task is the in-flight amends item → flare it in place (spinner)
 	HasGroup     bool
 	GroupLabel   string
 
@@ -403,6 +404,7 @@ func reloadTasks() {
 			GlyphColor: stateColor(st),
 			RepoColor:  repoColor(t.Repo),
 			Pending:    st == StatePending,
+			InFlight:   currentRef == fmt.Sprintf("amends:%d", t.ID),
 			RevIdx:     -1, // task header row
 		}
 		vm.When = hhmm(t.CreatedAt)
@@ -1130,15 +1132,12 @@ func buildMain() Component {
 						// the section is separated from the inbox by whitespace instead.
 						VBox.PaddingTRBL(0, 2, 2, 3).Gap(1)(
 							Text("UPCOMING").FG(cSubtle).Bold(),
-							// the in-flight item (recap next's cursor) flares with an animated
-							// spinner to show active work — distinct from the static TODO list.
-							If(&hasCurrent).Then(HBox(
-								Spinner(&spinFrame).Frames(SpinnerDots).FG(cBright),
-								SpaceW(1),
-								Text(&currentText).FG(cBright),
-							)),
+							// the in-flight item flares IN PLACE — its row shows the animated
+							// spinner instead of the static bullet (no separate status line).
 							VBox(ForEach(&upcomingItems, func(r *upcomingRow) Component {
-								return Text(&r.Line).FG(&r.FG)
+								return If(&r.InFlight).
+									Then(HBox(Spinner(&spinFrame).Frames(SpinnerDots).FG(cBright), SpaceW(1), Text(&r.Line).FG(cBright))).
+									Else(Text(&r.Line).FG(&r.FG))
 							})),
 						),
 					),
@@ -1375,8 +1374,11 @@ func taskRow(r *taskVM) Component {
 			// FG must be a *Color, not a value: List builds the row template once
 			// from a placeholder element, so a by-value .FG() bakes the zero colour
 			// and every icon falls back to the inherited (cyan) cascade. The pointer
-			// is re-read per row each frame.
-			Text(&r.Glyph).FG(&r.GlyphColor),
+			// is re-read per row each frame. The in-flight item flares in place — its
+			// status dot becomes the animated spinner.
+			If(&r.InFlight).
+				Then(Spinner(&spinFrame).Frames(SpinnerDots).FG(&cBright)).
+				Else(Text(&r.Glyph).FG(&r.GlyphColor)),
 			SpaceW(1),
 			HBox.Grow(1)(
 				// FG must live inside Style: .Style() replaces the whole style, so a
