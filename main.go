@@ -54,6 +54,8 @@ func main() {
 		err = cmdEmote(args)
 	case "working":
 		err = cmdWorking(args)
+	case "whoami":
+		err = cmdWhoami(args)
 	case "read":
 		err = cmdRead(args)
 	case "unread":
@@ -414,6 +416,9 @@ func cmdComment(args []string) error {
 	if *who != "you" && *who != "agent" {
 		return fmt.Errorf("--who must be 'you' or 'agent'")
 	}
+	if *who == "agent" {
+		*who = identityWho() // use the agent's session name if it has named itself
+	}
 	if *body == "" {
 		return fmt.Errorf("--body is required")
 	}
@@ -490,6 +495,52 @@ func cmdRead(args []string) error {
 	}
 	notify.Reload() // push: the user's open TUI fills the agent-read dot without a refresh
 	fmt.Printf("marked %d comment(s) read\n", len(ids))
+	return nil
+}
+
+// cmdWhoami sets (or shows) the agent's session identity — the name + personal
+// colour it gives itself for the loop, so its review comments read as a distinct
+// voice. Recap-only; never in commits. With no args it prints the current identity
+// and any configured name-theme hint.
+func cmdWhoami(args []string) error {
+	// hand-parse so --color works whether it comes before or after the name (Go's
+	// flag package stops at the first positional, which would swallow it).
+	var color string
+	var nameParts []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--color" || a == "-color":
+			if i+1 < len(args) {
+				color = args[i+1]
+				i++
+			}
+		case strings.HasPrefix(a, "--color="):
+			color = strings.TrimPrefix(a, "--color=")
+		case strings.HasPrefix(a, "-color="):
+			color = strings.TrimPrefix(a, "-color=")
+		default:
+			nameParts = append(nameParts, a)
+		}
+	}
+	name := strings.TrimSpace(strings.Join(nameParts, " "))
+	if name == "" && color == "" {
+		cur, c := loadIdentity()
+		if cur == "" {
+			fmt.Println("agent has not named itself yet")
+		} else {
+			fmt.Printf("agent: %s  (colour %02X%02X%02X)\n", cur, c.R, c.G, c.B)
+		}
+		if cfg, _ := LoadConfig(); cfg.NameTheme != "" {
+			fmt.Printf("name theme: %s\n", cfg.NameTheme)
+		}
+		return nil
+	}
+	if err := saveIdentity(name, color); err != nil {
+		return err
+	}
+	notify.Reload() // push: the name/colour shows in any open TUI without a refresh
+	fmt.Printf("named: %s\n", name)
 	return nil
 }
 
@@ -573,6 +624,9 @@ func cmdReply(args []string) error {
 	}
 	if *who != "you" && *who != "agent" {
 		return fmt.Errorf("--who must be 'you' or 'agent'")
+	}
+	if *who == "agent" {
+		*who = identityWho() // use the agent's session name if it has named itself
 	}
 	if *body == "" {
 		return fmt.Errorf("--body is required")

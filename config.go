@@ -19,6 +19,11 @@ type Config struct {
 	//
 	// e.g. "~/Library/Mobile Documents/iCloud~md~obsidian/Documents/O Notes/reponotes/{relpath}/TODO.md"
 	TODOTemplate string
+
+	// NameTheme optionally guides the name the agent picks for itself each session
+	// (e.g. "birds", "greek", "lumon") — purely a hint the agent reads via `recap
+	// whoami`. Empty = the agent picks freely; naming works either way.
+	NameTheme string
 }
 
 func configPath() (string, error) {
@@ -66,6 +71,8 @@ func LoadConfig() (Config, error) {
 		switch k {
 		case "todo_template":
 			c.TODOTemplate = v
+		case "name_theme":
+			c.NameTheme = v
 		}
 	}
 	return c, sc.Err()

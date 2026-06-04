@@ -133,6 +133,7 @@ type draftCommentVM struct {
 	ReadUser bool   // the user has seen this comment (guards the optimistic re-mark)
 	ReadDot  string // ●/○ — has the OPPOSITE party read this? (you-comment → agent read it; agent-comment → you read it). You don't see a receipt on your own read.
 	Location string // "file · line N" / "general" / "↳ who" for a reply
+	LocColor Color  // colour for the location line — the agent's personal colour on its replies
 	Indent   string // leading spaces for nested replies (precomputed; build-once safe)
 	When     string // comment time (HH:MM) from CreatedAt
 	Snippet  string // the diff line commented on (may be empty)
@@ -254,6 +255,7 @@ func runUI() error {
 
 	omni = newOmniBox(uiApp, omniCommands())
 
+	refreshIdentity() // load the agent's name + colour for this session
 	reloadTasks()
 
 	// live refresh: register this TUI so `recap add` can SIGUSR1 us to reload the
@@ -552,6 +554,7 @@ func refreshDetail() {
 	if reloadRequested.CompareAndSwap(true, false) {
 		reloadTasks()
 		invalidateUpcoming() // force the in-flight marker + upcoming list to reflect current state (e.g. after `recap working`)
+		refreshIdentity()    // pick up `recap whoami` (name + colour) on push
 		detailDirty = true
 	}
 	// peek at the selected repo's next TODO tasks + in-flight marker (loaded async;
@@ -772,6 +775,7 @@ func loadDraftPane(taskID int64) {
 		if c.Snippet != "" {
 			vm.Snippet = cleanLine(c.Snippet)
 		}
+		vm.LocColor = cSubtle
 		draftComments = append(draftComments, vm)
 	}
 	// header reflects draft-in-progress vs settled comments.
@@ -826,6 +830,9 @@ func threadComments(vms []draftCommentVM) []draftCommentVM {
 			v.Location = "↳ " + dash(v.Who)
 			v.Indent = strings.Repeat("  ", depth)
 			v.Snippet = ""
+			if v.Who != "you" { // the agent's voice in its personal colour
+				v.LocColor = agentColor
+			}
 		}
 		out = append(out, v)
 		for _, r := range byParent[v.ID] {
@@ -1342,7 +1349,7 @@ func draftRow(c *draftCommentVM) Component {
 	// Indent (precomputed per row) nests replies; empty for top-level comments.
 	return VBox.Fill(itemBG).PaddingVH(1, 1)(
 		// one read-receipt dot: has the OTHER party read this? (● read / ○ unread)
-		HBox(Text(&c.Indent), Text(&c.ReadDot).FG(cHunk), SpaceW(1), Text(&c.Location).FG(cSubtle), Space(), Text(&c.When).FG(cMuted)),
+		HBox(Text(&c.Indent), Text(&c.ReadDot).FG(cHunk), SpaceW(1), Text(&c.Location).FG(&c.LocColor), Space(), Text(&c.When).FG(cMuted)),
 		If(&c.Snippet).Then(Text(&c.Snippet).FG(cMuted)),
 		// TextBlock re-wraps to the column width, so a long comment flows onto
 		// several lines instead of truncating at one (Text clips to a single line).
