@@ -24,6 +24,12 @@ type Theme struct {
 	SelBG    Color
 	GroupBG  Color
 	ThreadBG Color
+	// optional per-theme diff colours (zero = derive generically). When a theme's
+	// own palette has better add/del/hunk hues (e.g. its terminal ANSI colours),
+	// set these and setThemeVars uses them (still WCAG-checked) instead of deriving.
+	DiffAdd  Color
+	DiffDel  Color
+	DiffHunk Color
 }
 
 // NamedTheme is a Theme with its id (for persistence/lookup) and display label.
@@ -79,6 +85,11 @@ type mfdPalette struct {
 	cursor  uint32
 	border  uint32
 	floatBG uint32
+	// optional diff hues (0 = derive). Lifted from the theme's own terminal ANSI
+	// colours in the mfd.nvim lua source where they read better than the generic blend.
+	diffAdd  uint32
+	diffDel  uint32
+	diffHunk uint32
 }
 
 var mfdPalettes = []NamedTheme{
@@ -93,7 +104,7 @@ var mfdPalettes = []NamedTheme{
 	mfdTheme("mfd-nvg", "MFD NVG", mfdPalette{bg: 0x162014, fg: 0x78B858, dim: 0x4A7A3A, bright: 0x90D868, subtle: 0x2E4822, visual: 0x1E3018, cursor: 0x1A2816, border: 0x3A5C2E, floatBG: 0x182416}),
 	mfdTheme("mfd-gbl-light", "MFD GBL Light", mfdPalette{bg: 0x02B582, fg: 0x004F3A, dim: 0x009A70, bright: 0x01694A, subtle: 0x01694A, visual: 0x01694A, cursor: 0x01A878, border: 0x01694A, floatBG: 0x02B582}),
 	mfdTheme("mfd-gbl-dark", "MFD GBL Dark", mfdPalette{bg: 0x004F3A, fg: 0x02B582, dim: 0x01694A, bright: 0x009A70, subtle: 0x01694A, visual: 0x008560, cursor: 0x005A44, border: 0x009A70, floatBG: 0x004F3A}),
-	mfdTheme("mfd-lumon", "MFD Lumon", mfdPalette{bg: 0x0A1520, fg: 0x5AC8D8, dim: 0x1A3848, bright: 0xA0F0FF, subtle: 0x143040, visual: 0x122838, cursor: 0x0E1E2C, border: 0x1A3848, floatBG: 0x0C1822}),
+	mfdTheme("mfd-lumon", "MFD Lumon", mfdPalette{bg: 0x0A1520, fg: 0x5AC8D8, dim: 0x1A3848, bright: 0xA0F0FF, subtle: 0x143040, visual: 0x122838, cursor: 0x0E1E2C, border: 0x1A3848, floatBG: 0x0C1822, diffAdd: 0x66DD88, diffDel: 0xDD8899, diffHunk: 0x66CCEE}),
 	mfdTheme("mfd-nerv", "MFD NERV", mfdPalette{bg: 0x1A0A02, fg: 0xEE8822, dim: 0x6B3510, bright: 0xFFAA44, subtle: 0x4A2008, visual: 0x2A1208, cursor: 0x221005, border: 0x4A2008, floatBG: 0x180A02}),
 	mfdTheme("mfd-blackout", "MFD Blackout", mfdPalette{bg: 0x000000, fg: 0x24282C, dim: 0x181C20, bright: 0x24282C, subtle: 0x0C0E10, visual: 0x0C0E10, cursor: 0x080A0C, border: 0x101214, floatBG: 0x060808}),
 	mfdTheme("mfd-flir", "MFD FLIR", mfdPalette{bg: 0x181818, fg: 0x909090, dim: 0x404040, bright: 0xA8A8A8, subtle: 0x2E2E2E, visual: 0x242424, cursor: 0x202020, border: 0x2E2E2E, floatBG: 0x1C1C1C}),
@@ -140,8 +151,20 @@ func mfdTheme(name, label string, p mfdPalette) NamedTheme {
 			SelBG:    mfdColor(p.visual),
 			GroupBG:  mfdColor(p.cursor),
 			ThreadBG: mfdColor(p.floatBG),
+			DiffAdd:  optColor(p.diffAdd),
+			DiffDel:  optColor(p.diffDel),
+			DiffHunk: optColor(p.diffHunk),
 		},
 	}
+}
+
+// optColor returns a real colour for a non-zero hex, or the zero Color (unset) for
+// 0 — so a palette can opt into explicit diff hues without 0 meaning pure black.
+func optColor(hex uint32) Color {
+	if hex == 0 {
+		return Color{}
+	}
+	return mfdColor(hex)
 }
 
 func mfdColor(hex uint32) Color {

@@ -341,3 +341,30 @@ func TestDiffColoursMeetWCAG_AA(t *testing.T) {
 		}
 	}
 }
+
+// the lumon theme uses its own terminal-ANSI diff hues (from the mfd.nvim lua) for
+// add/del/hunk, not the generic blend — and they still pass AA contrast.
+func TestLumonDiffColours(t *testing.T) {
+	lumon, ok := themeByName("mfd-lumon")
+	if !ok {
+		t.Fatal("mfd-lumon should resolve")
+	}
+	if lumon.DiffAdd != Hex(0x66DD88) || lumon.DiffDel != Hex(0xDD8899) || lumon.DiffHunk != Hex(0x66CCEE) {
+		t.Fatalf("lumon diff hues not set from the lua source: add=%v del=%v hunk=%v", lumon.DiffAdd, lumon.DiffDel, lumon.DiffHunk)
+	}
+	setThemeVars(lumon)
+	// the applied colours derive from the lumon hues (contrast may nudge them) and
+	// must remain distinct + readable.
+	if cAdd == cDel || cAdd == cHunk || cDel == cHunk {
+		t.Fatal("lumon diff colours not distinct")
+	}
+	for n, c := range map[string]Color{"add": cAdd, "del": cDel, "hunk": cHunk} {
+		if contrastRatio(c, cBG) < wcagAA-0.01 {
+			t.Errorf("lumon %s below AA: %.2f", n, contrastRatio(c, cBG))
+		}
+	}
+	// a theme WITHOUT overrides still derives (dark theme has no DiffAdd)
+	if d, _ := themeByName("dark"); d.DiffAdd.Mode != 0 {
+		t.Fatal("dark theme should not set explicit diff hues")
+	}
+}

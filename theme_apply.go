@@ -53,6 +53,15 @@ func saveThemeName(name string) error {
 
 // setThemeVars maps a palette onto recap's package colour vars and the reactive
 // style vars. No rebuild — used at startup, before the view trees are built.
+// diffColour picks a theme's explicit diff hue when set, else blends the canonical
+// base toward the foreground for tonal sympathy. (Contrast is enforced by caller.)
+func diffColour(override, base, fg Color) Color {
+	if override.Mode != 0 {
+		return override
+	}
+	return Lerp(base, fg, 0.25)
+}
+
 func setThemeVars(t Theme) {
 	cBG = t.BG
 	cPaneBG = t.ThreadBG
@@ -71,11 +80,12 @@ func setThemeVars(t Theme) {
 	// they stay distinct (green/red/blue) but sympathetic to the palette's tone —
 	// the mfd themes map Success/Error/Info to fg/bright/fg, which made +/@@ identical
 	// and the diff unreadable, so derive them instead.
-	// blend toward the theme tone for sympathy, then enforce WCAG AA contrast against
-	// the background so the diff stays readable on low-contrast palettes.
-	cAdd = ensureContrast(Lerp(diffAddBase, t.FG, 0.25), t.BG, wcagAA)
-	cDel = ensureContrast(Lerp(diffDelBase, t.FG, 0.25), t.BG, wcagAA)
-	cHunk = ensureContrast(Lerp(diffHunkBase, t.FG, 0.25), t.BG, wcagAA)
+	// diff colours: use the theme's explicit diff hues if it sets them (e.g. lumon's
+	// terminal ANSI colours, which read better), otherwise blend the canonical hues
+	// toward the theme tone for sympathy. Either way enforce WCAG AA against the bg.
+	cAdd = ensureContrast(diffColour(t.DiffAdd, diffAddBase, t.FG), t.BG, wcagAA)
+	cDel = ensureContrast(diffColour(t.DiffDel, diffDelBase, t.FG), t.BG, wcagAA)
+	cHunk = ensureContrast(diffColour(t.DiffHunk, diffHunkBase, t.FG), t.BG, wcagAA)
 	cCommentBG = Lerp(t.BG, t.Info, 0.18) // faint wash of the accent over the bg
 	listBaseStyle = Style{BG: cPaneBG}
 	paneStyle = Style{Fill: cPaneBG, BG: cPaneBG, FG: cFG}
