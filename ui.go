@@ -1044,16 +1044,16 @@ func buildMain() Component {
 					),
 					SpaceH(2),
 					// upcoming — a compact, read-only peek at the next TODO tasks for the
-					// selected task's repo (mini TODO display; not interactive).
-					If(&hasUpcoming).Then(VBox(
-						HBox(SpaceW(3), Text("upcoming").FG(cSubtle).Bold(), SpaceW(2)),
-						SpaceH(1),
-						ForEach(&upcomingItems, func(r *upcomingRow) Component {
-							return HBox(SpaceW(3), Text(&r.Marker).FG(&r.FG), Text(&r.Text).FG(&r.FG))
-						}),
-						SpaceH(1),
-						HBox(SpaceW(3), HRule().FG(cMuted), SpaceW(2)),
-						SpaceH(1),
+					// selected task's repo (mini TODO display; not interactive). Indent
+					// and gaps come from the container (padding + Gap), and each row is a
+					// single full-width Text, so it reflows on resize and avoids a thicket
+					// of Space spacers (review #168).
+					If(&hasUpcoming).Then(VBox.PaddingTRBL(0, 2, 1, 3).Gap(1)(
+						Text("upcoming").FG(cSubtle).Bold(),
+						VBox(ForEach(&upcomingItems, func(r *upcomingRow) Component {
+							return Text(&r.Line).FG(&r.FG)
+						})),
+						HRule().FG(cMuted),
 					)),
 					List(&vmRows).
 						Selection(&sel).

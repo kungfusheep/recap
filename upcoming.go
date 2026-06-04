@@ -25,12 +25,12 @@ var (
 
 // upcomingRow is one rendered upcoming line. The first (next) item carries an
 // "in-progress" flare — a ▸ marker + brighter colour — since the loop works the
-// TODO top-down, so upcoming[0] is the item being worked next. Marker/FG are
-// precomputed per row so the build-once ForEach template renders them uniformly.
+// TODO top-down, so upcoming[0] is the item being worked next. Line (marker+text)
+// and FG are precomputed so each row is a single full-width Text — the build-once
+// ForEach renders them uniformly and they reflow on resize (no fixed-width HBox).
 type upcomingRow struct {
-	Marker string
-	Text   string
-	FG     Color
+	Line string
+	FG   Color
 }
 
 type upcomingResult struct {
@@ -102,9 +102,9 @@ func loadUpcoming(repoPath string) []string {
 func buildUpcomingRows(texts []string) []upcomingRow {
 	rows := make([]upcomingRow, 0, len(texts))
 	for i, txt := range texts {
-		r := upcomingRow{Marker: "· ", Text: txt, FG: cSubtle}
+		r := upcomingRow{Line: "· " + txt, FG: cSubtle}
 		if i == 0 {
-			r.Marker, r.FG = "▸ ", cBright // in-progress flare
+			r.Line, r.FG = "▸ "+txt, cBright // in-progress flare
 		}
 		rows = append(rows, r)
 	}

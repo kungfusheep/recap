@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	. "github.com/kungfusheep/glyph"
+)
 
 // upcomingFromItems surfaces the next incomplete tasks in file order, skips done
 // + non-task lines, caps at upcomingMax, and truncates long text with an ellipsis.
@@ -41,12 +46,12 @@ func TestBuildUpcomingRowsFlare(t *testing.T) {
 	if len(rows) != 3 {
 		t.Fatalf("got %d rows, want 3", len(rows))
 	}
-	if rows[0].Marker != "▸ " {
-		t.Fatalf("first marker = %q, want ▸ (in-progress flare)", rows[0].Marker)
+	if rows[0].Line != "▸ first" {
+		t.Fatalf("first line = %q, want '▸ first' (in-progress flare)", rows[0].Line)
 	}
 	for i := 1; i < len(rows); i++ {
-		if rows[i].Marker != "· " {
-			t.Fatalf("row %d marker = %q, want · ", i, rows[i].Marker)
+		if !strings.HasPrefix(rows[i].Line, "· ") {
+			t.Fatalf("row %d line = %q, want '· ' prefix", i, rows[i].Line)
 		}
 	}
 	if buildUpcomingRows(nil) == nil {
@@ -55,5 +60,41 @@ func TestBuildUpcomingRowsFlare(t *testing.T) {
 	}
 	if len(buildUpcomingRows(nil)) != 0 {
 		t.Fatal("empty input should give empty rows")
+	}
+}
+
+// the upcoming section reflows on resize: its divider (HRule) spans the container,
+// so rendering wider yields a wider rule — it isn't stuck at an initial width (#168).
+func TestUpcomingExpandsWithWidth(t *testing.T) {
+	prevHas, prevItems := hasUpcoming, upcomingItems
+	t.Cleanup(func() { hasUpcoming, upcomingItems = prevHas, prevItems })
+	hasUpcoming = true
+	upcomingItems = buildUpcomingRows([]string{"alpha", "beta"})
+
+	rule := func(width int) int {
+		node := VBox.Width(int16(width)).Fill(cPaneBG)(
+			If(&hasUpcoming).Then(VBox.PaddingTRBL(0, 2, 1, 3).Gap(1)(
+				Text("upcoming").FG(cSubtle).Bold(),
+				VBox(ForEach(&upcomingItems, func(r *upcomingRow) Component { return Text(&r.Line).FG(&r.FG) })),
+				HRule().FG(cMuted),
+			)),
+		)
+		buf := NewBuffer(width, 12)
+		Build(node).Execute(buf, int16(width), 12)
+		best := 0
+		for y := 0; y < 12; y++ {
+			n := strings.Count(buf.GetLine(y), "─")
+			if n > best {
+				best = n
+			}
+		}
+		return best
+	}
+	narrow, wide := rule(40), rule(90)
+	if narrow == 0 {
+		t.Fatalf("no HRule rendered at width 40")
+	}
+	if wide <= narrow {
+		t.Fatalf("upcoming divider should widen with the container: width40=%d width90=%d", narrow, wide)
 	}
 }
