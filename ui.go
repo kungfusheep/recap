@@ -270,9 +270,7 @@ func runUI() error {
 	go func() {
 		for range sigReload {
 			reloadRequested.Store(true)
-			if !inEditor.Load() {
-				uiApp.RequestRender() // defer the repaint if vim owns the screen; ForceRedraw on exit picks it up
-			}
+			uiApp.RequestRender() // App.Suspend() gates the draw if vim owns the screen; Resume repaints on exit
 		}
 	}()
 
@@ -281,7 +279,7 @@ func runUI() error {
 	// the flare draws over vim).
 	go func() {
 		for range time.Tick(120 * time.Millisecond) {
-			if spinnerActive() {
+			if hasCurrent { // App.Suspend() gates the actual draw while $EDITOR owns the screen
 				spinFrame++
 				uiApp.RequestRender()
 			}
