@@ -788,6 +788,27 @@ func (s *Store) Reviews(taskID int64) ([]Review, error) {
 	return out, rows.Err()
 }
 
+// LatestReviewIDs returns, per task, the id of its most recent review. Reviews are
+// append-only so a higher id means a later review — i.e. the order in which tasks
+// were last acted on (used to sort the done section "last completed first"). One
+// query for the whole table; tasks with no review are simply absent from the map.
+func (s *Store) LatestReviewIDs() (map[int64]int64, error) {
+	rows, err := s.db.Query(`SELECT task_id, MAX(id) FROM reviews GROUP BY task_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[int64]int64)
+	for rows.Next() {
+		var taskID, maxID int64
+		if err := rows.Scan(&taskID, &maxID); err != nil {
+			return nil, err
+		}
+		out[taskID] = maxID
+	}
+	return out, rows.Err()
+}
+
 // ListReviews returns reviews filtered by optional state and repo (empty = no
 // filter), newest first. repo matches the parent task's repo, so the loop can
 // scope review draining to the repo it's working in.

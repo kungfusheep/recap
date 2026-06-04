@@ -323,7 +323,9 @@ func reloadTasks() {
 		}
 	}
 	// sections: inbox, then amends, then done. Within inbox, oldest-first (work
-	// the queue front-to-back); amends/done newest-first (most recent activity).
+	// the queue front-to-back); amends/done by most recent review activity — last
+	// completed first — so the done list reads newest-at-top, not by creation id.
+	lastRev, _ := uiStore.LatestReviewIDs()
 	sort.SliceStable(tasks, func(i, j int) bool {
 		si, sj := state[tasks[i].ID], state[tasks[j].ID]
 		pi, pj := statePriority(si), statePriority(sj)
@@ -332,6 +334,12 @@ func reloadTasks() {
 		}
 		if si == StatePending {
 			return tasks[i].ID < tasks[j].ID // oldest first in the inbox
+		}
+		// non-pending (amends/done): newest review activity first, then id as a
+		// tie-break (covers tasks approved directly, with no review row).
+		ri, rj := lastRev[tasks[i].ID], lastRev[tasks[j].ID]
+		if ri != rj {
+			return ri > rj
 		}
 		return tasks[i].ID > tasks[j].ID
 	})

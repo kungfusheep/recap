@@ -115,3 +115,34 @@ func mustList(t *testing.T, st *Store, status, repo string) []Task {
 	}
 	return got
 }
+
+// done tasks sort by most recent review activity (last completed first), not by
+// creation id: approve out of id order and the newest approval must lead.
+func TestDoneOrderLastCompletedFirst(t *testing.T) {
+	st := testStore(t)
+	prev := uiStore
+	uiStore = st
+	t.Cleanup(func() { uiStore = prev })
+
+	a, _ := st.Add(Task{Repo: "wed", Title: "a"}) // id 1
+	b, _ := st.Add(Task{Repo: "wed", Title: "b"}) // id 2
+	c, _ := st.Add(Task{Repo: "wed", Title: "c"}) // id 3
+	// approve in the order c, a, b → b is the last completed, then a, then c
+	for _, id := range []int64{c, a, b} {
+		if _, err := st.SubmitReview(id, VerdictApprove, ""); err != nil {
+			t.Fatalf("approve %d: %v", id, err)
+		}
+	}
+
+	reloadTasks()
+	var done []int64
+	for _, tk := range tasks {
+		if uiStore.ReviewState(tk.ID) == StateDone {
+			done = append(done, tk.ID)
+		}
+	}
+	want := []int64{b, a, c} // last completed first
+	if len(done) != 3 || done[0] != want[0] || done[1] != want[1] || done[2] != want[2] {
+		t.Fatalf("done order = %v, want %v (last completed first)", done, want)
+	}
+}
