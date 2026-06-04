@@ -59,7 +59,11 @@ func setThemeVars(t Theme) {
 	cBright = t.Bright
 	cFG = t.FG
 	cSubtle = t.Subtle
-	cMuted = t.Muted
+	// muted text (timestamps, hints, separators) maps to the palette's border
+	// colour, which is too dark to read on several dark themes (#169). Nudge it
+	// toward the foreground so it stays clearly dimmer than normal text but legible
+	// — works for light themes too (fg is dark there, so it darkens).
+	cMuted = Lerp(t.Muted, t.FG, 0.3)
 	cSelBG = t.SelBG
 	cGroupBG = t.GroupBG
 	cFloat = t.GroupBG

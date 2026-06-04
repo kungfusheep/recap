@@ -283,3 +283,28 @@ func TestThemeChangeNoOrphanedModalRouter(t *testing.T) {
 		t.Fatalf("after theme change the input stack should be back to base %d, got %d (orphaned modal router → keys dead)", base, d)
 	}
 }
+
+// cMuted is nudged toward the foreground so muted text stays legible on dark
+// themes (#169): the applied colour sits strictly between the raw border colour
+// and fg — closer to fg than the raw, but not all the way (still dimmer).
+func TestMutedNudgedTowardFG(t *testing.T) {
+	th, _ := themeByName("dark")
+	setThemeVars(th)
+	raw := th.Muted
+	fg := th.FG
+	dist := func(a, b Color) int {
+		d := func(x, y uint8) int {
+			if x > y {
+				return int(x - y)
+			}
+			return int(y - x)
+		}
+		return d(a.R, b.R) + d(a.G, b.G) + d(a.B, b.B)
+	}
+	if dist(cMuted, fg) >= dist(raw, fg) {
+		t.Fatalf("cMuted should be closer to fg than the raw border colour: rawDist=%d newDist=%d", dist(raw, fg), dist(cMuted, fg))
+	}
+	if dist(cMuted, fg) == 0 {
+		t.Fatalf("cMuted should stay dimmer than fg (not equal)")
+	}
+}
