@@ -72,6 +72,10 @@ The reviewer's panel shows a spinner with that item's "#n title", resolved live.
 it as you move between items. It's a cue only — it doesn't record work (`recap add`) or
 change state — and it pushes, so an open TUI tracks it without a refresh.
 
+## Project scoping (important)
+
+The loop's intake is auto-scoped to the CURRENT repo (the cwd's git root): `recap review ls`, `recap redo`, and `recap unread` only show THIS project's items, so a loop running in another codebase never drains or answers another project's work. Pass `--all` to cross repos deliberately.
+
 ## Reviewer replies — the read-receipt inbox
 
 Reviewer **replies** (via `recap reply` or the TUI `r`) are thread comments, NOT new

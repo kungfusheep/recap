@@ -154,6 +154,18 @@ func git(dir string, args ...string) (string, error) {
 }
 
 func gitTopLevel(dir string) (string, error) { return git(dir, "rev-parse", "--show-toplevel") }
+
+// currentRepo is the basename of the cwd's git top-level — the default scope so a
+// loop running in one project never sees another's tasks/comments. "" when not in a
+// git repo (callers treat "" as "all repos"). --all opts out of the scoping.
+func currentRepo() string {
+	if cwd, err := os.Getwd(); err == nil {
+		if top, err := gitTopLevel(cwd); err == nil {
+			return filepath.Base(top)
+		}
+	}
+	return ""
+}
 func gitShortHead(repo string) (string, error) {
 	return git(repo, "rev-parse", "--short", "HEAD")
 }
@@ -364,6 +376,13 @@ func cmdShow(args []string) error {
 }
 
 func cmdRedo(args []string) error {
+	fs := flag.NewFlagSet("redo", flag.ExitOnError)
+	allRepos := fs.Bool("all", false, "across all repos (default: current repo only)")
+	fs.Parse(args)
+	repo := ""
+	if !*allRepos {
+		repo = currentRepo() // scope to this project so a loop never drains another's
+	}
 	st, err := Open()
 	if err != nil {
 		return err
@@ -373,7 +392,7 @@ func cmdRedo(args []string) error {
 	// its newest *submitted* review is request_changes and unresolved. Reading the
 	// stale `status` field instead let resolved tasks linger here forever (and made
 	// the CLI disagree with the TUI, which already uses ReviewState).
-	all, err := st.List("", "")
+	all, err := st.List("", repo)
 	if err != nil {
 		return err
 	}
@@ -439,12 +458,19 @@ func cmdComment(args []string) error {
 // inbox. Thread replies (recap reply / TUI 'r') don't bump a review's state, so they
 // never show in `review ls`; this surfaces them with their [cN] ids so you can act.
 func cmdUnread(args []string) error {
+	fs := flag.NewFlagSet("unread", flag.ExitOnError)
+	allRepos := fs.Bool("all", false, "across all repos (default: current repo only)")
+	fs.Parse(args)
+	repo := ""
+	if !*allRepos {
+		repo = currentRepo() // scope to this project so a loop never sees another's feedback
+	}
 	st, err := Open()
 	if err != nil {
 		return err
 	}
 	defer st.Close()
-	cs, err := st.UnreadByAgent()
+	cs, err := st.UnreadByAgent(repo)
 	if err != nil {
 		return err
 	}

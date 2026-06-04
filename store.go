@@ -396,9 +396,12 @@ func (s *Store) MarkReadUser(ids ...int64) error { return s.markRead("read_user"
 // UnreadByAgent returns reviewer comments the agent hasn't marked read yet — the
 // loop's actionable feedback inbox (thread replies don't bump a review's state, so
 // they're invisible to `review ls`; this surfaces them). Oldest first.
-func (s *Store) UnreadByAgent() ([]Comment, error) {
-	rows, err := s.db.Query(`SELECT ` + commentCols + ` FROM comments
-		WHERE who = 'you' AND COALESCE(read_agent,'') = '' ORDER BY id`)
+func (s *Store) UnreadByAgent(repo string) ([]Comment, error) {
+	rows, err := s.db.Query(`SELECT `+commentColsC+` FROM comments c
+		JOIN tasks t ON t.id = c.task_id
+		WHERE c.who = 'you' AND COALESCE(c.read_agent,'') = ''
+		  AND (? = '' OR t.repo = ?)
+		ORDER BY c.id`, repo, repo)
 	if err != nil {
 		return nil, err
 	}

@@ -323,14 +323,14 @@ func TestReadReceipts(t *testing.T) {
 	c2, _ := st.AddComment(tid, "you", "a loose note")
 	st.AddComment(tid, "agent", "my own note") // agent's own — never 'unread by agent'
 
-	un, _ := st.UnreadByAgent()
+	un, _ := st.UnreadByAgent("")
 	if len(un) != 2 {
 		t.Fatalf("want 2 unread reviewer comments, got %d", len(un))
 	}
 	if err := st.MarkReadAgent(c1); err != nil {
 		t.Fatalf("MarkReadAgent: %v", err)
 	}
-	un, _ = st.UnreadByAgent()
+	un, _ = st.UnreadByAgent("")
 	if len(un) != 1 || un[0].ID != c2 {
 		t.Fatalf("after read c1, unread should be just c2, got %+v", un)
 	}
@@ -350,5 +350,29 @@ func TestReadReceipts(t *testing.T) {
 		if c.ID == c2 && c.ReadUser == "" {
 			t.Fatalf("c2 should carry a read_user stamp")
 		}
+	}
+}
+
+// cross-project safety: UnreadByAgent scoped to a repo must NOT surface another
+// repo's reviewer comments (the bug where a loop in repo B answered repo A's
+// feedback). Empty repo = all (explicit --all).
+func TestUnreadScopedByRepo(t *testing.T) {
+	st := testStore(t)
+	a, _ := st.Add(Task{Repo: "alpha", Title: "a"})
+	b, _ := st.Add(Task{Repo: "beta", Title: "b"})
+	st.AddComment(a, "you", "alpha feedback")
+	st.AddComment(b, "you", "beta feedback")
+
+	al, _ := st.UnreadByAgent("alpha")
+	if len(al) != 1 || al[0].TaskID != a {
+		t.Fatalf("scoped to alpha should return only alpha's comment, got %+v", al)
+	}
+	be, _ := st.UnreadByAgent("beta")
+	if len(be) != 1 || be[0].TaskID != b {
+		t.Fatalf("scoped to beta should return only beta's comment, got %+v", be)
+	}
+	all, _ := st.UnreadByAgent("")
+	if len(all) != 2 {
+		t.Fatalf("unscoped should return both, got %d", len(all))
 	}
 }
