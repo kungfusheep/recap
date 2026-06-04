@@ -78,6 +78,17 @@ reply nests under the comment (and replies can themselves be replied to) and sho
 same way for general and line comments. `--who` defaults to `agent`. This is for
 discussion only — it does **not** resolve the review; use `revise` for the fix-forward.
 
+For a lightweight acknowledgement — "seen / agreed / done" without a whole reply —
+react to a comment with an emote:
+
+```
+recap emote <comment-id> 👍
+```
+
+Pass any emoji (👍 seen/agree, 👀 looking, ✅ done). It shows next to the comment in
+`recap review show` and the comments pane; one emote per comment (setting it again
+overwrites, empty clears). Same `[cN]` ids as reply.
+
 A `request_changes` review also drops a breadcrumb line into the repo's TODO
 (`address recap review #<id> (recap review show <id>)`); treat that TODO line and the
 `recap review show` work order as two views of the same item — `revise` completes it.

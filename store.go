@@ -86,6 +86,7 @@ type Comment struct {
 	Anchor    string // hunk header, e.g. "@@ -10,7 +10,9 @@"
 	Snippet   string // the diff line(s) commented on
 	CreatedAt string
+	Emote     string // optional reaction (e.g. 👍) — the agent's ack of this comment
 }
 
 // Revision is one diff attached to a task. A task's first diff is its base
@@ -152,6 +153,7 @@ var addColumns = []struct{ table, col, decl string }{
 	{"comments", "anchor", "TEXT"},
 	{"comments", "snippet", "TEXT"},
 	{"comments", "parent_id", "INTEGER"},
+	{"comments", "emote", "TEXT"},
 }
 
 func (s *Store) hasColumn(table, col string) (bool, error) {
@@ -340,6 +342,21 @@ func (s *Store) AddComment(taskID int64, who, body string) (int64, error) {
 	return res.LastInsertId()
 }
 
+// SetEmote sets (or clears, with "") a reaction on a comment — the agent's
+// lightweight acknowledgement of reviewer feedback without a full reply. One emote
+// per comment; setting it again overwrites.
+func (s *Store) SetEmote(commentID int64, emote string) error {
+	res, err := s.db.Exec(`UPDATE comments SET emote = ? WHERE id = ?`, nullStr(emote), commentID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("no comment #%d", commentID)
+	}
+	return nil
+}
+
 // AddReply records a reply to an existing comment — the threading primitive. The
 // reply inherits the parent's task and review context (so a reply to a line
 // comment stays anchored to that review, and a reply to a loose thread message
@@ -369,15 +386,15 @@ func (s *Store) AddReply(parentID int64, who, body string) (int64, error) {
 	return res.LastInsertId()
 }
 
-const commentCols = `id, task_id, COALESCE(review_id,0), COALESCE(parent_id,0), who, body, COALESCE(file,''), COALESCE(line,0), COALESCE(anchor,''), COALESCE(snippet,''), created_at`
+const commentCols = `id, task_id, COALESCE(review_id,0), COALESCE(parent_id,0), who, body, COALESCE(file,''), COALESCE(line,0), COALESCE(anchor,''), COALESCE(snippet,''), created_at, COALESCE(emote,'')`
 
 // commentColsC is commentCols qualified to the comments alias "c", for queries
 // that join reviews (so column names aren't ambiguous).
-const commentColsC = `c.id, c.task_id, COALESCE(c.review_id,0), COALESCE(c.parent_id,0), c.who, c.body, COALESCE(c.file,''), COALESCE(c.line,0), COALESCE(c.anchor,''), COALESCE(c.snippet,''), c.created_at`
+const commentColsC = `c.id, c.task_id, COALESCE(c.review_id,0), COALESCE(c.parent_id,0), c.who, c.body, COALESCE(c.file,''), COALESCE(c.line,0), COALESCE(c.anchor,''), COALESCE(c.snippet,''), c.created_at, COALESCE(c.emote,'')`
 
 func scanComment(row interface{ Scan(...any) error }) (Comment, error) {
 	var c Comment
-	err := row.Scan(&c.ID, &c.TaskID, &c.ReviewID, &c.ParentID, &c.Who, &c.Body, &c.File, &c.Line, &c.Anchor, &c.Snippet, &c.CreatedAt)
+	err := row.Scan(&c.ID, &c.TaskID, &c.ReviewID, &c.ParentID, &c.Who, &c.Body, &c.File, &c.Line, &c.Anchor, &c.Snippet, &c.CreatedAt, &c.Emote)
 	return c, err
 }
 
@@ -424,7 +441,7 @@ func (s *Store) TaskReviewComments(taskID int64) ([]TaskComment, error) {
 		var c Comment
 		var state string
 		if err := rows.Scan(&c.ID, &c.TaskID, &c.ReviewID, &c.ParentID, &c.Who, &c.Body,
-			&c.File, &c.Line, &c.Anchor, &c.Snippet, &c.CreatedAt, &state); err != nil {
+			&c.File, &c.Line, &c.Anchor, &c.Snippet, &c.CreatedAt, &c.Emote, &state); err != nil {
 			return nil, err
 		}
 		out = append(out, TaskComment{Comment: c, Draft: state == ReviewDraft})

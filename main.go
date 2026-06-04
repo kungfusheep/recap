@@ -50,6 +50,8 @@ func main() {
 		err = cmdComment(args)
 	case "reply":
 		err = cmdReply(args)
+	case "emote":
+		err = cmdEmote(args)
 	case "review":
 		err = cmdReview(args)
 	case "set":
@@ -421,6 +423,41 @@ func cmdComment(args []string) error {
 	return nil
 }
 
+// cmdEmote sets a reaction emote on a comment — the agent acknowledging reviewer
+// feedback at a glance (e.g. recap emote 12 👍), without a full reply. Pass an
+// empty emote to clear it.
+func cmdEmote(args []string) error {
+	fs := flag.NewFlagSet("emote", flag.ExitOnError)
+	emoteFlag := fs.String("emote", "", "reaction (e.g. 👍, 👀, ✅); empty clears")
+	idStr, rest := splitID(args)
+	fs.Parse(rest)
+	positional := fs.Args()
+	if idStr == "" { // no flag-style id: take the first positional as the id
+		if len(positional) == 0 {
+			return fmt.Errorf("usage: recap emote <comment-id> <emote>  (ids show as [cN] in review show)")
+		}
+		idStr, positional = positional[0], positional[1:]
+	}
+	commentID, err := parseID(idStr)
+	if err != nil {
+		return fmt.Errorf("usage: recap emote <comment-id> <emote>  (ids show as [cN] in review show)")
+	}
+	emote := *emoteFlag
+	if emote == "" { // positional form: recap emote <id> 👍
+		emote = strings.TrimSpace(strings.Join(positional, " "))
+	}
+	st, err := Open()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	if err := st.SetEmote(commentID, emote); err != nil {
+		return err
+	}
+	fmt.Printf("emoted %s on comment #%d\n", emote, commentID)
+	return nil
+}
+
 // cmdReply records a reply to a specific comment (threading). The agent uses this
 // to answer reviewer feedback in place; the reply nests under the comment in
 // `recap review show` and the comments pane. who defaults to "agent".
@@ -737,9 +774,9 @@ func cmdReviewShow(args []string) error {
 				if c.Snippet != "" {
 					fmt.Printf("  │   %s\n", c.Snippet)
 				}
-				fmt.Printf("  └ %s\n", c.Body)
+				fmt.Printf("  └ %s%s\n", c.Body, emoteSuffix(c))
 			} else {
-				fmt.Printf("  • [c%d] %s\n", c.ID, c.Body)
+				fmt.Printf("  • [c%d] %s%s\n", c.ID, c.Body, emoteSuffix(c))
 			}
 			printReplies(c.ID, byParent, 0)
 			fmt.Println()
@@ -758,7 +795,7 @@ func cmdReviewShow(args []string) error {
 		if top, byParent := splitThread(loose); len(top) > 0 {
 			fmt.Printf("\nthread (%d):\n", len(top))
 			for _, c := range top {
-				fmt.Printf("  • [c%d] %s (%s): %s\n", c.ID, c.Who, c.CreatedAt, c.Body)
+				fmt.Printf("  • [c%d] %s (%s): %s%s\n", c.ID, c.Who, c.CreatedAt, c.Body, emoteSuffix(c))
 				printReplies(c.ID, byParent, 0)
 			}
 		}
@@ -790,9 +827,17 @@ func splitThread(cs []Comment) (top []Comment, byParent map[int64][]Comment) {
 // threading: a reply can itself have replies).
 func printReplies(parentID int64, byParent map[int64][]Comment, depth int) {
 	for _, r := range byParent[parentID] {
-		fmt.Printf("%s↳ [c%d] %s (%s): %s\n", strings.Repeat("  ", depth+2), r.ID, r.Who, r.CreatedAt, r.Body)
+		fmt.Printf("%s↳ [c%d] %s (%s): %s%s\n", strings.Repeat("  ", depth+2), r.ID, r.Who, r.CreatedAt, r.Body, emoteSuffix(r))
 		printReplies(r.ID, byParent, depth+1)
 	}
+}
+
+// emoteSuffix renders a comment's reaction as a trailing "  👍" (or "" if none).
+func emoteSuffix(c Comment) string {
+	if c.Emote == "" {
+		return ""
+	}
+	return "  " + c.Emote
 }
 
 func cmdReviewResolve(args []string) error {

@@ -277,3 +277,39 @@ func indexOfTask(id int64) int {
 	}
 	return 0
 }
+
+// SetEmote attaches/overwrites/clears a reaction on a comment, and errors on a
+// missing comment (so an emote can never silently vanish).
+func TestSetEmote(t *testing.T) {
+	st := testStore(t)
+	tid, _ := st.Add(Task{Repo: "wed", Title: "t"})
+	cid, _ := st.AddReviewComment(tid, "you", "please fix", "", 0, "", "")
+
+	if err := st.SetEmote(cid, "👍"); err != nil {
+		t.Fatalf("SetEmote: %v", err)
+	}
+	cs, _ := st.Comments(tid)
+	if cs[0].Emote != "👍" {
+		t.Fatalf("emote = %q, want 👍", cs[0].Emote)
+	}
+	// overwrite
+	if err := st.SetEmote(cid, "✅"); err != nil {
+		t.Fatalf("overwrite: %v", err)
+	}
+	cs, _ = st.Comments(tid)
+	if cs[0].Emote != "✅" {
+		t.Fatalf("emote overwrite = %q, want ✅", cs[0].Emote)
+	}
+	// clear
+	if err := st.SetEmote(cid, ""); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	cs, _ = st.Comments(tid)
+	if cs[0].Emote != "" {
+		t.Fatalf("emote should be cleared, got %q", cs[0].Emote)
+	}
+	// missing comment errors
+	if err := st.SetEmote(99999, "👍"); err == nil {
+		t.Fatal("SetEmote on a missing comment should error")
+	}
+}
