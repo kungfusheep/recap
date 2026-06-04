@@ -1056,12 +1056,14 @@ func buildMain() Component {
 					),
 					SpaceH(2),
 					If(&hasUpcoming).Then(
-						VBox.PaddingTRBL(0, 2, 1, 3).Gap(1)(
+						// no divider rule: an auto-stretch HRule in a left-padded box
+						// overshoots its container and bleeds into the next column, so
+						// the section is separated from the inbox by whitespace instead.
+						VBox.PaddingTRBL(0, 2, 2, 3).Gap(1)(
 							Text("upcoming").FG(cSubtle).Bold(),
 							VBox(ForEach(&upcomingItems, func(r *upcomingRow) Component {
 								return Text(&r.Line).FG(&r.FG)
 							})),
-							HRule().FG(cMuted),
 						),
 					),
 					List(&vmRows).
