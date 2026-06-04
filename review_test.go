@@ -496,9 +496,10 @@ func TestDiscardReview(t *testing.T) {
 	}
 }
 
-// the TODO template resolves {relpath} relative to home and the breadcrumb
-// carries the review id so the agent can expand it.
-func TestTODOTemplateAndBreadcrumb(t *testing.T) {
+// the TODO template resolves {relpath} relative to home, and appendTODO writes a
+// line (used by the in-TUI todo editor; recap no longer drops review breadcrumbs —
+// the agent reads amends straight from the db via recap next / recap redo).
+func TestTODOTemplate(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	cfg := Config{TODOTemplate: "~/notes/{relpath}/TODO.md"}
@@ -515,15 +516,9 @@ func TestTODOTemplateAndBreadcrumb(t *testing.T) {
 	if err := appendTODO(path, "- [ ] one"); err != nil {
 		t.Fatalf("append: %v", err)
 	}
-	if err := appendTODO(path, todoBreadcrumb(Review{ID: 7, Summary: "fix the edge"}, Task{Title: "x"})); err != nil {
-		t.Fatalf("append 2: %v", err)
-	}
 	data := readFile(t, path)
 	if !strings.Contains(data, "- [ ] one\n") {
 		t.Fatalf("first line missing:\n%s", data)
-	}
-	if !strings.Contains(data, "recap review show 7") {
-		t.Fatalf("breadcrumb missing review id:\n%s", data)
 	}
 
 	// empty template disables writing

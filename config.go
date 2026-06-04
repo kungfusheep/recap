@@ -2,20 +2,19 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
 // Config is recap's small config (~/.config/recap/config.toml or $RECAP_CONFIG).
-// The only field today is the TODO-path template used to drop a review
-// breadcrumb into the repo's plain-text TODO — the human-owned queue the
-// autonomous loop already reads.
+// The TODO-path template locates a repo's plain-text TODO so recap next can fold
+// its incomplete lines into the work queue (and the TUI's upcoming section can
+// show them). recap no longer writes into the TODO — the db is the source.
 type Config struct {
 	// TODOTemplate is a path with a {relpath} placeholder, expanded per repo.
 	// {relpath} is the repo path relative to $HOME. A leading ~ is expanded.
-	// Empty disables TODO writing (submit just prints the line).
+	// Empty means recap can't locate a repo's TODO (no todo tier for it).
 	//
 	// e.g. "~/Library/Mobile Documents/iCloud~md~obsidian/Documents/O Notes/reponotes/{relpath}/TODO.md"
 	TODOTemplate string
@@ -119,16 +118,4 @@ func appendTODO(path, line string) error {
 	}
 	_, err = f.WriteString(line)
 	return err
-}
-
-// todoBreadcrumb is the line recap drops into the TODO for a submitted review.
-func todoBreadcrumb(rv Review, t Task) string {
-	summary := strings.TrimSpace(rv.Summary)
-	if summary == "" {
-		summary = t.Title
-	}
-	if len(summary) > 80 {
-		summary = summary[:77] + "…"
-	}
-	return fmt.Sprintf("- [ ] address recap review #%d — %s (recap review show %d)", rv.ID, summary, rv.ID)
 }

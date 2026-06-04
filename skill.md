@@ -149,9 +149,9 @@ Pass any emoji (👍 seen/agree, 👀 looking, ✅ done). It shows next to the c
 `recap review show` and the comments pane; one emote per comment (setting it again
 overwrites, empty clears). Same `[cN]` ids as reply.
 
-A `request_changes` review also drops a breadcrumb line into the repo's TODO
-(`address recap review #<id> (recap review show <id>)`); treat that TODO line and the
-`recap review show` work order as two views of the same item — `revise` completes it.
+A `request_changes` review surfaces directly from the db as `recap next`'s top
+(amends) tier — no TODO breadcrumb; `recap review show <id>` is the work order and
+`revise` completes it.
 
 ## Attaching files / screenshots to comments
 

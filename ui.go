@@ -1757,7 +1757,7 @@ func approveSelected() {
 	if !ok {
 		return
 	}
-	if _, _, err := submitReview(uiStore, t.ID, VerdictApprove, ""); err != nil {
+	if _, err := submitReview(uiStore, t.ID, VerdictApprove, ""); err != nil {
 		statusMsg = "error: " + err.Error()
 		return
 	}
@@ -1876,17 +1876,13 @@ func submitSelected() {
 	if !ok {
 		return
 	}
-	_, res, err := submitReview(uiStore, t.ID, VerdictRequestChanges, "")
+	_, err := submitReview(uiStore, t.ID, VerdictRequestChanges, "")
 	if err != nil {
 		statusMsg = "error: " + err.Error()
 		return
 	}
 	pushCategoriseUndo(t.ID)
-	msg := fmt.Sprintf("#%d submitted → amends  ·  u to undo", t.ID)
-	if res.line != "" && res.wrote {
-		msg += " · queued in TODO"
-	}
-	statusMsg = msg
+	statusMsg = fmt.Sprintf("#%d submitted → amends  ·  u to undo", t.ID)
 	reloadTasks()
 }
 

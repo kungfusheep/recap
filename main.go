@@ -130,7 +130,7 @@ usage:
                          add a comment to the task's draft review
   recap review submit  <task> --verdict request_changes|approve|comment [--summary TEXT]
                          publish the draft; request_changes flips the task to
-                         redo and drops a breadcrumb in the repo's TODO
+                         redo (agent picks it up via recap next / recap redo)
   recap review show <review-id>
                          the agent's work order: verdict + summary + anchored
                          comments + the original criterion
@@ -850,57 +850,21 @@ func cmdReviewSubmit(args []string) error {
 		return err
 	}
 	defer st.Close()
-	rv, res, err := submitReview(st, id, *verdict, *summary)
+	rv, err := submitReview(st, id, *verdict, *summary)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("submitted review #%d on task #%d  [%s]\n", rv.ID, id, rv.Verdict)
-	if res.line != "" {
-		if res.wrote {
-			fmt.Printf("queued in %s:\n  %s\n", res.path, res.line)
-		} else {
-			if res.err != nil {
-				fmt.Fprintf(os.Stderr, "recap: could not write TODO (%v)\n", res.err)
-			}
-			fmt.Printf("add to your TODO:\n  %s\n", res.line)
-		}
-	}
 	notify.Reload()
 	return nil
 }
 
-// todoResult reports what submitReview did with the TODO breadcrumb.
-type todoResult struct {
-	line  string // the breadcrumb (empty if none was due, e.g. approve/comment)
-	path  string // resolved TODO path (empty if no template configured)
-	wrote bool   // whether the line was appended
-	err   error  // write error, if any
-}
-
-// submitReview publishes the task's draft review and, for request_changes, drops
-// the TODO breadcrumb into the repo's human-owned TODO. Shared by the CLI and
-// the TUI so both behave identically.
-func submitReview(st *Store, taskID int64, verdict, summary string) (Review, todoResult, error) {
-	rv, err := st.SubmitReview(taskID, verdict, summary)
-	if err != nil {
-		return Review{}, todoResult{}, err
-	}
-	var res todoResult
-	if rv.Verdict == VerdictRequestChanges {
-		t, _ := st.Get(taskID)
-		res.line = todoBreadcrumb(rv, t)
-		cfg, cerr := LoadConfig()
-		path, perr := cfg.todoPathFor(t.RepoPath)
-		if cerr == nil && perr == nil && path != "" {
-			res.path = path
-			if e := appendTODO(path, res.line); e != nil {
-				res.err = e
-			} else {
-				res.wrote = true
-			}
-		}
-	}
-	return rv, res, nil
+// submitReview publishes the task's draft review. request_changes is picked up by
+// the agent directly from the db (recap next's amends tier / recap redo) — no TODO
+// breadcrumb: the db is the single source, and a breadcrumb would both pollute the
+// human's TODO and double-list the review in recap next. Shared by the CLI and TUI.
+func submitReview(st *Store, taskID int64, verdict, summary string) (Review, error) {
+	return st.SubmitReview(taskID, verdict, summary)
 }
 
 func cmdReviewShow(args []string) error {
