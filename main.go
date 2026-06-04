@@ -56,6 +56,8 @@ func main() {
 		err = cmdNext(args)
 	case "current":
 		err = cmdCurrent(args)
+	case "done":
+		err = cmdDone(args)
 	case "whoami":
 		err = cmdWhoami(args)
 	case "read":

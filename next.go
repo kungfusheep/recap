@@ -4,7 +4,9 @@ import (
 	"flag"
 	"fmt"
 	"hash/fnv"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/kungfusheep/recap/notify"
 )
@@ -163,6 +165,95 @@ func cmdNext(args []string) error {
 	return nil
 }
 
+// cmdDone is the explicit completion for a TODO item: name the item by its ref (from
+// recap next), and recap both records it in the review inbox (title auto-filled from
+// the todo text, so you review the finished work — the whole point) AND marks the todo
+// line done in the file. The agent never opens the TODO file itself. amends/replies
+// have their own explicit completions (revise / read), so done errors and points there.
+func cmdDone(args []string) error {
+	fs := flag.NewFlagSet("done", flag.ExitOnError)
+	criterion := fs.String("criterion", "", "falsifiable success check")
+	check := fs.String("check", "", "command that re-proves it")
+	result := fs.String("result", "", "observed result (e.g. PASS)")
+	summary := fs.String("summary", "", "reviewer briefing for the inbox item")
+	sha := fs.String("sha", "", "commit sha (default: short HEAD)")
+	ref, rest := splitID(args)
+	fs.Parse(rest)
+	if ref == "" {
+		return fmt.Errorf("usage: recap done <ref> --summary \"…\" --sha HEAD   (ref from recap next, e.g. todo:abc12345)")
+	}
+
+	st, err := Open()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	repo := currentRepo()
+	repoPath := currentRepoPath()
+	item := findRef(buildQueue(st, repo, repoPath), ref)
+	switch {
+	case item.Ref == "":
+		return fmt.Errorf("no current item with ref %q — run `recap next` to see the queue", ref)
+	case item.Kind == "amends":
+		return fmt.Errorf("#%d is an amends — complete it with: recap revise %d --summary \"…\"", item.TaskID, item.TaskID)
+	case item.Kind == "reply":
+		return fmt.Errorf("c%d is a reply — clear it with: recap read c%d", item.CommentID, item.CommentID)
+	}
+
+	// todo: record the finished work for review (title = the todo text) ...
+	resolved := *sha
+	if resolved == "" {
+		resolved = "HEAD"
+	}
+	if h, err := resolveSHA(repoPath, resolved); err == nil {
+		resolved = h
+	}
+	id, err := st.Add(Task{
+		Repo: repo, RepoPath: repoPath, SHA: resolved, Title: item.Title,
+		Criterion: *criterion, CheckCmd: *check, Result: *result,
+		Status: StatusPending, Summary: *summary,
+	})
+	if err != nil {
+		return err
+	}
+
+	// ... and mark the todo line [x] in the file (surgical: only the matching line).
+	if cfg, err := LoadConfig(); err == nil {
+		if path, err := cfg.todoPathFor(repoPath); err == nil && path != "" {
+			if err := markTodoLineDone(path, item.Title); err != nil {
+				fmt.Fprintf(os.Stderr, "recap: recorded #%d but couldn't mark the TODO line (%v)\n", id, err)
+			}
+		}
+	}
+	if cur, _ := loadCurrent(repo); cur == ref {
+		saveCurrent(repo, "", "") // drop the flare immediately; next recap next advances
+	}
+	notify.Reload()
+	fmt.Printf("done #%d → inbox: %s\n", id, item.Title)
+	return nil
+}
+
+// markTodoLineDone flips the single open todo line whose text matches, in place —
+// it rewrites only that line (not the whole file) so nothing else gets reformatted.
+func markTodoLineDone(path, text string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(data), "\n")
+	ts := time.Now().Format("2006-01-02 15:04:05 MST")
+	for i, ln := range lines {
+		it, ok := parseTodoLine(ln)
+		if ok && it.IsTask && !it.Done && strings.TrimSpace(it.Text) == text {
+			indent := ln[:len(ln)-len(strings.TrimLeft(ln, " \t"))]
+			lines[i] = indent + "- [x] " + it.Text + "  done " + ts
+			return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644)
+		}
+	}
+	return fmt.Errorf("no matching open todo line for %q", text)
+}
+
 // printWorkOrder shows the item plus the verbs to act on it, by tier.
 func printWorkOrder(w WorkItem) {
 	switch w.Kind {
@@ -173,7 +264,8 @@ func printWorkOrder(w WorkItem) {
 		fmt.Printf("▸ reply    c%d  %q  (task #%d)\n", w.CommentID, w.Title, w.TaskID)
 		fmt.Printf("  recap reply %d --body \"…\"  ·  recap read c%d\n", w.CommentID, w.CommentID)
 	case "todo":
-		fmt.Printf("▸ todo     %s\n", w.Title)
+		fmt.Printf("▸ todo   %s  %s\n", w.Ref, w.Title)
+		fmt.Printf("  when finished: recap done %s --criterion \"…\" --check \"…\" --result PASS --summary \"…\" --sha HEAD\n", w.Ref)
 	}
 }
 

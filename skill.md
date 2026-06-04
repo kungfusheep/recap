@@ -1,26 +1,37 @@
 # recap — agent loop guide
 
-recap is the async review layer for the `tododo` / `deadman-todo` loop. The loop does the
-work; recap is where each finished unit goes to be reviewed later — out of band, out of
-git — and where the reviewer's feedback comes back in as fix-forward work.
+recap is the agent's work loop and its async review layer. `recap next` hands you the next
+thing to do — review amends, reviewer replies, and TODO items, in priority order; you
+complete it, which records it to the review inbox to be looked at later (out of band, out
+of git), and the reviewer's feedback comes back as fix-forward work. recap **owns the TODO
+file**: it reads it to build the queue and marks items done for you, so the loop never
+opens or edits the TODO file itself.
 
 For the exact command surface and flags, run `recap help`. The verbs below are the stable
 contract the loop depends on.
 
-## Recording finished work (loop → inbox)
+## Completing work (→ inbox)
 
-After the loop commits a completed task (the normal per-task commit), record it so it
-shows up in the review inbox, pointing at that exact commit:
+How you finish an item depends on its kind — `recap next` tells you which:
 
-```
-recap add \
-  --title     "<the TODO item, concise>" \
-  --criterion "<the falsifiable success check you wrote for the task>" \
-  --check     "<the command that re-proves it, e.g. go test -run X ./...>" \
-  --result    "PASS" \
-  --summary   "<reviewer briefing — see below>" \
-  --sha       "$(git rev-parse --short HEAD)"
-```
+- **todo** → commit your work, then `recap done <ref>`. This **records it to the review
+  inbox AND marks the todo line done** in one explicit step (the `<ref>` is what
+  `recap next` handed you, e.g. `todo:a66e3a51`; the title is auto-filled from the todo
+  text). You never open the TODO file yourself.
+  ```
+  recap done <ref> \
+    --criterion "<the falsifiable success check you wrote>" \
+    --check     "<the command that re-proves it, e.g. go test -run X ./...>" \
+    --result    "PASS" \
+    --summary   "<reviewer briefing — see below>" \
+    --sha       "$(git rev-parse --short HEAD)"
+  ```
+- **amends** → fix forward, commit, then `recap revise <task-id> --summary "…"` (records
+  the fix + resolves the review; see "Acting on what `recap next` hands you").
+- **reply** → answer with `recap reply <cN>` and/or acknowledge with `recap read <cN>`.
+
+(`recap add` still records **ad-hoc** work that didn't come from a `recap next` todo —
+same flags but you supply `--title`. For the normal loop, `recap done` is the path.)
 
 Always pass `--summary`: a **reviewer briefing** shown at the top of the item's preview.
 This is NOT the commit message (keep that concise for git). The summary is the rich,
@@ -29,10 +40,9 @@ for" — including relevant context from the working session that would mean not
 future git reader. Make the review fast: surface the decisions, trade-offs, and anything
 you're unsure about.
 
-Order matters: **commit first, then `recap add --sha HEAD`**, so the entry resolves to the
-real commit and its diff. Record every completed task — the inbox is the audit trail.
-`recap add` derives `--repo`/`--repo-path` from the cwd's git root, so run it inside the
-repo.
+Order matters: **commit first, then `recap done --sha HEAD`**, so the entry resolves to the
+real commit and its diff. Complete every item — the inbox is the audit trail. recap derives
+`--repo`/`--repo-path` from the cwd's git root, so run it inside the repo.
 
 **Pace for the reviewer, not yourself.** recap is an *async* queue: finish a task, record
 it, and let the reviewer take it at their pace. When the reviewer is actively engaged
@@ -79,9 +89,9 @@ The cursor is the whole point: **getting work and going in-flight are the same a
 the flare can't rot. Calling `recap next` again walks PAST the current item — that's a
 skip. Skipping something you didn't complete should carry `--skip "reason"` so the
 reviewer sees why it was passed (it's recorded as a comment on the item), not silently
-dropped. Completing an item (`revise`/`resolve`/marking the todo done) drops it from the
-queue, so the next `recap next` naturally lands on what follows. Everything pushes live —
-an open TUI tracks the flare without a refresh.
+dropped. Completing an item (`recap done` for a todo, `revise`/`resolve` for amends, `read`
+for a reply) drops it from the queue, so the next `recap next` naturally lands on what
+follows. Everything pushes live — an open TUI tracks the flare without a refresh.
 
 ## Project scoping (important)
 
@@ -158,13 +168,14 @@ type any `[[path]]` by hand to attach a log, file, or screenshot to feedback.
 
 ## Boundaries
 
-- Recording and reading reviews is local and reversible — safe inside the deadman loop.
-- `recap add` (new work), `recap review show` (read feedback), and `recap revise`
-  (attach a fix-forward diff + resolve the review) are the loop's core verbs.
-  Submitting reviews (`recap review submit`) is the **human reviewer's** action (via the
-  TUI or CLI), never the loop's — never self-review.
+- Recording and reading reviews is local and reversible — safe to run unattended.
+- `recap next` (take work), `recap done` (complete a todo → inbox), `recap review show`
+  (read feedback), and `recap revise` (attach a fix-forward diff + resolve the review) are
+  the loop's core verbs. Submitting reviews (`recap review submit`) is the **human
+  reviewer's** action (via the TUI or CLI), never the loop's — never self-review.
 - The review db (`$RECAP_DB` or `~/.config/recap/recap.db`) is private to the reviewer and
   cross-repo: never commit it, never push it, never surface its contents publicly.
 
-See the `deadman-todo` skill for the loop's safety boundary, TODO path rules,
-falsifiable-criteria rules, and the per-task commit policy that this layers on top of.
+See the `deadman-todo` skill for the loop's safety boundary, falsifiable-criteria rules,
+and the per-task commit policy that this layers on top of. (recap owns the TODO file
+itself — reading it for `recap next` and marking lines done via `recap done`.)

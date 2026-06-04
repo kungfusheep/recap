@@ -1,6 +1,45 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
+
+// markTodoLineDone must flip ONLY the named open line (surgical), leaving headers,
+// prose, other todos, and already-done lines byte-for-byte intact — recap done runs
+// against the user's real TODO, so a stray reformat is unacceptable.
+func TestMarkTodoLineDone(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/TODO.md"
+	seed := "# TODO\n\nsome prose line\n- [ ] first task\n- [ ] second task\n- [x] already done\n"
+	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := markTodoLineDone(path, "second task"); err != nil {
+		t.Fatalf("mark: %v", err)
+	}
+	got, _ := os.ReadFile(path)
+	s := string(got)
+
+	if !strings.Contains(s, "- [x] second task  done ") {
+		t.Fatalf("second task not marked done:\n%s", s)
+	}
+	// everything else untouched
+	for _, keep := range []string{"# TODO", "some prose line", "- [ ] first task", "- [x] already done"} {
+		if !strings.Contains(s, keep) {
+			t.Fatalf("unrelated line %q was altered:\n%s", keep, s)
+		}
+	}
+	if strings.Contains(s, "- [x] first task") {
+		t.Fatalf("flipped the wrong line:\n%s", s)
+	}
+	// a line that isn't an open match errors (don't silently no-op)
+	if err := markTodoLineDone(path, "nonexistent"); err == nil {
+		t.Fatal("expected an error for a missing/closed todo")
+	}
+}
 
 // advance is the cursor: it walks forward through the live queue, wraps at the end,
 // reports a skip when the current item is still present (passed without completing),
