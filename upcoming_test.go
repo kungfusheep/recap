@@ -6,7 +6,8 @@ import (
 )
 
 // upcomingFromItems surfaces the next incomplete tasks in file order, skips done
-// + non-task lines, caps at upcomingMax, and truncates long text with an ellipsis.
+// + non-task lines, caps at upcomingMax, and keeps the full text (the row clips to
+// the column width at render time — no hard-coded truncation).
 func TestUpcomingFromItems(t *testing.T) {
 	items := []todoItem{
 		{Raw: "# heading"},                          // non-task: skipped
@@ -30,10 +31,12 @@ func TestUpcomingFromItems(t *testing.T) {
 		}
 	}
 
-	long := []todoItem{{IsTask: true, Text: "this task text is definitely longer than the column allows for sure"}}
-	g := upcomingFromItems(long)
-	if r := []rune(g[0]); len(r) != upcomingTextLen || r[len(r)-1] != '…' {
-		t.Fatalf("truncation wrong: len=%d last=%q (%q)", len(r), string(r[len(r)-1]), g[0])
+	// long text is kept in full (not hard-truncated) — the Text clips to the column
+	// width at render time, so a wider display shows more.
+	full := "this task text is definitely longer than the column allows for sure"
+	g := upcomingFromItems([]todoItem{{IsTask: true, Text: full}})
+	if g[0] != full {
+		t.Fatalf("text should be kept in full (no truncation), got %q", g[0])
 	}
 }
 

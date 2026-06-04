@@ -39,10 +39,7 @@ type upcomingResult struct {
 	items   []string
 }
 
-const (
-	upcomingMax     = 5  // how many upcoming tasks to surface
-	upcomingTextLen = 36 // per-row truncation for the narrow inbox column
-)
+const upcomingMax = 5 // how many upcoming tasks to surface
 
 // updateUpcoming runs on the render thread (from refreshDetail). It swaps in any
 // finished async load, then kicks off a new load when the selected task's repo
@@ -104,7 +101,7 @@ func loadUpcoming(repoPath string) []string {
 func buildUpcomingRows(working string, texts []string) []upcomingRow {
 	rows := make([]upcomingRow, 0, len(texts)+1)
 	if working != "" {
-		rows = append(rows, upcomingRow{Line: "▸ " + truncateRunes(working, upcomingTextLen), FG: cBright})
+		rows = append(rows, upcomingRow{Line: "▸ " + working, FG: cBright})
 	}
 	for _, txt := range texts {
 		rows = append(rows, upcomingRow{Line: "· " + txt, FG: cSubtle})
@@ -112,30 +109,20 @@ func buildUpcomingRows(working string, texts []string) []upcomingRow {
 	return rows
 }
 
-// upcomingFromItems picks the first upcomingMax incomplete tasks, in file order,
-// truncated for display. Pure — the testable core of loadUpcoming.
+// upcomingFromItems picks the first upcomingMax incomplete tasks, in file order.
+// Full text — the row Text clips to the inbox column width at render time, so the
+// list uses whatever width the display gives it (no hard-coded truncation). Pure —
+// the testable core of loadUpcoming.
 func upcomingFromItems(items []todoItem) []string {
 	var out []string
 	for _, it := range items {
 		if !it.IsTask || it.Done {
 			continue
 		}
-		out = append(out, truncateRunes(strings.TrimSpace(it.Text), upcomingTextLen))
+		out = append(out, strings.TrimSpace(it.Text))
 		if len(out) == upcomingMax {
 			break
 		}
 	}
 	return out
-}
-
-// truncateRunes shortens s to at most max runes, marking the cut with an ellipsis.
-func truncateRunes(s string, max int) string {
-	r := []rune(s)
-	if len(r) <= max {
-		return s
-	}
-	if max <= 1 {
-		return "…"
-	}
-	return string(r[:max-1]) + "…"
 }
