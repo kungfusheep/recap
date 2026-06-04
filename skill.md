@@ -41,19 +41,22 @@ items on them at once — that defeats the steady-trickle point of the loop. Pre
 loop's wakeup cadence between tasks over barrelling task→task→task in one go. A reviewer
 should be able to review item N while you work on N+1, not face a backlog of nine at once.
 
-## Name yourself (session identity)
+## Name yourself (persistent identity)
 
-At the **start of a loop session**, name yourself and pick a personal colour, so your
-review comments read as a distinct voice:
+Run `recap whoami` at the start of a loop session. The identity **persists** beside the
+db, so it survives stop/start — only name yourself **if it shows none** (don't rename an
+already-named agent; that would churn your voice across restarts):
 
 ```
-recap whoami "<a name>" --color "#RRGGBB"
+recap whoami                              # already named? keep it — do nothing
+recap whoami "<a name>" --color "#RRGGBB" # ONLY if unnamed
 ```
 
 You choose the name. If the user set a `name_theme` in config.toml, let it guide your
-pick (`recap whoami` with no args prints it); otherwise pick freely — it works either
-way. From then on your comments/replies/emotes are attributed to that name in that
-colour. This is **recap-only** — never put a name in git commits.
+pick; otherwise pick freely — it works either way. From then on your comments/replies/
+emotes are attributed to that name in that colour. To deliberately start fresh, the user
+clears it (`recap whoami` with an empty name) or sets a new one. This is **recap-only** —
+never put a name in git commits.
 
 ## Signalling what you're working on (the in-flight marker)
 
