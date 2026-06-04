@@ -94,6 +94,19 @@ func applyTheme(name string, t Theme) {
 	currentThemeName = name
 	setThemeVars(t)
 	if uiApp != nil {
+		// A modal launched this (the command palette). Its On.Modal router is pushed
+		// on the input stack, and the overlay's fade-out exit animation defers the
+		// route-modal pop by a few frames. SetView rebuilds the tree right now —
+		// before that fade finishes — so the router is orphaned on the stack, where
+		// it swallows every key but its own (Up/Down/Enter/Esc): you couldn't even
+		// quit (#64). The old tree's pushed routers are about to be discarded with it,
+		// so drain the input stack back to its base router before rebuilding.
+		if omni != nil {
+			omni.Close()
+		}
+		for in := uiApp.Input(); in != nil && in.Depth() > 1; {
+			uiApp.PopRouter()
+		}
 		uiApp.SetView(buildMain())
 		// the diff pane is a native-scroll Layer whose spans bake their colours at
 		// build time; forcing a detail refresh rebuilds those spans with the new

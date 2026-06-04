@@ -250,3 +250,36 @@ func TestApplyThemeRepaints(t *testing.T) {
 		t.Fatal("background colour did not change on theme switch")
 	}
 }
+
+// changing theme while the command palette is open must not orphan the palette's
+// modal router on the input stack — otherwise it swallows every key but its own
+// and you can't even quit (#64). After applyTheme the stack is back to base.
+func TestThemeChangeNoOrphanedModalRouter(t *testing.T) {
+	prevStore := uiStore
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	t.Cleanup(func() { uiStore = prevStore; uiApp = nil; omni = nil })
+	st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	reloadTasks()
+	uiApp.SetView(buildMain())
+	uiApp.RenderNow()
+
+	base := uiApp.Input().Depth()
+	omni.Open()
+	uiApp.RenderNow()
+	if d := uiApp.Input().Depth(); d <= base {
+		t.Fatalf("omnibox should push a modal router: base=%d open=%d", base, d)
+	}
+
+	// simulate selecting a theme command: exec() closes the palette, then the action
+	// runs applyTheme (which rebuilds the view via SetView).
+	omni.Close()
+	th := allThemes()[1]
+	applyTheme(th.Name, th.Palette)
+
+	if d := uiApp.Input().Depth(); d != base {
+		t.Fatalf("after theme change the input stack should be back to base %d, got %d (orphaned modal router → keys dead)", base, d)
+	}
+}
