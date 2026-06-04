@@ -721,3 +721,50 @@ func TestReplyRowRenders(t *testing.T) {
 		t.Fatalf("reply row missing label/body:\n%s", out)
 	}
 }
+
+// a general (unanchored) comment must show in the comments pane immediately after
+// saving — saveGeneralComment has to mark the detail dirty or refreshDetail's
+// early-return (selection unchanged) leaves the pane stale and the comment looks
+// "lost" (it's in the db, just not displayed).
+func TestGeneralCommentAppearsAfterSave(t *testing.T) {
+	prev := uiStore
+	prevLayer := diffLayer
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	diffLayer = NewLayer()
+	diffLayer.Render = func() {}
+	t.Cleanup(func() {
+		uiStore = prev
+		uiApp = nil
+		omni = nil
+		diffLayer = prevLayer
+		commentField = InputState{}
+		draftComments = nil
+		detailDirty = false
+	})
+	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	_ = id
+	reloadTasks()
+	sel = 0
+	uiApp.SetView(buildMain())
+	refreshDetail() // establishes lastSel/lastLen; no comments yet
+	if len(draftComments) != 0 {
+		t.Fatalf("precondition: expected 0 comments, got %d", len(draftComments))
+	}
+
+	commentField.Value = "a general note"
+	saveGeneralComment()
+	refreshDetail() // selection unchanged → refreshes only if saveGeneralComment marked it dirty
+
+	found := false
+	for _, c := range draftComments {
+		if c.Body == "a general note" && c.Location == "general" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("general comment not shown after save (lost): %+v", draftComments)
+	}
+}

@@ -1560,9 +1560,10 @@ func saveGeneralComment() {
 	}
 	if _, err := uiStore.AddReviewComment(t.ID, "you", body, "", 0, "", ""); err != nil {
 		statusMsg = "error: " + err.Error()
-	} else {
-		statusMsg = fmt.Sprintf("commented on #%d", t.ID)
+		return
 	}
+	statusMsg = fmt.Sprintf("commented on #%d", t.ID)
+	detailDirty = true // refresh the comments pane so the new comment shows (was "lost")
 }
 
 // diff scroll is native: adjust the layer's scrollY (clamped internally) and
