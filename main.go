@@ -52,8 +52,13 @@ func main() {
 		err = cmdReply(args)
 	case "emote":
 		err = cmdEmote(args)
+	case "next":
+		err = cmdNext(args)
+	case "current":
+		err = cmdCurrent(args)
 	case "working":
-		err = cmdWorking(args)
+		fmt.Fprintln(os.Stderr, "recap working is retired — use `recap next` (it sets the in-flight item for you) / `recap current` to peek")
+		os.Exit(2)
 	case "whoami":
 		err = cmdWhoami(args)
 	case "read":
@@ -162,6 +167,18 @@ func currentRepo() string {
 	if cwd, err := os.Getwd(); err == nil {
 		if top, err := gitTopLevel(cwd); err == nil {
 			return filepath.Base(top)
+		}
+	}
+	return ""
+}
+
+// currentRepoPath is the cwd's git top-level path (not just the basename) — needed
+// to resolve the repo's TODO file for the todo tier of `recap next`. "" when not in
+// a git repo.
+func currentRepoPath() string {
+	if cwd, err := os.Getwd(); err == nil {
+		if top, err := gitTopLevel(cwd); err == nil {
+			return top
 		}
 	}
 	return ""
@@ -570,56 +587,15 @@ func cmdWhoami(args []string) error {
 	return nil
 }
 
-// cmdWorking sets (or clears) the in-flight marker — what the agent is actively
-// working on right now. The upcoming section flares it as the current item. Nudges
-// any open TUI to refresh so the marker updates live.
-func cmdWorking(args []string) error {
-	fs := flag.NewFlagSet("working", flag.ExitOnError)
-	clearFlag := fs.Bool("clear", false, "clear the in-flight marker")
-	fs.Parse(args)
-	rest := fs.Args()
-	if *clearFlag || (len(rest) == 1 && (rest[0] == "clear" || rest[0] == "none")) {
-		if err := saveWorking(""); err != nil {
-			return err
-		}
-		notify.Reload()
-		fmt.Println("cleared in-flight marker")
+// cmdCurrent shows the in-flight item without advancing — what `recap next` last
+// handed out (and hasn't been completed). "(idle)" when there's nothing.
+func cmdCurrent(args []string) error {
+	ref, title := loadCurrent()
+	if ref == "" {
+		fmt.Println("(idle — recap next to take work)")
 		return nil
 	}
-	st, err := Open()
-	if err != nil {
-		return err
-	}
-	defer st.Close()
-	if len(rest) == 0 { // show current
-		id := loadWorking()
-		if id == "" {
-			fmt.Println("not working on anything")
-			return nil
-		}
-		if n, e := parseID(id); e == nil {
-			if t, e2 := st.Get(n); e2 == nil {
-				fmt.Printf("working on #%d %s\n", n, t.Title)
-				return nil
-			}
-		}
-		fmt.Printf("working on #%s\n", id)
-		return nil
-	}
-	// the marker is a WORK ITEM reference (#n), not free text — "what I'm on".
-	id, err := parseID(strings.TrimPrefix(rest[0], "#"))
-	if err != nil {
-		return fmt.Errorf("usage: recap working #<task-id>   (a work item, not free text; or --clear)")
-	}
-	t, err := st.Get(id)
-	if err != nil {
-		return fmt.Errorf("no task #%d", id)
-	}
-	if err := saveWorking(strconv.FormatInt(id, 10)); err != nil {
-		return err
-	}
-	notify.Reload()
-	fmt.Printf("working on #%d %s\n", id, t.Title)
+	fmt.Printf("▸ %s  %s\n", ref, title)
 	return nil
 }
 

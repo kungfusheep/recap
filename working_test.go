@@ -5,37 +5,34 @@ import (
 	"testing"
 )
 
-// the in-flight marker round-trips through the file beside the db, and clearing
-// removes it (so the upcoming flare disappears).
-func TestWorkingMarker(t *testing.T) {
+// the in-flight cursor round-trips through the file beside the db (ref + title), and
+// clearing removes it (so the upcoming flare disappears).
+func TestCurrentMarker(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("RECAP_DB", filepath.Join(dir, "recap.db"))
 
-	if loadWorking() != "" {
-		t.Fatalf("fresh marker should be empty")
+	if ref, _ := loadCurrent(); ref != "" {
+		t.Fatalf("fresh cursor should be empty")
 	}
-	if err := saveWorking("addressing review #176"); err != nil {
+	if err := saveCurrent("amends:50", "in-progress flare on the upcoming section"); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	if got := loadWorking(); got != "addressing review #176" {
-		t.Fatalf("loadWorking = %q", got)
+	ref, title := loadCurrent()
+	if ref != "amends:50" || title != "in-progress flare on the upcoming section" {
+		t.Fatalf("loadCurrent = %q / %q", ref, title)
 	}
-	// whitespace trimmed
-	if err := saveWorking("  spaced  "); err != nil {
-		t.Fatalf("save spaced: %v", err)
-	}
-	if got := loadWorking(); got != "spaced" {
-		t.Fatalf("trim = %q", got)
+	if currentTitle() != "in-progress flare on the upcoming section" {
+		t.Fatalf("currentTitle = %q", currentTitle())
 	}
 	// clear
-	if err := saveWorking(""); err != nil {
+	if err := saveCurrent("", ""); err != nil {
 		t.Fatalf("clear: %v", err)
 	}
-	if loadWorking() != "" {
-		t.Fatalf("marker should be cleared")
+	if ref, _ := loadCurrent(); ref != "" {
+		t.Fatalf("cursor should be cleared")
 	}
 	// clearing again is a no-op (no error on missing file)
-	if err := saveWorking(""); err != nil {
+	if err := saveCurrent("", ""); err != nil {
 		t.Fatalf("double clear should be a no-op: %v", err)
 	}
 }

@@ -58,19 +58,30 @@ emotes are attributed to that name in that colour. To deliberately start fresh, 
 clears it (`recap whoami` with an empty name) or sets a new one. This is **recap-only** —
 never put a name in git commits.
 
-## Signalling what you're working on (the in-flight marker)
+## Taking work — `recap next` (the single entry point)
 
-When you START work on a recap item, point the marker at it — it takes a **work-item id,
-not free text** ("what I'm on", not a status feed):
+Do not hand-roll the priority order or declare what you're working on. **`recap next` is
+how you get work**: it returns the one highest-priority item across the whole queue,
+records it as the in-flight item (which drives the reviewer's spinner — automatically, no
+separate call), and advances on each call.
 
 ```
-recap working #<task-id>     # e.g. recap working #50
-recap working --clear        # when you move off / go idle
+recap next                 # hand me the next item + flare it
+recap current              # peek at the in-flight item without advancing
+recap next --skip "why"    # can't do it → record the reason on it, move to the next
 ```
 
-The reviewer's panel shows a spinner with that item's "#n title", resolved live. Update
-it as you move between items. It's a cue only — it doesn't record work (`recap add`) or
-change state — and it pushes, so an open TUI tracks it without a refresh.
+Priority (repo-scoped, computed for you): **amends** (tasks with an open
+`request_changes` review) → **unread reviewer replies** → **next incomplete todo**. The
+returned item tells you its kind and the verbs to act on it.
+
+The cursor is the whole point: **getting work and going in-flight are the same act**, so
+the flare can't rot. Calling `recap next` again walks PAST the current item — that's a
+skip. Skipping something you didn't complete should carry `--skip "reason"` so the
+reviewer sees why it was passed (it's recorded as a comment on the item), not silently
+dropped. Completing an item (`revise`/`resolve`/marking the todo done) drops it from the
+queue, so the next `recap next` naturally lands on what follows. Everything pushes live —
+an open TUI tracks the flare without a refresh. (`recap working` is retired into this.)
 
 ## Project scoping (important)
 

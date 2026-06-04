@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -30,7 +28,7 @@ var (
 // upcomingRow is one TODO line in the upcoming list, rendered as a single
 // full-width Text (build-once ForEach safe, reflows on resize). The in-flight
 // marker is NOT a row — it's rendered separately above the list with an animated
-// spinner flare (the "in progress" cue), set via `recap working`.
+// spinner flare (the "in progress" cue), set by `recap next` (the cursor's title).
 type upcomingRow struct {
 	Line string
 	FG   Color
@@ -46,7 +44,7 @@ const upcomingMax = 5 // how many upcoming tasks to surface
 
 // invalidateUpcoming forces the next updateUpcoming to reload from disk: clears the
 // shown-repo + in-flight guard and discards any stale staged result. Call it after
-// anything that changes the source (the in-flight marker, an in-app TODO edit, or a
+// anything that changes the source (the `recap next` cursor, an in-app TODO edit, or a
 // SIGUSR1 reload) so the upcoming section + spinner reflect current state on push.
 func invalidateUpcoming() {
 	upcomingRepo = ""
@@ -83,8 +81,8 @@ func updateUpcoming() {
 	upcomingLoading = t.RepoPath
 	repo := t.RepoPath
 	go func() {
-		working := workingDisplay(uiStore) // resolve the in-flight marker (#n) to "#n <title>"
-		items := loadUpcoming(repo)        // TODO tasks — file read + parse, off the render thread
+		working := currentTitle()   // the in-flight item recap next handed out (flare text)
+		items := loadUpcoming(repo) // TODO tasks — file read + parse, off the render thread
 		upcomingMu.Lock()
 		upcomingStaged = &upcomingResult{repo: repo, working: working, items: items}
 		upcomingMu.Unlock()
@@ -111,25 +109,6 @@ func loadUpcoming(repoPath string) []string {
 		return nil
 	}
 	return upcomingFromItems(items)
-}
-
-// workingDisplay resolves the in-flight marker (a work-item id) to "#n <title>" for
-// the spinner, or "" when nothing's set / the task is gone. The testable core of the
-// spinner: feed it a saved marker + store and it returns exactly what renders.
-func workingDisplay(s *Store) string {
-	id := loadWorking()
-	if id == "" || s == nil {
-		return ""
-	}
-	n, err := strconv.ParseInt(id, 10, 64)
-	if err != nil || n <= 0 {
-		return ""
-	}
-	t, err := s.Get(n)
-	if err != nil {
-		return ""
-	}
-	return fmt.Sprintf("#%d %s", n, t.Title)
 }
 
 // buildUpcomingRows turns the upcoming task texts into plain bulleted rows. Runs on

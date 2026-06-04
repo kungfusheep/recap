@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -59,36 +57,21 @@ func TestBuildUpcomingRows(t *testing.T) {
 	}
 }
 
-// the spinner pipeline end-to-end: a saved in-flight marker (#n) resolves to
-// "#n <title>" via the store; cleared/unknown ids yield "" (no spinner). This is the
-// test that was missing — it catches the spinner showing nothing or stale text.
-func TestWorkingDisplay(t *testing.T) {
+// the flare now reads the cursor title directly (recap next sets it) — no store
+// lookup. The spinner shows whatever recap next recorded, and clears when idle.
+func TestCurrentTitleFlare(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("RECAP_DB", dir+"/recap.db")
-	st, err := Open()
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	defer st.Close()
-	id, _ := st.Add(Task{Repo: "r", Title: "wire the frobnicator"})
 
-	if got := workingDisplay(st); got != "" {
-		t.Fatalf("no marker → empty, got %q", got)
+	if currentTitle() != "" {
+		t.Fatalf("idle → empty flare, got %q", currentTitle())
 	}
-	if err := saveWorking(strconv.FormatInt(id, 10)); err != nil {
-		t.Fatalf("saveWorking: %v", err)
+	saveCurrent("todo:abcd1234", "fix the width issue on the right")
+	if got := currentTitle(); got != "fix the width issue on the right" {
+		t.Fatalf("flare = %q", got)
 	}
-	want := fmt.Sprintf("#%d wire the frobnicator", id)
-	if got := workingDisplay(st); got != want {
-		t.Fatalf("marker set → %q, want %q", got, want)
-	}
-	// a marker pointing at a non-existent task shows nothing (not a crash)
-	saveWorking("99999")
-	if got := workingDisplay(st); got != "" {
-		t.Fatalf("stale marker → empty, got %q", got)
-	}
-	saveWorking("")
-	if got := workingDisplay(st); got != "" {
-		t.Fatalf("cleared → empty, got %q", got)
+	saveCurrent("", "")
+	if currentTitle() != "" {
+		t.Fatalf("cleared → empty flare, got %q", currentTitle())
 	}
 }

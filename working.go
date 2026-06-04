@@ -6,41 +6,50 @@ import (
 	"strings"
 )
 
-// The in-flight marker: a one-line note of what the agent is ACTIVELY working on
-// right now — set explicitly by the loop (`recap working "<what>"`), not guessed
-// from the TODO order. The upcoming section surfaces it as the flared item, so the
-// "in progress" cue reflects the real focus (which may be review feedback for some
-// other item, not the next TODO line). Stored beside the db as a plain file so any
-// process can set it and the TUI can re-read it on the reload signal.
-func workingPath() (string, error) {
+// The in-flight marker is now a pure protocol fact, not a thing the agent declares:
+// `recap next` records the item it hands out as the "current" cursor, and the TUI
+// flares it. This file is just the cursor's storage — the current work item's stable
+// ref plus its display title — kept beside the db so any process can set it and the
+// TUI re-reads it on the reload signal. Advancing (another `recap next`) overwrites
+// it; completing the item drops it from the queue so the next `recap next` moves on.
+func currentPath() (string, error) {
 	db, err := dbPath()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(filepath.Dir(db), "working"), nil
+	return filepath.Join(filepath.Dir(db), "current"), nil
 }
 
-// loadWorking returns the current in-flight note ("" if none). Tiny file; safe to
-// read on the reload path alongside the inbox reload.
-func loadWorking() string {
-	p, err := workingPath()
+// loadCurrent returns the current item's ref + display title ("","" if none).
+func loadCurrent() (ref, title string) {
+	p, err := currentPath()
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	b, err := os.ReadFile(p)
 	if err != nil {
-		return ""
+		return "", ""
 	}
-	return strings.TrimSpace(string(b))
+	parts := strings.SplitN(strings.TrimRight(string(b), "\n"), "\t", 2)
+	if len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+	return strings.TrimSpace(parts[0]), ""
 }
 
-// saveWorking sets (or, with "", clears) the in-flight note.
-func saveWorking(text string) error {
-	p, err := workingPath()
+// currentTitle is the flare text — the current item's title, "" when idle.
+func currentTitle() string {
+	_, title := loadCurrent()
+	return title
+}
+
+// saveCurrent sets the cursor to ref/title, or clears it when ref is empty.
+func saveCurrent(ref, title string) error {
+	p, err := currentPath()
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(text) == "" {
+	if strings.TrimSpace(ref) == "" {
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 			return err
 		}
@@ -49,5 +58,5 @@ func saveWorking(text string) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(p, []byte(strings.TrimSpace(text)+"\n"), 0o644)
+	return os.WriteFile(p, []byte(ref+"\t"+title+"\n"), 0o644)
 }

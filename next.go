@@ -1,0 +1,187 @@
+package main
+
+import (
+	"flag"
+	"fmt"
+	"hash/fnv"
+	"strings"
+
+	"github.com/kungfusheep/recap/notify"
+)
+
+// recap next is the protocol form of "what do I work on": it returns the next work
+// item across the whole priority order (amends → unread replies → todos), records
+// it as the current in-flight item (driving the flare), and advances on each call —
+// so going in-flight is a side-effect of taking work, never a thing the agent has to
+// remember to declare. Calling next again walks past the current (a skip); a skip of
+// something not completed can carry a reason so the reviewer sees why it was passed.
+
+// WorkItem is one unit of work, of any tier. Ref is its stable cursor id.
+type WorkItem struct {
+	Kind      string // "amends" | "reply" | "todo"
+	Repo      string
+	TaskID    int64  // amends/reply
+	CommentID int64  // reply
+	Title     string // display text (task title / comment body / todo line)
+	Ref       string // stable cursor id, e.g. "amends:50" / "reply:73" / "todo:9f2a"
+}
+
+// buildQueue assembles the priority-ordered work list for a repo: amends first
+// (tasks with an open request_changes review), then unread reviewer replies (on
+// tasks not already in amends), then the next incomplete todos. repoPath is the
+// repo's filesystem path (for the TODO file); pass "" to skip the todo tier.
+func buildQueue(st *Store, repo, repoPath string) []WorkItem {
+	var q []WorkItem
+	amendsTasks := map[int64]bool{}
+
+	// 1. amends — tasks needing rework (derived, like the redo queue), oldest first.
+	if tasks, err := st.List("", repo); err == nil {
+		for i := len(tasks) - 1; i >= 0; i-- { // List is id DESC; oldest first
+			t := tasks[i]
+			if st.ReviewState(t.ID) == StateRework {
+				amendsTasks[t.ID] = true
+				q = append(q, WorkItem{Kind: "amends", Repo: t.Repo, TaskID: t.ID,
+					Title: t.Title, Ref: fmt.Sprintf("amends:%d", t.ID)})
+			}
+		}
+	}
+
+	// 2. replies — unread reviewer thread replies, on tasks not already in amends.
+	if cs, err := st.UnreadByAgent(repo); err == nil {
+		for _, c := range cs {
+			if c.ParentID == 0 || amendsTasks[c.TaskID] {
+				continue // top-level review comments ride with their amends task
+			}
+			q = append(q, WorkItem{Kind: "reply", Repo: repo, TaskID: c.TaskID, CommentID: c.ID,
+				Title: firstLine(c.Body), Ref: fmt.Sprintf("reply:%d", c.ID)})
+		}
+	}
+
+	// 3. todos — the next incomplete todo lines from the repo's TODO file.
+	if repoPath != "" {
+		if cfg, err := LoadConfig(); err == nil {
+			if path, err := cfg.todoPathFor(repoPath); err == nil && path != "" {
+				if items, err := readTodo(path); err == nil {
+					for _, it := range items {
+						if !it.IsTask || it.Done {
+							continue
+						}
+						text := strings.TrimSpace(it.Text)
+						q = append(q, WorkItem{Kind: "todo", Repo: repo, Title: text,
+							Ref: fmt.Sprintf("todo:%08x", fnvHash(text))})
+					}
+				}
+			}
+		}
+	}
+	return q
+}
+
+// advance returns the item AFTER currentRef in the queue (wrapping at the end), and
+// whether currentRef was skipped — i.e. still present (not completed) when we moved
+// past it. With no current (or it's gone from the queue), it returns the first item.
+func advance(q []WorkItem, currentRef string) (next WorkItem, skipped bool, ok bool) {
+	if len(q) == 0 {
+		return WorkItem{}, false, false
+	}
+	idx := -1
+	for i, w := range q {
+		if w.Ref == currentRef {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return q[0], false, true // current gone (completed) or unset → start of queue
+	}
+	skipped = true // current is still in the queue → we're passing it without completing
+	return q[(idx+1)%len(q)], skipped, true
+}
+
+// cmdNext is the protocol form of "what do I work on". It builds the repo's priority
+// queue (amends → replies → todos), advances the cursor past the current item, records
+// the new current (which drives the flare), and prints the work order. Calling it again
+// walks past the current — a skip; --skip "reason" records why on the skipped item so
+// the reviewer sees it wasn't silently dropped.
+func cmdNext(args []string) error {
+	fs := flag.NewFlagSet("next", flag.ExitOnError)
+	skipReason := fs.String("skip", "", "reason this item is being skipped (recorded on it)")
+	fs.Parse(args)
+
+	st, err := Open()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	repo := currentRepo()
+	q := buildQueue(st, repo, currentRepoPath())
+	curRef, curTitle := loadCurrent()
+	next, skipped, ok := advance(q, curRef)
+
+	// passing an item that's still in the queue = a skip (not a completion). Capture
+	// the reason on it if given; otherwise nudge so the next skip carries one.
+	if skipped {
+		prev := findRef(q, curRef)
+		switch {
+		case *skipReason != "" && prev.TaskID != 0:
+			st.AddComment(prev.TaskID, identityWho(), "⤳ skipped (still open): "+*skipReason)
+			notify.Reload()
+			fmt.Printf("skipped %s — %s\n", curTitle, *skipReason)
+		case *skipReason != "":
+			fmt.Printf("skipped %s — %s\n", curTitle, *skipReason)
+		default:
+			fmt.Printf("note: skipping %q without a reason — pass --skip \"why\" so the reviewer sees it\n", curTitle)
+		}
+	}
+
+	if !ok {
+		saveCurrent("", "")
+		notify.Reload()
+		fmt.Println("(nothing to work on — inbox + todos are clear)")
+		return nil
+	}
+
+	if err := saveCurrent(next.Ref, next.Title); err != nil {
+		return err
+	}
+	notify.Reload()
+	printWorkOrder(next)
+	return nil
+}
+
+// printWorkOrder shows the item plus the verbs to act on it, by tier.
+func printWorkOrder(w WorkItem) {
+	switch w.Kind {
+	case "amends":
+		fmt.Printf("▸ amends   #%d  %s\n", w.TaskID, w.Title)
+		fmt.Printf("  recap review show <id> · fix forward · recap revise %d --summary \"…\"\n", w.TaskID)
+	case "reply":
+		fmt.Printf("▸ reply    c%d  %q  (task #%d)\n", w.CommentID, w.Title, w.TaskID)
+		fmt.Printf("  recap reply %d --body \"…\"  ·  recap read c%d\n", w.CommentID, w.CommentID)
+	case "todo":
+		fmt.Printf("▸ todo     %s\n", w.Title)
+	}
+}
+
+func findRef(q []WorkItem, ref string) WorkItem {
+	for _, w := range q {
+		if w.Ref == ref {
+			return w
+		}
+	}
+	return WorkItem{}
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
+}
+
+func fnvHash(s string) uint32 {
+	h := fnv.New32a()
+	h.Write([]byte(s))
+	return h.Sum32()
+}
