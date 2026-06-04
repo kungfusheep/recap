@@ -70,6 +70,7 @@ func updateUpcoming() {
 		upcomingLoading = "" // load landed — clear the in-flight guard so forced reloads work
 		currentRef = staged.ref
 		hasCurrent = currentRef != ""
+		markInFlight() // re-mark inbox rows now the fresh cursor ref has landed (no reload lag)
 		upcomingItems = buildUpcomingRows(staged.items, currentRef)
 		hasUpcoming = len(upcomingItems) > 0
 	}

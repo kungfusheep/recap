@@ -63,6 +63,29 @@ func TestBuildUpcomingRows(t *testing.T) {
 	}
 }
 
+// the inbox flare follows the cursor ref (re-marked when the async ref lands), and
+// never sticks where a prior reload left it — the "spinner stuck on #73" bug. Revision
+// child rows (RevIdx >= 0) never flare.
+func TestMarkInFlight(t *testing.T) {
+	defer func() { vmRows = nil; currentRef = "" }()
+	vmRows = []taskVM{{ID: 73, RevIdx: -1}, {ID: 65, RevIdx: -1}, {ID: 65, RevIdx: 0}}
+
+	currentRef = "amends:65"
+	markInFlight()
+	if vmRows[0].InFlight || !vmRows[1].InFlight {
+		t.Fatalf("cursor amends:65 → only #65 header flares, got %v/%v", vmRows[0].InFlight, vmRows[1].InFlight)
+	}
+	if vmRows[2].InFlight {
+		t.Fatal("revision child row must not flare")
+	}
+	// cursor moves → flare follows (not stuck on #73's neighbour)
+	currentRef = "amends:73"
+	markInFlight()
+	if !vmRows[0].InFlight || vmRows[1].InFlight {
+		t.Fatalf("flare should follow cursor to #73, got %v/%v", vmRows[0].InFlight, vmRows[1].InFlight)
+	}
+}
+
 // the flare now reads the cursor title directly (recap next sets it) — no store
 // lookup. The spinner shows whatever recap next recorded, and clears when idle.
 func TestCurrentTitleFlare(t *testing.T) {

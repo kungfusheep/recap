@@ -1362,6 +1362,16 @@ func draftRow(c *draftCommentVM) Component {
 	)
 }
 
+// markInFlight re-syncs each inbox header row's in-flight flag to the current cursor
+// ref. Cheap (no I/O), so it runs whenever currentRef changes (the async cursor load
+// lands a frame after the task reload) — otherwise the flare sticks on whatever row
+// the last full reload marked, instead of following the cursor.
+func markInFlight() {
+	for i := range vmRows {
+		vmRows[i].InFlight = vmRows[i].RevIdx < 0 && currentRef == fmt.Sprintf("amends:%d", vmRows[i].ID)
+	}
+}
+
 func taskRow(r *taskVM) Component {
 	// per-row body fill = full-width flat band (no list marker), focus-aware. The
 	// group header sits OUTSIDE the filled body, so selecting a row never
