@@ -19,6 +19,13 @@ var (
 	// the shared add/edit prompt: editingTodoIdx is -1 for add (append a new task),
 	// or the index of the line being edited.
 	editingTodoIdx = -1
+
+	// todoOpen gates the TODO editor panel inside buildMain. It used to be a
+	// separate PushView, but glyph's If-gated modal pop doesn't fire reliably in a
+	// secondary view, so the prompt over it leaked a modal router (multiple-Esc) and
+	// its screen effects didn't apply. As an in-buildMain panel it behaves like the
+	// inbox: one view, consistent modal + effect handling.
+	todoOpen bool
 )
 
 // openTodoEditor resolves the selected task's repo TODO path (via the config
@@ -49,7 +56,13 @@ func openTodoEditor() {
 	todoSel = 0
 	todoTitle = "TODO · " + t.Repo
 	todoPrep()
-	uiApp.PushView("todoedit")
+	todoOpen = true
+	uiApp.RequestRender()
+}
+
+func closeTodoEditor() {
+	todoOpen = false
+	uiApp.RequestRender()
 }
 
 // todoPrep recomputes the per-row UI fields (selection band + the display text and
@@ -160,32 +173,31 @@ func todoRow(it *todoItem) Component {
 	)
 }
 
-func setupTodoView() {
-	uiApp.View("todoedit",
-		VBox.Fill(cBG).CascadeStyle(&Style{Fill: cBG, BG: cBG, FG: cFG}).PaddingTRBL(1, 2, 1, 2)(
-			On(
-				Key("j", func() { todoMove(1) }),
-				Key("k", func() { todoMove(-1) }),
-				Key("<Space>", todoToggle),
-				Key("x", todoToggle),
-				Key("a", todoAdd),
-				Key("e", todoEditLine),
-				Key("<Esc>", func() { uiApp.PopView() }),
-				Key("q", func() { uiApp.PopView() }),
-			),
-			HBox(
-				Text(&todoTitle).FG(cBright).Bold(),
-				Space(),
-				Text("space toggle · a add · e edit · esc close").FG(cMuted),
-			),
-			SpaceH(1),
-			List(&todoItems).
-				Selection(&todoSel).
-				Marker("  ").
-				SelectedStyle(Style{}). // band painted per-row (todoRow Fill)
-				Render(todoRow),
-			// the add/edit prompt floats over the TODO list (overlay, not PushView).
-			inputPromptOverlay(),
+// todoEditorPanel is the full-screen TODO editor, swapped in for the columns by
+// buildMain when todoOpen. On.Modal makes it exclusive (suppressing the inbox
+// keys) while open; the add/edit prompt overlay (in buildMain) floats over it.
+func todoEditorPanel() Component {
+	return VBox.Fill(cBG).CascadeStyle(&Style{Fill: cBG, BG: cBG, FG: cFG}).Grow(1).PaddingTRBL(1, 2, 1, 2)(
+		On.Modal(
+			Key("j", func() { todoMove(1) }),
+			Key("k", func() { todoMove(-1) }),
+			Key("<Space>", todoToggle),
+			Key("x", todoToggle),
+			Key("a", todoAdd),
+			Key("e", todoEditLine),
+			Key("<Esc>", closeTodoEditor),
+			Key("q", closeTodoEditor),
 		),
-	).NoCounts()
+		HBox(
+			Text(&todoTitle).FG(cBright).Bold(),
+			Space(),
+			Text("space toggle · a add · e edit · esc close").FG(cMuted),
+		),
+		SpaceH(1),
+		List(&todoItems).
+			Selection(&todoSel).
+			Marker("  ").
+			SelectedStyle(Style{}). // band painted per-row (todoRow Fill)
+			Render(todoRow),
+	)
 }

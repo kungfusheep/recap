@@ -76,3 +76,55 @@ func TestPromptOpenSubmitClose(t *testing.T) {
 		t.Fatalf("close should cancel without saving: open=%v val=%q saved=%q", promptOpen, commentField.Value, saved)
 	}
 }
+
+// the TODO editor is an in-buildMain panel (not a separate PushView): when
+// todoOpen it replaces the columns, and the add/edit prompt floats over it in the
+// SAME view (so the prompt behaves like the inbox: one view, consistent modal).
+func TestTodoEditorInBuildMain(t *testing.T) {
+	st := testStore(t)
+	prevStore, prevApp, prevOmni := uiStore, uiApp, omni
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	t.Cleanup(func() {
+		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
+		todoOpen, promptOpen = false, false
+		vmRows, todoItems = nil, nil
+		commentField = InputState{}
+	})
+	st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "a task", Status: StatusPending})
+	reloadTasks()
+	sel = 0
+
+	todoTitle = "TODO · r"
+	todoItems = []todoItem{{IsTask: true, Text: "buy milk"}}
+	todoOpen = true
+	todoPrep()
+
+	render := func() string {
+		tmpl := Build(buildMain())
+		buf := NewBuffer(120, 40)
+		tmpl.Execute(buf, 120, 40)
+		s := ""
+		for y := 0; y < 40; y++ {
+			s += buf.GetLine(y) + "\n"
+		}
+		return s
+	}
+
+	full := render()
+	// the editor shows; the inbox columns are swapped out
+	if !strings.Contains(full, "TODO · r") || !strings.Contains(full, "buy milk") {
+		t.Fatalf("todo editor not rendered in buildMain:\n%s", full)
+	}
+	if strings.Contains(full, "INBOX") {
+		t.Fatalf("inbox columns should be hidden when todoOpen:\n%s", full)
+	}
+
+	// the prompt floats over the editor (same view)
+	openInputPrompt("add todo", "", "", "", func() {})
+	full = render()
+	if !strings.Contains(full, "add todo") || !strings.Contains(full, "buy milk") {
+		t.Fatalf("prompt should float over the todo editor:\n%s", full)
+	}
+}
