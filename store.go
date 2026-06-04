@@ -192,6 +192,14 @@ func (s *Store) migrate() error {
 			if _, err := s.db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", a.table, a.col, a.decl)); err != nil {
 				return err
 			}
+			// when the read-receipt columns are first added to an EXISTING db, treat
+			// all prior comments as already-seen (read = their created_at) so `recap
+			// unread` surfaces only genuinely new comments, not the whole backlog.
+			if a.table == "comments" && (a.col == "read_agent" || a.col == "read_user") {
+				if _, err := s.db.Exec("UPDATE comments SET " + a.col + " = created_at WHERE " + a.col + " IS NULL"); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil
