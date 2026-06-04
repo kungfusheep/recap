@@ -41,6 +41,20 @@ items on them at once — that defeats the steady-trickle point of the loop. Pre
 loop's wakeup cadence between tasks over barrelling task→task→task in one go. A reviewer
 should be able to review item N while you work on N+1, not face a backlog of nine at once.
 
+## Name yourself (session identity)
+
+At the **start of a loop session**, name yourself and pick a personal colour, so your
+review comments read as a distinct voice:
+
+```
+recap whoami "<a name>" --color "#RRGGBB"
+```
+
+You choose the name. If the user set a `name_theme` in config.toml, let it guide your
+pick (`recap whoami` with no args prints it); otherwise pick freely — it works either
+way. From then on your comments/replies/emotes are attributed to that name in that
+colour. This is **recap-only** — never put a name in git commits.
+
 ## Signalling what you're working on (the in-flight marker)
 
 When you START a unit of work — a TODO task or a review you're fixing forward — mark it:
