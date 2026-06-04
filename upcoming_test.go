@@ -64,37 +64,43 @@ func TestBuildUpcomingRowsFlare(t *testing.T) {
 }
 
 // the upcoming section reflows on resize: its divider (HRule) spans the container,
-// so rendering wider yields a wider rule — it isn't stuck at an initial width (#168).
+// so the SAME template re-executed at a wider size yields a wider rule — it isn't
+// stuck at its initial sizing. Build once, execute twice (a real resize), and
+// also activate the If at the narrow size first (the section loads async, so it
+// first appears at whatever width is current, then the terminal is resized).
 func TestUpcomingExpandsWithWidth(t *testing.T) {
 	prevHas, prevItems := hasUpcoming, upcomingItems
 	t.Cleanup(func() { hasUpcoming, upcomingItems = prevHas, prevItems })
-	hasUpcoming = true
+	hasUpcoming = false
 	upcomingItems = buildUpcomingRows([]string{"alpha", "beta"})
 
+	node := VBox.Fill(cPaneBG)(
+		If(&hasUpcoming).Then(VBox.PaddingTRBL(0, 2, 1, 3).Gap(1)(
+			Text("upcoming").FG(cSubtle).Bold(),
+			VBox(ForEach(&upcomingItems, func(r *upcomingRow) Component { return Text(&r.Line).FG(&r.FG) })),
+			HRule().FG(cMuted),
+		)),
+	)
+	tmpl := Build(node) // built ONCE — re-executed at each width like a live resize
 	rule := func(width int) int {
-		node := VBox.Width(int16(width)).Fill(cPaneBG)(
-			If(&hasUpcoming).Then(VBox.PaddingTRBL(0, 2, 1, 3).Gap(1)(
-				Text("upcoming").FG(cSubtle).Bold(),
-				VBox(ForEach(&upcomingItems, func(r *upcomingRow) Component { return Text(&r.Line).FG(&r.FG) })),
-				HRule().FG(cMuted),
-			)),
-		)
 		buf := NewBuffer(width, 12)
-		Build(node).Execute(buf, int16(width), 12)
+		tmpl.Execute(buf, int16(width), 12)
 		best := 0
 		for y := 0; y < 12; y++ {
-			n := strings.Count(buf.GetLine(y), "─")
-			if n > best {
+			if n := strings.Count(buf.GetLine(y), "─"); n > best {
 				best = n
 			}
 		}
 		return best
 	}
-	narrow, wide := rule(40), rule(90)
+	_ = rule(40)       // If inactive
+	hasUpcoming = true // section loads (async) at the narrow size
+	narrow := rule(40) // first appears at width 40
+	wide := rule(90)   // resize wider — same template
 	if narrow == 0 {
 		t.Fatalf("no HRule rendered at width 40")
 	}
 	if wide <= narrow {
-		t.Fatalf("upcoming divider should widen with the container: width40=%d width90=%d", narrow, wide)
+		t.Fatalf("upcoming divider should widen when the same template is re-executed wider: width40=%d width90=%d", narrow, wide)
 	}
 }
