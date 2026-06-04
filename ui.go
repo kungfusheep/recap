@@ -1354,9 +1354,9 @@ func draftRow(c *draftCommentVM) Component {
 		// TextBlock re-wraps to the column width, so a long comment flows onto
 		// several lines instead of truncating at one (Text clips to a single line).
 		HBox(Text(&c.Indent), TextBlock(&c.Body).FG(cFG)),
-		// the agent's reaction sits below the body, attributed (Text, not TextBlock,
-		// so the emoji renders cleanly).
-		If(&c.HasEmote).Then(HBox(Text(&c.Indent), Text(&c.Emote).FG(cBright), SpaceW(1), Text("agent").FG(cMuted))),
+		// the agent's reaction sits below the body, attributed to the agent's name in
+		// its personal colour (Text, not TextBlock, so the emoji renders cleanly).
+		If(&c.HasEmote).Then(HBox(Text(&c.Indent), Text(&c.Emote), SpaceW(1), Text(&agentLabel).FG(&agentColor))),
 	)
 }
 

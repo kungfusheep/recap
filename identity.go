@@ -22,6 +22,7 @@ import (
 var (
 	agentName  string
 	agentColor = Hex(0x6f8fa8) // sensible default until the agent names itself
+	agentLabel = "agent"       // agentName, or "agent" when unnamed — for display
 )
 
 func identityPath() (string, error) {
@@ -54,8 +55,14 @@ func loadIdentity() (name string, color Color) {
 	return name, color
 }
 
-// refreshIdentity reloads the identity into the TUI's agentName/agentColor.
-func refreshIdentity() { agentName, agentColor = loadIdentity() }
+// refreshIdentity reloads the identity into the TUI's agentName/agentColor/agentLabel.
+func refreshIdentity() {
+	agentName, agentColor = loadIdentity()
+	agentLabel = agentName
+	if agentLabel == "" {
+		agentLabel = "agent"
+	}
+}
 
 // saveIdentity persists the agent's chosen name + colour (empty name clears it).
 func saveIdentity(name, hex string) error {
