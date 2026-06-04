@@ -151,10 +151,14 @@ func (b *OmniBox) View() Component {
 	b.list = FilterList(&b.items, omniSearchText).
 		Placeholder("type a command").
 		Marker("  ").
+		// cap the visible rows so a long command list doesn't overflow the screen;
+		// FilterList windows + scrolls (C-n/C-p, C-d/C-u) past this.
+		MaxVisible(10).
 		Style(Style{BG: cFloat}).
 		SelectedStyle(Style{FG: cBright, BG: cSelBG}).
 		Render(func(it *omniItem) Component {
-			return VBox.PaddingVH(1, 2)(
+			// tight 2-row item (label/section + description) so more fit per screen.
+			return VBox.PaddingTRBL(0, 2, 1, 2)(
 				HBox(
 					Text(&it.Label).FG(cBright),
 					Space(),

@@ -629,3 +629,35 @@ func TestStatusIconColorByRender(t *testing.T) {
 		t.Fatalf("expected all 3 state icons rendered, saw %v", seen)
 	}
 }
+
+// the omnibox caps its visible rows (MaxVisible) so a long command list scrolls
+// rather than overflowing the screen (TODO "omnibox doesn't scroll … max height").
+func TestOmniMaxVisible(t *testing.T) {
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	t.Cleanup(func() { uiApp = nil; omni = nil })
+	_ = omni.View() // side effect: builds omni.list
+	omni.list.Clear()
+	tmpl := Build(VBox.Width(120)(omni.list))
+	buf := NewBuffer(120, 80)
+	tmpl.Execute(buf, 120, 80)
+	var sb strings.Builder
+	for y := 0; y < 80; y++ {
+		sb.WriteString(buf.GetLine(y))
+		sb.WriteByte('\n')
+	}
+	out := sb.String()
+	total := len(omni.items)
+	if total <= 10 {
+		t.Skipf("need >10 commands to prove windowing (have %d)", total)
+	}
+	vis := 0
+	for _, it := range omni.items {
+		if it.Label != "" && strings.Contains(out, it.Label) {
+			vis++
+		}
+	}
+	if vis > 12 {
+		t.Fatalf("MaxVisible(10) not bounding: %d of %d command labels rendered", vis, total)
+	}
+}
