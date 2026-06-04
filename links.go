@@ -4,11 +4,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
-	"time"
 )
 
 // linkRe matches a [[target]] reference embedded in a comment — the lightweight
@@ -36,17 +34,13 @@ func pasteClipboardImage() (string, error) {
 	if runtime.GOOS != "darwin" {
 		return "", fmt.Errorf("clipboard image paste is macOS-only")
 	}
-	dir, err := attachmentsDir()
+	// $TMPDIR is fine: the review loop is tight (paste → review shortly after), and
+	// the OS tidies temp files for us. We don't need long-term screenshot retention.
+	f, err := os.CreateTemp("", "recap-screenshot-*.png")
 	if err != nil {
 		return "", err
 	}
-	// persist beside the db, NOT in $TMPDIR — macOS purges temp files, which would
-	// leave the comment's [[link]] dangling. UnixNano keeps the name unique.
-	path := filepath.Join(dir, fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
-	f, err := os.Create(path)
-	if err != nil {
-		return "", err
-	}
+	path := f.Name()
 	f.Close()
 	// «class PNGf» is the clipboard's PNG representation; writing it raw yields a
 	// valid .png file. open-for-access needs the file to exist, hence CreateTemp.
@@ -70,20 +64,6 @@ func pasteClipboardImage() (string, error) {
 		return "", fmt.Errorf("clipboard image was empty")
 	}
 	return path, nil
-}
-
-// attachmentsDir is where pasted screenshots persist — beside the review db
-// ($RECAP_DB's dir or ~/.config/recap), created on demand.
-func attachmentsDir() (string, error) {
-	db, err := dbPath()
-	if err != nil {
-		return "", err
-	}
-	d := filepath.Join(filepath.Dir(db), "attachments")
-	if err := os.MkdirAll(d, 0o755); err != nil {
-		return "", err
-	}
-	return d, nil
 }
 
 // openLinks opens each [[target]] reference with the OS opener (open on macOS,

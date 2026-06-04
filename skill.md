@@ -73,9 +73,9 @@ A `request_changes` review also drops a breadcrumb line into the repo's TODO
 Comments can embed `[[/path/to/file]]` references — e.g. `[[/tmp/shot.png]]` to point at
 a screenshot. recap can't render images inline (terminal), so a referenced file is opened
 externally with `O` on the selected comment in the TUI. In the comment box, `Ctrl-V`
-pastes a clipboard image: it saves a PNG under the review db's `attachments/` dir (so the
-link doesn't expire) and inserts the `[[path]]` link for you. You can also type any
-`[[path]]` by hand to attach a log, file, or screenshot to feedback.
+pastes a clipboard image: it writes a temp PNG ($TMPDIR, OS-tidied — the loop is tight,
+so long-term retention isn't needed) and inserts the `[[path]]` link for you. You can also
+type any `[[path]]` by hand to attach a log, file, or screenshot to feedback.
 
 ## Boundaries
 
