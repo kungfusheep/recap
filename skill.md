@@ -10,6 +10,24 @@ project files by hand to manage the queue.
 For the exact command surface and flags, run `recap help`. The verbs below are the stable
 contract the loop depends on — this skill is self-contained; you don't need any other.
 
+## Why it's async — keep both sides saturated
+
+The whole design — the inbox, the record-and-move-on flow, the comment threads — exists so
+that **neither side ever waits on the other**. That two-sided saturation is the point:
+maximum progress, best use of everyone's time.
+
+- **You stay saturated.** Finish an item, complete it, and immediately `recap next` for the
+  following one. You never block waiting for a review or an answer.
+- **The reviewer stays saturated.** A steady stream of finished items to review at their own
+  pace, with replies and emotes carrying feedback back — no synchronous handshake, no
+  meeting, no "are you done yet?".
+- **Questions don't stall you.** When you need an answer, you don't stop and wait — you
+  record it (a `reply`, or a `recap next --skip "reason"`) and move on. The answer comes
+  back to you through `recap next` later, as a reply in the queue.
+
+The comments system is what makes feedback flow *asynchronously*: it lets the reviewer
+respond whenever they get to it and lets you keep producing in the meantime.
+
 ## Completing work (→ inbox)
 
 How you finish an item depends on its kind — `recap next` tells you which:
@@ -44,12 +62,11 @@ Order matters: **commit first, then `recap done --sha HEAD`**, so the entry reso
 real commit and its diff. Complete every item — the inbox is the audit trail. recap derives
 `--repo`/`--repo-path` from the cwd's git root, so run it inside the repo.
 
-**Pace for the reviewer, not yourself.** recap is an *async* queue: finish a task, record
-it, and let the reviewer take it at their pace. When the reviewer is actively engaged
-(replying, reviewing), do NOT sprint through many tasks back-to-back and dump a wall of
-items on them at once — that defeats the steady-trickle point of the loop. Prefer the
-loop's wakeup cadence between tasks over barrelling task→task→task in one go. A reviewer
-should be able to review item N while you work on N+1, not face a backlog of nine at once.
+**Trickle, don't flood.** Saturation cuts both ways: keep yourself busy, but don't bury the
+reviewer. Complete one item, let it land, move to the next — so the reviewer can review item
+N while you work N+1, not face a backlog of nine at once. Don't barrel task→task→task in one
+burst dumping a wall of items, especially when the reviewer is actively engaged (replying,
+reviewing). A steady stream keeps both sides saturated; a flood saturates only you.
 
 ## Name yourself (persistent identity)
 
