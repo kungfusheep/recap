@@ -495,6 +495,9 @@ func refreshDetail() {
 		reloadTasks()
 		detailDirty = true
 	}
+	// peek at the selected repo's next TODO tasks (loaded async; swapped in here).
+	// before the change-detection early-return so finished loads are picked up.
+	updateUpcoming()
 	for i := range vmRows {
 		vmRows[i].Selected = i == sel
 	}
@@ -982,6 +985,18 @@ func buildMain() Component {
 						SpaceW(2),
 					),
 					SpaceH(2),
+					// upcoming — a compact, read-only peek at the next TODO tasks for the
+					// selected task's repo (mini TODO display; not interactive).
+					If(&hasUpcoming).Then(VBox(
+						HBox(SpaceW(3), Text("upcoming").FG(cSubtle).Bold(), SpaceW(2)),
+						SpaceH(1),
+						ForEach(&upcomingItems, func(s *string) Component {
+							return HBox(SpaceW(3), Text("· ").FG(cMuted), Text(s).FG(cSubtle))
+						}),
+						SpaceH(1),
+						HBox(SpaceW(3), HRule().FG(cMuted), SpaceW(2)),
+						SpaceH(1),
+					)),
 					List(&vmRows).
 						Selection(&sel).
 						Style(&listBaseStyle).
