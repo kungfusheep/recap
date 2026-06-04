@@ -130,9 +130,8 @@ type draftCommentVM struct {
 	Who      string // "you" | "agent" (used to label replies)
 	Emote    string // optional reaction shown below the body (e.g. 👍)
 	HasEmote bool   // gates the emote line; mirrors Emote != ""
-	ReadUser bool   // the user has seen this comment (drives the user dot + optimistic mark)
-	AgentDot string // ● read / ○ unread — agent receipt (precomputed, build-once safe)
-	UserDot  string // ● read / ○ unread — user receipt
+	ReadUser bool   // the user has seen this comment (guards the optimistic re-mark)
+	ReadDot  string // ●/○ — has the OPPOSITE party read this? (you-comment → agent read it; agent-comment → you read it). You don't see a receipt on your own read.
 	Location string // "file · line N" / "general" / "↳ who" for a reply
 	Indent   string // leading spaces for nested replies (precomputed; build-once safe)
 	When     string // comment time (HH:MM) from CreatedAt
@@ -754,7 +753,13 @@ func loadDraftPane(taskID int64) {
 		}
 		vm := draftCommentVM{ID: c.ID, ParentID: c.ParentID, Who: c.Who, Emote: c.Emote, HasEmote: c.Emote != "", Body: c.Body, File: c.File, Line: c.Line, Draft: c.Draft, When: hhmm(c.CreatedAt)}
 		vm.ReadUser = c.ReadUser != ""
-		vm.AgentDot, vm.UserDot = readDot(c.ReadAgent != ""), readDot(vm.ReadUser)
+		// show the OTHER party's read: on your comment, whether the agent read it;
+		// on the agent's comment, whether you read it.
+		otherRead := c.ReadAgent != ""
+		if c.Who != "you" {
+			otherRead = vm.ReadUser
+		}
+		vm.ReadDot = readDot(otherRead)
 		if c.File != "" {
 			vm.Location = c.File
 			if c.Line > 0 {
@@ -1336,8 +1341,8 @@ func draftRow(c *draftCommentVM) Component {
 	itemBG := If(&c.Selected).Then(&draftSelBG).Else(&cPaneBG)
 	// Indent (precomputed per row) nests replies; empty for top-level comments.
 	return VBox.Fill(itemBG).PaddingVH(1, 1)(
-		// two read-receipt dots: agent (cHunk) then you (cDel) — ● read / ○ unread.
-		HBox(Text(&c.Indent), Text(&c.AgentDot).FG(cHunk), Text(&c.UserDot).FG(cDel), SpaceW(1), Text(&c.Location).FG(cSubtle), Space(), Text(&c.When).FG(cMuted)),
+		// one read-receipt dot: has the OTHER party read this? (● read / ○ unread)
+		HBox(Text(&c.Indent), Text(&c.ReadDot).FG(cHunk), SpaceW(1), Text(&c.Location).FG(cSubtle), Space(), Text(&c.When).FG(cMuted)),
 		If(&c.Snippet).Then(Text(&c.Snippet).FG(cMuted)),
 		// TextBlock re-wraps to the column width, so a long comment flows onto
 		// several lines instead of truncating at one (Text clips to a single line).
@@ -1520,11 +1525,13 @@ func selectedDraft() *draftCommentVM {
 // I/O). The agent sees it on its next poll / review show.
 func markSelectedCommentRead() {
 	c := selectedDraft()
-	if c == nil || c.ReadUser {
+	// only the AGENT's comments get a user read-receipt — your own comments don't
+	// need one (you wrote them); the dot on an agent comment is YOUR receipt to it.
+	if c == nil || c.Who == "you" || c.ReadUser {
 		return
 	}
 	c.ReadUser = true
-	c.UserDot = readDot(true)
+	c.ReadDot = readDot(true) // optimistic: this agent comment's "you read it" dot fills now
 	id := c.ID
 	go func() {
 		if uiStore != nil {
