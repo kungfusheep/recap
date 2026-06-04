@@ -162,7 +162,7 @@ var (
 	// multi-char automatically when there are many), paints them onto the frame, and
 	// routes the keystrokes (including multi-char prefixes + Esc). The diff is a
 	// scrolled layer so the row→screen mapping is ours (diffViewRef = the LayerView's
-	// screen rect); only the label engine is glyph's (review #162).
+	// screen rect); only the label engine is glyph's.
 	diffViewRef NodeRef // screen rect of the diff LayerView, for jump-target coords
 	// pickAction is what to do with the picked diff line (comment on it, or open it in
 	// $EDITOR). Set before EnterJumpMode; the picked target's onSelect calls it.
@@ -1043,18 +1043,15 @@ func buildMain() Component {
 						SpaceW(2),
 					),
 					SpaceH(2),
-					// upcoming — a compact, read-only peek at the next TODO tasks for the
-					// selected task's repo (mini TODO display; not interactive). Indent
-					// and gaps come from the container (padding + Gap), and each row is a
-					// single full-width Text, so it reflows on resize and avoids a thicket
-					// of Space spacers (review #168).
-					If(&hasUpcoming).Then(VBox.PaddingTRBL(0, 2, 1, 3).Gap(1)(
-						Text("upcoming").FG(cSubtle).Bold(),
-						VBox(ForEach(&upcomingItems, func(r *upcomingRow) Component {
-							return Text(&r.Line).FG(&r.FG)
-						})),
-						HRule().FG(cMuted),
-					)),
+					If(&hasUpcoming).Then(
+						VBox.PaddingTRBL(0, 2, 1, 3).Gap(1)(
+							Text("upcoming").FG(cSubtle).Bold(),
+							VBox(ForEach(&upcomingItems, func(r *upcomingRow) Component {
+								return Text(&r.Line).FG(&r.FG)
+							})),
+							HRule().FG(cMuted),
+						),
+					),
 					List(&vmRows).
 						Selection(&sel).
 						Style(&listBaseStyle).

@@ -60,9 +60,9 @@ func setThemeVars(t Theme) {
 	cFG = t.FG
 	cSubtle = t.Subtle
 	// muted text (timestamps, hints, separators) maps to the palette's border
-	// colour, which is too dark to read on several dark themes (#169). Nudge it
-	// toward the foreground so it stays clearly dimmer than normal text but legible
-	// — works for light themes too (fg is dark there, so it darkens).
+	// colour, which is too dark to read on several dark themes. Nudge it toward the
+	// foreground so it stays clearly dimmer than normal text but legible — works for
+	// light themes too (fg is dark there, so it darkens).
 	cMuted = Lerp(t.Muted, t.FG, 0.3)
 	cSelBG = t.SelBG
 	cGroupBG = t.GroupBG
@@ -103,8 +103,8 @@ func applyTheme(name string, t Theme) {
 		// route-modal pop by a few frames. SetView rebuilds the tree right now —
 		// before that fade finishes — so the router is orphaned on the stack, where
 		// it swallows every key but its own (Up/Down/Enter/Esc): you couldn't even
-		// quit (#64). The old tree's pushed routers are about to be discarded with it,
-		// so drain the input stack back to its base router before rebuilding.
+		// quit. The old tree's pushed routers are about to be discarded with it, so
+		// drain the input stack back to its base router before rebuilding.
 		if omni != nil {
 			omni.Close()
 		}

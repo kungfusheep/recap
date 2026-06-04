@@ -60,7 +60,7 @@ func editDiffLine(m diffLineMeta) {
 }
 
 // openEditorPick enters glyph's jump-label mode over the diff; picking a labelled
-// line opens THAT line in $EDITOR (mirrors the comment line-picker, per review #148).
+// line opens THAT line in $EDITOR (mirrors the comment line-picker).
 func openEditorPick() {
 	if !anyCommentableRow() {
 		statusMsg = "(no diff lines to open)"

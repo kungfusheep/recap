@@ -153,7 +153,7 @@ func (b *OmniBox) View() Component {
 		Marker("  ").
 		// cap the visible rows so a long command list doesn't overflow the screen;
 		// FilterList windows + scrolls (C-n/C-p, C-d/C-u) past this. Kept low because
-		// the items are roomy (review #164: keep the original spacing, fewer fit).
+		// the items are roomy (keep the original spacing, fewer fit).
 		MaxVisible(7).
 		Style(Style{BG: cFloat}).
 		SelectedStyle(Style{FG: cBright, BG: cSelBG}).

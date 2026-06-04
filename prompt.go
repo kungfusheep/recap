@@ -80,7 +80,7 @@ func inputPromptOverlay() Component {
 				SpaceH(1),
 				// line-comment context (location + snippet); empty strings render blank
 				// for non-line prompts. Kept flat (no nested If) — a conditional inside a
-				// modal scope confuses glyph's route-modal pop (review #159).
+				// modal scope confuses glyph's route-modal pop.
 				Text(&promptLoc).FG(cSubtle),
 				Text(&promptSnip).FG(cMuted),
 				Input().Field(&commentField).Bind().Placeholder("…").Width(66),
