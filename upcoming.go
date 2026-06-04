@@ -23,19 +23,20 @@ var (
 	upcomingStaged *upcomingResult // handed off from the loader goroutine
 )
 
-// upcomingRow is one rendered upcoming line. The first (next) item carries an
-// "in-progress" flare — a ▸ marker + brighter colour — since the loop works the
-// TODO top-down, so upcoming[0] is the item being worked next. Line (marker+text)
-// and FG are precomputed so each row is a single full-width Text — the build-once
-// ForEach renders them uniformly and they reflow on resize (no fixed-width HBox).
+// upcomingRow is one rendered upcoming line. The explicitly-marked in-flight item
+// (set via `recap working`) carries the "in-progress" flare — a ▸ marker + brighter
+// colour — and leads the list; the next TODO tasks follow with a plain bullet. Line
+// (marker+text) and FG are precomputed so each row is a single full-width Text — the
+// build-once ForEach renders them uniformly and they reflow on resize.
 type upcomingRow struct {
 	Line string
 	FG   Color
 }
 
 type upcomingResult struct {
-	repo  string
-	items []string
+	repo    string
+	working string // the in-flight marker at load time
+	items   []string
 }
 
 const (
@@ -53,7 +54,7 @@ func updateUpcoming() {
 	upcomingMu.Unlock()
 	if staged != nil {
 		upcomingRepo = staged.repo
-		upcomingItems = buildUpcomingRows(staged.items)
+		upcomingItems = buildUpcomingRows(staged.working, staged.items)
 		hasUpcoming = len(upcomingItems) > 0
 	}
 
@@ -67,9 +68,10 @@ func updateUpcoming() {
 	upcomingLoading = t.RepoPath
 	repo := t.RepoPath
 	go func() {
-		items := loadUpcoming(repo) // file read + parse, off the render thread
+		working := loadWorking()    // the explicit in-flight marker
+		items := loadUpcoming(repo) // TODO tasks — file read + parse, off the render thread
 		upcomingMu.Lock()
-		upcomingStaged = &upcomingResult{repo: repo, items: items}
+		upcomingStaged = &upcomingResult{repo: repo, working: working, items: items}
 		upcomingMu.Unlock()
 		if uiApp != nil {
 			uiApp.RequestRender()
@@ -96,17 +98,16 @@ func loadUpcoming(repoPath string) []string {
 	return upcomingFromItems(items)
 }
 
-// buildUpcomingRows turns the upcoming task texts into display rows, flaring the
-// first (the next item the loop works) as in-progress. Runs on the render thread
-// so it can read the current theme colours.
-func buildUpcomingRows(texts []string) []upcomingRow {
-	rows := make([]upcomingRow, 0, len(texts))
-	for i, txt := range texts {
-		r := upcomingRow{Line: "· " + txt, FG: cSubtle}
-		if i == 0 {
-			r.Line, r.FG = "▸ "+txt, cBright // in-progress flare
-		}
-		rows = append(rows, r)
+// buildUpcomingRows builds the display rows: the explicit in-flight marker (if any)
+// leads with the ▸ flare, then the next TODO tasks with a plain bullet. Runs on the
+// render thread so it can read the current theme colours.
+func buildUpcomingRows(working string, texts []string) []upcomingRow {
+	rows := make([]upcomingRow, 0, len(texts)+1)
+	if working != "" {
+		rows = append(rows, upcomingRow{Line: "▸ " + truncateRunes(working, upcomingTextLen), FG: cBright})
+	}
+	for _, txt := range texts {
+		rows = append(rows, upcomingRow{Line: "· " + txt, FG: cSubtle})
 	}
 	return rows
 }

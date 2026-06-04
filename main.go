@@ -52,6 +52,8 @@ func main() {
 		err = cmdReply(args)
 	case "emote":
 		err = cmdEmote(args)
+	case "working":
+		err = cmdWorking(args)
 	case "review":
 		err = cmdReview(args)
 	case "set":
@@ -420,6 +422,29 @@ func cmdComment(args []string) error {
 		return err
 	}
 	fmt.Printf("commented on #%d\n", id)
+	return nil
+}
+
+// cmdWorking sets (or clears) the in-flight marker — what the agent is actively
+// working on right now. The upcoming section flares it as the current item. Nudges
+// any open TUI to refresh so the marker updates live.
+func cmdWorking(args []string) error {
+	fs := flag.NewFlagSet("working", flag.ExitOnError)
+	clearFlag := fs.Bool("clear", false, "clear the in-flight marker")
+	fs.Parse(args)
+	text := strings.TrimSpace(strings.Join(fs.Args(), " "))
+	if *clearFlag {
+		text = ""
+	}
+	if err := saveWorking(text); err != nil {
+		return err
+	}
+	notify.Reload() // refresh any open TUI's upcoming/in-flight cue
+	if text == "" {
+		fmt.Println("cleared in-flight marker")
+	} else {
+		fmt.Printf("working: %s\n", text)
+	}
 	return nil
 }
 

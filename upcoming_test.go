@@ -39,26 +39,34 @@ func TestUpcomingFromItems(t *testing.T) {
 	}
 }
 
-// buildUpcomingRows flares the first (in-progress / next) item with a ▸ marker and
-// the rest with a plain bullet, so the next-to-be-worked task stands out.
+// buildUpcomingRows flares the EXPLICIT in-flight marker (▸, bright) at the top and
+// lists the next TODO tasks with a plain bullet — the flare follows what the agent
+// marked, not the list order.
 func TestBuildUpcomingRowsFlare(t *testing.T) {
-	rows := buildUpcomingRows([]string{"first", "second", "third"})
-	if len(rows) != 3 {
-		t.Fatalf("got %d rows, want 3", len(rows))
+	rows := buildUpcomingRows("addressing review #176", []string{"first", "second", "third"})
+	if len(rows) != 4 { // marker + 3 tasks
+		t.Fatalf("got %d rows, want 4", len(rows))
 	}
-	if rows[0].Line != "▸ first" {
-		t.Fatalf("first line = %q, want '▸ first' (in-progress flare)", rows[0].Line)
+	if rows[0].Line != "▸ addressing review #176" {
+		t.Fatalf("flare row = %q, want the in-flight marker", rows[0].Line)
 	}
 	for i := 1; i < len(rows); i++ {
 		if !strings.HasPrefix(rows[i].Line, "· ") {
 			t.Fatalf("row %d line = %q, want '· ' prefix", i, rows[i].Line)
 		}
 	}
-	if buildUpcomingRows(nil) == nil {
-		// make(...,0) returns non-nil empty slice; just assert it's empty
-		t.Fatal("expected non-nil empty slice")
+
+	// no marker → no flare, just bulleted tasks (the flare isn't faked from item 0)
+	plain := buildUpcomingRows("", []string{"first", "second"})
+	if len(plain) != 2 {
+		t.Fatalf("no-marker rows = %d, want 2", len(plain))
 	}
-	if len(buildUpcomingRows(nil)) != 0 {
+	for i, r := range plain {
+		if !strings.HasPrefix(r.Line, "· ") {
+			t.Fatalf("no-marker row %d = %q, want plain bullet (no flare)", i, r.Line)
+		}
+	}
+	if len(buildUpcomingRows("", nil)) != 0 {
 		t.Fatal("empty input should give empty rows")
 	}
 }
@@ -72,7 +80,7 @@ func TestUpcomingExpandsWithWidth(t *testing.T) {
 	prevHas, prevItems := hasUpcoming, upcomingItems
 	t.Cleanup(func() { hasUpcoming, upcomingItems = prevHas, prevItems })
 	hasUpcoming = false
-	upcomingItems = buildUpcomingRows([]string{"alpha", "beta"})
+	upcomingItems = buildUpcomingRows("", []string{"alpha", "beta"})
 
 	node := VBox.Fill(cPaneBG)(
 		If(&hasUpcoming).Then(VBox.PaddingTRBL(0, 2, 1, 3).Gap(1)(

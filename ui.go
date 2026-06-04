@@ -509,10 +509,12 @@ func refreshDetail() {
 	// do it here on the render thread, then force the detail to rebuild.
 	if reloadRequested.CompareAndSwap(true, false) {
 		reloadTasks()
+		upcomingRepo = "" // force the in-flight marker + upcoming list to reload (e.g. after `recap working`)
 		detailDirty = true
 	}
-	// peek at the selected repo's next TODO tasks (loaded async; swapped in here).
-	// before the change-detection early-return so finished loads are picked up.
+	// peek at the selected repo's next TODO tasks + in-flight marker (loaded async;
+	// swapped in here), before the change-detection early-return so finished loads
+	// and reload-signal refreshes are picked up.
 	updateUpcoming()
 	for i := range vmRows {
 		vmRows[i].Selected = i == sel

@@ -41,6 +41,25 @@ items on them at once — that defeats the steady-trickle point of the loop. Pre
 loop's wakeup cadence between tasks over barrelling task→task→task in one go. A reviewer
 should be able to review item N while you work on N+1, not face a backlog of nine at once.
 
+## Signalling what you're working on (the in-flight marker)
+
+When you START a unit of work — a TODO task or a review you're fixing forward — mark it:
+
+```
+recap working "what you're on, concise"
+```
+
+This drives the **in-flight flare** (▸) in the reviewer's upcoming panel, so they can see
+the item you're *actually* focused on (which may be review feedback, not the next TODO
+line). Update it as you move between units; clear it when idle:
+
+```
+recap working --clear
+```
+
+It nudges any open TUI to refresh, so the cue updates live. It's a cue only — it doesn't
+record work (that's `recap add`) or change task state.
+
 ## Picking up review feedback (inbox → fix-forward work)
 
 At the **start of each loop cycle**, before reading the TODO, check for reviews the human
