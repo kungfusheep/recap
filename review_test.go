@@ -535,3 +535,26 @@ func readFile(t *testing.T, path string) string {
 	}
 	return string(b)
 }
+
+// review show must surface reviewer feedback: loose thread comments (review_id 0) and
+// this review's own comments, but not other reviews' comments. The regression was
+// filtering by review_id only, which dropped the loose feedback.
+func TestSelectReviewComments(t *testing.T) {
+	all := []Comment{
+		{ID: 1, ReviewID: 0, Body: "loose feedback"}, // the reviewer's actionable note
+		{ID: 2, ReviewID: 305, Body: "this review's anchor"},
+		{ID: 3, ReviewID: 200, Body: "an older review"},
+		{ID: 4, ReviewID: 0, Body: "another loose reply"},
+	}
+	got := selectReviewComments(all, 305)
+	ids := map[int64]bool{}
+	for _, c := range got {
+		ids[c.ID] = true
+	}
+	if !ids[1] || !ids[2] || !ids[4] {
+		t.Fatalf("should include loose (1,4) + this review (2): got %v", ids)
+	}
+	if ids[3] {
+		t.Fatalf("must NOT include another review's comment (3): got %v", ids)
+	}
+}

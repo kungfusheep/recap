@@ -870,6 +870,20 @@ func submitReview(st *Store, taskID int64, verdict, summary string) (Review, err
 	return st.SubmitReview(taskID, verdict, summary)
 }
 
+// selectReviewComments picks the comments to show under a review: this review's own
+// comments plus the task's loose thread comments (review_id 0, the usual home of
+// reviewer feedback), but NOT comments tied to a different review (avoids old-cycle
+// noise). Pure — the testable core of "review show surfaces the feedback".
+func selectReviewComments(all []Comment, reviewID int64) []Comment {
+	var out []Comment
+	for _, c := range all {
+		if c.ReviewID == reviewID || c.ReviewID == 0 {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 func cmdReviewShow(args []string) error {
 	idStr, _ := splitID(args)
 	if idStr == "" {
@@ -903,7 +917,12 @@ func cmdReviewShow(args []string) error {
 		fmt.Printf("\nsummary (what to change):\n  %s\n", rv.Summary)
 	}
 
-	comments, _ := st.ReviewComments(rv.ID)
+	// include the task's LOOSE thread comments (review_id 0) alongside this review's
+	// own comments — reviewer feedback is usually a loose comment (via `recap comment`
+	// or the TUI thread), never linked to the submitted review, so filtering by
+	// review_id alone hid the actionable feedback (it only showed via `recap show`).
+	all, _ := st.Comments(rv.TaskID)
+	comments := selectReviewComments(all, rv.ID)
 	if top, byParent := splitThread(comments); len(top) > 0 {
 		fmt.Printf("\ncomments (%d):\n", len(top))
 		for _, c := range top {
