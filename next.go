@@ -157,7 +157,8 @@ func cmdNext(args []string) error {
 		case *skipReason != "":
 			fmt.Printf("skipped %s — %s\n", curTitle, *skipReason)
 		default:
-			fmt.Printf("note: skipping %q without a reason — pass --skip \"why\" so the reviewer sees it\n", curTitle)
+			fmt.Printf("note: advanced past %q without completing it (recorded as a skip).\n", curTitle)
+			fmt.Printf("      to re-inspect WITHOUT advancing use `recap current` (or `recap review show <id>`); pass --skip \"why\" to record a reason\n")
 		}
 	}
 
