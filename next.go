@@ -12,17 +12,21 @@ import (
 )
 
 // recap next is the protocol form of "what do I work on": it returns the next work
-// item across the whole priority order (amends → unread replies → todos), records
-// it as the current in-flight item (driving the flare), and advances on each call —
-// so going in-flight is a side-effect of taking work, never a thing the agent has to
-// remember to declare. Calling next again walks past the current (a skip); a skip of
-// something not completed can carry a reason so the reviewer sees why it was passed.
+// item across the whole priority order (amends → unread replies → todos) and records
+// it as the current in-flight item (driving the flare) — so going in-flight is a
+// side-effect of taking work, never a thing the agent has to declare. While an item is
+// in flight, a bare `recap next` is non-mutating: it refuses to advance and points at
+// `recap current` (re-inspect), so a harmless re-check never skips work. Only
+// `recap next --skip "reason"` walks past an unfinished item, recording the reason so
+// the reviewer sees it was passed. A parked todo cursor still re-prioritises to new
+// amends/replies automatically (that's not a skip).
 
 // WorkItem is one unit of work, of any tier. Ref is its stable cursor id.
 type WorkItem struct {
 	Kind      string // "amends" | "reply" | "todo"
 	Repo      string
 	TaskID    int64  // amends/reply
+	ReviewID  int64  // amends: the open request_changes review (for `recap review show`)
 	CommentID int64  // reply
 	Title     string // display text (task title / comment body / todo line)
 	Ref       string // stable cursor id, e.g. "amends:50" / "reply:73" / "todo:9f2a"
@@ -43,7 +47,8 @@ func buildQueue(st *Store, repo, repoPath string) []WorkItem {
 			if st.ReviewState(t.ID) == StateRework {
 				amendsTasks[t.ID] = true
 				q = append(q, WorkItem{Kind: "amends", Repo: t.Repo, TaskID: t.ID,
-					Title: t.Title, Ref: fmt.Sprintf("amends:%d", t.ID)})
+					ReviewID: st.ReworkReviewID(t.ID),
+					Title:    t.Title, Ref: fmt.Sprintf("amends:%d", t.ID)})
 			}
 		}
 	}
@@ -112,10 +117,10 @@ func advance(q []WorkItem, currentRef string) (next WorkItem, skipped bool, ok b
 }
 
 // cmdNext is the protocol form of "what do I work on". It builds the repo's priority
-// queue (amends → replies → todos), advances the cursor past the current item, records
-// the new current (which drives the flare), and prints the work order. Calling it again
-// walks past the current — a skip; --skip "reason" records why on the skipped item so
-// the reviewer sees it wasn't silently dropped.
+// queue (amends → replies → todos), hands out the current/next item, records it as the
+// in-flight cursor (which drives the flare), and prints the work order. While an item is
+// in flight a bare call is non-mutating (refuses to skip, points at `recap current`);
+// only --skip "reason" advances past unfinished work, recording why on the skipped item.
 func cmdNext(args []string) error {
 	fs := flag.NewFlagSet("next", flag.ExitOnError)
 	skipReason := fs.String("skip", "", "reason this item is being skipped (recorded on it)")
@@ -130,7 +135,8 @@ func cmdNext(args []string) error {
 
 	repo := currentRepo()
 	q := buildQueue(st, repo, currentRepoPath())
-	curRef, curTitle := loadCurrent(repo)
+	curRef, _ := loadCurrent(repo)
+	cur := findRef(q, curRef) // the in-flight item, if its cursor still points at live work
 	next, skipped, ok := advance(q, curRef)
 
 	// dry run: show what advancing WOULD hand out, but touch nothing — no cursor
@@ -145,21 +151,16 @@ func cmdNext(args []string) error {
 		return nil
 	}
 
-	// passing an item that's still in the queue = a skip (not a completion). Capture
-	// the reason on it if given; otherwise nudge so the next skip carries one.
-	if skipped {
-		prev := findRef(q, curRef)
-		switch {
-		case *skipReason != "" && prev.TaskID != 0:
-			st.AddComment(prev.TaskID, identityWho(), "⤳ skipped (still open): "+*skipReason)
-			notify.Reload()
-			fmt.Printf("skipped %s — %s\n", curTitle, *skipReason)
-		case *skipReason != "":
-			fmt.Printf("skipped %s — %s\n", curTitle, *skipReason)
-		default:
-			fmt.Printf("note: advanced past %q without completing it (recorded as a skip).\n", curTitle)
-			fmt.Printf("      to re-inspect WITHOUT advancing use `recap current` (or `recap review show <id>`); pass --skip \"why\" to record a reason\n")
-		}
+	// plain `recap next` must NOT move the cursor while the current item is still in
+	// flight — a re-run to re-inspect should never mutate queue state. advance() flags
+	// `skipped` only when it would walk PAST a live current (not when a parked todo
+	// cursor re-prioritises to higher work — that proceeds). So: a would-be skip with no
+	// reason is refused; only `recap next --skip "reason"` advances past unfinished work.
+	if skipped && *skipReason == "" {
+		fmt.Println("blocked: current item is still in flight — cursor unchanged")
+		printWorkOrder(cur)
+		fmt.Println("  recap current — re-inspect · recap next --skip \"reason\" — skip it · recap revise/done/read — finish it")
+		return nil
 	}
 
 	if !ok {
@@ -167,6 +168,15 @@ func cmdNext(args []string) error {
 		notify.Reload()
 		fmt.Println("(nothing to work on — inbox + todos are clear)")
 		return nil
+	}
+
+	// a deliberate --skip past an unfinished item: record the reason on it (when it has a
+	// task) so the reviewer sees it was passed, not silently dropped.
+	if skipped {
+		if cur.TaskID != 0 {
+			st.AddComment(cur.TaskID, identityWho(), "⤳ skipped (still open): "+*skipReason)
+		}
+		fmt.Printf("skipped %s — %s\n", cur.Title, *skipReason)
 	}
 
 	if err := saveCurrent(repo, next.Ref, next.Title); err != nil {
@@ -271,7 +281,11 @@ func printWorkOrder(w WorkItem) {
 	switch w.Kind {
 	case "amends":
 		fmt.Printf("▸ amends   #%d  %s\n", w.TaskID, w.Title)
-		fmt.Printf("  recap review show <id> · fix forward · recap revise %d --summary \"…\"\n", w.TaskID)
+		show := "recap review show <id>"
+		if w.ReviewID != 0 {
+			show = fmt.Sprintf("recap review show %d", w.ReviewID)
+		}
+		fmt.Printf("  %s · fix forward · recap revise %d --summary \"…\"\n", show, w.TaskID)
 	case "reply":
 		fmt.Printf("▸ reply    c%d  %q  (task #%d)\n", w.CommentID, w.Title, w.TaskID)
 		fmt.Printf("  recap reply %d --body \"…\"  ·  recap read c%d\n", w.CommentID, w.CommentID)

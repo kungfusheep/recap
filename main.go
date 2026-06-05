@@ -590,9 +590,22 @@ func cmdWhoami(args []string) error {
 // cmdCurrent shows the in-flight item without advancing — what `recap next` last
 // handed out (and hasn't been completed). "(idle)" when there's nothing.
 func cmdCurrent(args []string) error {
-	ref, title := loadCurrent(currentRepo())
+	repo := currentRepo()
+	ref, title := loadCurrent(repo)
 	if ref == "" {
 		fmt.Println("(idle — recap next to take work)")
+		return nil
+	}
+	// re-inspect without advancing: print the full work order (concrete verbs + the
+	// exact review id) by resolving the cursor against the live queue. Fall back to the
+	// stored title if the item has since left the queue (e.g. just completed).
+	st, err := Open()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	if w := findRef(buildQueue(st, repo, currentRepoPath()), ref); w.Ref != "" {
+		printWorkOrder(w)
 		return nil
 	}
 	fmt.Printf("▸ %s  %s\n", ref, title)

@@ -591,6 +591,22 @@ func (s *Store) ReviewState(taskID int64) string {
 	}
 }
 
+// ReworkReviewID returns the id of the task's open (submitted, unresolved)
+// request_changes review — the exact review `recap review show` should open for an
+// amends item. 0 when there is none, so the work order can fall back gracefully.
+func (s *Store) ReworkReviewID(taskID int64) int64 {
+	var id int64
+	err := s.db.QueryRow(
+		`SELECT id FROM reviews
+		   WHERE task_id = ? AND state = ? AND verdict = ?
+		   ORDER BY id DESC LIMIT 1`,
+		taskID, ReviewSubmitted, VerdictRequestChanges).Scan(&id)
+	if err != nil {
+		return 0
+	}
+	return id
+}
+
 // AddReviewComment adds a comment to the task's open draft review, optionally
 // anchored to a diff line. Returns the comment id.
 func (s *Store) AddReviewComment(taskID int64, who, body, file string, line int, anchor, snippet string) (int64, error) {
