@@ -41,25 +41,39 @@ func TestUpcomingFromItems(t *testing.T) {
 	}
 }
 
-// buildUpcomingRows renders the TODO tasks as plain bulleted rows (the in-flight
-// marker is rendered separately with a spinner, not as a row here).
+// buildUpcomingRows stores the raw task text + marks the in-flight row; the bullet/
+// spinner prefix is added in buildUpcomingBlob.
 func TestBuildUpcomingRows(t *testing.T) {
-	// the in-flight ref marks exactly the matching row (in-place flare); others are plain.
 	inflight := fmt.Sprintf("todo:%08x", fnvHash("second"))
 	rows := buildUpcomingRows([]string{"first", "second", "third"}, inflight)
 	if len(rows) != 3 {
 		t.Fatalf("got %d rows, want 3", len(rows))
 	}
-	for i, r := range rows {
-		if !strings.HasPrefix(r.Line, "· ") {
-			t.Fatalf("row %d line = %q, want '· ' prefix", i, r.Line)
-		}
+	if rows[0].Line != "first" || rows[1].Line != "second" {
+		t.Fatalf("Line should be the raw text, got %q/%q", rows[0].Line, rows[1].Line)
 	}
 	if !rows[1].InFlight || rows[0].InFlight || rows[2].InFlight {
 		t.Fatalf("only the matching ('second') row should be in-flight: %+v", rows)
 	}
 	if len(buildUpcomingRows(nil, "")) != 0 {
 		t.Fatal("empty input should give empty rows")
+	}
+}
+
+// buildUpcomingBlob renders the rows to one multi-line string: a "·" bullet per row,
+// the in-flight row showing the current spinner frame so it animates in place.
+func TestBuildUpcomingBlob(t *testing.T) {
+	rows := []upcomingRow{{Line: "alpha"}, {Line: "beta", InFlight: true}}
+	blob := buildUpcomingBlob(rows, 0)
+	lines := strings.Split(blob, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("want 2 lines, got %d: %q", len(lines), blob)
+	}
+	if lines[0] != "· alpha" {
+		t.Fatalf("non-flight row = %q, want '· alpha'", lines[0])
+	}
+	if !strings.HasSuffix(lines[1], " beta") || strings.HasPrefix(lines[1], "·") {
+		t.Fatalf("in-flight row should have a spinner prefix (not '·'), got %q", lines[1])
 	}
 }
 

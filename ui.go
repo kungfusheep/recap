@@ -561,6 +561,20 @@ func toggleExpand() {
 // refreshDetail updates selection fill + the right-hand detail when selection,
 // filter, or task set changes — never per-frame git calls.
 func refreshDetail() {
+	// track the inbox column's rendered width (populated each frame after layout) so
+	// the upcoming section can be given an explicit width — a plain VBox/ForEach
+	// content-sizes to its label and truncates the rows otherwise. Request one more
+	// render when it first/again changes so the now-sized section paints.
+	if !upcomingReady {
+		upcomingReady = true
+		uiApp.RequestRender() // one extra frame so listPaneRef.W (set after layout) is readable
+	}
+	if w := int16(listPaneRef.W); w > 0 && w != upcomingWidth {
+		upcomingWidth = w
+		uiApp.RequestRender()
+	}
+	// rebuild the upcoming text each frame so the in-flight spinner glyph animates.
+	upcomingBlob = buildUpcomingBlob(upcomingItems, spinFrame)
 	// a SIGUSR1 from another process (e.g. `recap add`) requests an inbox reload;
 	// do it here on the render thread, then force the detail to rebuild.
 	if reloadRequested.CompareAndSwap(true, false) {
@@ -1137,15 +1151,17 @@ func buildMain() Component {
 						// no divider rule: an auto-stretch HRule in a left-padded box
 						// overshoots its container and bleeds into the next column, so
 						// the section is separated from the inbox by whitespace instead.
-						VBox.PaddingTRBL(0, 2, 2, 3).Gap(1)(
+						VBox.Width(&upcomingWidth).PaddingTRBL(0, 2, 2, 3).Gap(1)(
+							// explicit width from the column's NodeRef (upcomingWidth) — a
+							// plain VBox/ForEach content-sizes to the short "UPCOMING" label
+							// and truncates the rows; the removed divider HRule used to force
+							// the width. This restores it without the bleed.
 							Text("UPCOMING").FG(cSubtle).Bold(),
-							// the in-flight item flares IN PLACE — its row shows the animated
-							// spinner instead of the static bullet (no separate status line).
-							VBox(ForEach(&upcomingItems, func(r *upcomingRow) Component {
-								return If(&r.InFlight).
-									Then(HBox(Spinner(&spinFrame).Frames(SpinnerDots).FG(cBright), SpaceW(1), Text(&r.Line).FG(cBright))).
-									Else(Text(&r.Line).FG(&r.FG))
-							})),
+							// the whole list is ONE multi-line TextBlock — it reads its
+							// pointer and wraps to the width-set VBox, unlike a ForEach of
+							// pointer-Text rows (which measure empty at build → truncate). The
+							// in-flight row's spinner glyph is built into the blob each frame.
+							TextBlock(&upcomingBlob).FG(cSubtle),
 						),
 					),
 					List(&vmRows).

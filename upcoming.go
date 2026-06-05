@@ -20,6 +20,9 @@ var (
 	hasUpcoming     bool          // gates the whole section
 	currentRef      string        // the in-flight item's ref (amends:N / todo:hash) — for in-place flaring
 	hasCurrent      bool          // true when something is in flight; gates the spinner animation
+	upcomingWidth   int16         // inbox column's rendered width (from its NodeRef) — explicit width for the section so its rows don't content-size/truncate
+	upcomingBlob    string        // the rows as one multi-line string for the TextBlock (rebuilt per frame for the spinner)
+	upcomingReady   bool          // one-shot: force a second frame so the column's NodeRef width is known before sizing the section
 	upcomingRepo    string        // repo path currently shown (render-thread owned)
 	upcomingLoading string        // repo path being loaded (render-thread owned, dedupe)
 
@@ -27,14 +30,14 @@ var (
 	upcomingStaged *upcomingResult // handed off from the loader goroutine
 )
 
-// upcomingRow is one TODO line in the upcoming list, rendered as a single
-// full-width Text (build-once ForEach safe, reflows on resize). The in-flight
-// marker is NOT a row — it's rendered separately above the list with an animated
-// spinner flare (the "in progress" cue), set by `recap next` (the cursor's title).
+// upcomingRow is one TODO line in the upcoming list. The whole list renders as a
+// single multi-line TextBlock (which wraps to the section's width) — a VBox/ForEach of
+// pointer-Text rows measures empty at build time and content-sizes/truncates, so this
+// is the reliable fill. The in-flight row flares in place via an animated spinner
+// glyph built into the blob each frame (see buildUpcomingBlob).
 type upcomingRow struct {
-	Line     string
-	FG       Color
-	InFlight bool // this row is the in-flight item → flare it in place (spinner)
+	Line     string // the raw task text (the bullet/spinner prefix is added in the blob)
+	InFlight bool   // this row is the in-flight item → spinner prefix instead of a bullet
 }
 
 type upcomingResult struct {
@@ -122,9 +125,29 @@ func buildUpcomingRows(texts []string, currentRef string) []upcomingRow {
 	rows := make([]upcomingRow, 0, len(texts))
 	for _, txt := range texts {
 		inFlight := currentRef != "" && fmt.Sprintf("todo:%08x", fnvHash(strings.TrimSpace(txt))) == currentRef
-		rows = append(rows, upcomingRow{Line: "· " + txt, FG: cSubtle, InFlight: inFlight})
+		rows = append(rows, upcomingRow{Line: txt, InFlight: inFlight})
 	}
 	return rows
+}
+
+// buildUpcomingBlob renders the rows into one multi-line string for the TextBlock:
+// a "·" bullet per row, except the in-flight row gets the current spinner frame so it
+// animates in place. Cheap — rebuilt each frame so the spinner ticks.
+func buildUpcomingBlob(rows []upcomingRow, frame int) string {
+	var b strings.Builder
+	for i, r := range rows {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		if r.InFlight && len(SpinnerDots) > 0 {
+			b.WriteString(SpinnerDots[frame%len(SpinnerDots)])
+		} else {
+			b.WriteString("·")
+		}
+		b.WriteByte(' ')
+		b.WriteString(r.Line)
+	}
+	return b.String()
 }
 
 // upcomingFromItems picks the first upcomingMax incomplete tasks, in file order.
