@@ -78,17 +78,6 @@ var repoPalette = []Color{
 	Hex(0xc0a86a), Hex(0x6fa8a0), Hex(0xb07a7a),
 }
 
-func repoColor(name string) Color {
-	var h int
-	for _, r := range name {
-		h = h*31 + int(r)
-	}
-	if h < 0 {
-		h = -h
-	}
-	return repoPalette[h%len(repoPalette)]
-}
-
 // taskVM is the per-row view-model. Selected is updated in place each frame so
 // the row fill reacts (mail's pattern); rebuilt only when the task set changes.
 type taskVM struct {
@@ -390,6 +379,25 @@ func reloadTasks() {
 		taskByID[t.ID] = t
 	}
 
+	// assign each repo a DISTINCT palette colour by sorted order — the old name hash
+	// collided (e.g. mail and tui landed on the same colour). Distinct + stable up to
+	// the palette size.
+	repoColors := map[string]Color{}
+	{
+		seen := map[string]bool{}
+		var repos []string
+		for _, t := range tasks {
+			if !seen[t.Repo] {
+				seen[t.Repo] = true
+				repos = append(repos, t.Repo)
+			}
+		}
+		sort.Strings(repos)
+		for i, r := range repos {
+			repoColors[r] = repoPalette[i%len(repoPalette)]
+		}
+	}
+
 	vmRows = vmRows[:0]
 	prev := ""
 	for _, t := range tasks {
@@ -401,7 +409,7 @@ func reloadTasks() {
 			Repo:       t.Repo,
 			Glyph:      stateGlyph(st),
 			GlyphColor: stateColor(st),
-			RepoColor:  repoColor(t.Repo),
+			RepoColor:  repoColors[t.Repo],
 			Pending:    st == StatePending,
 			InFlight:   currentRef == fmt.Sprintf("amends:%d", t.ID),
 			RevIdx:     -1, // task header row

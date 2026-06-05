@@ -1,0 +1,563 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>recap timeline contrast</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #15201b;
+      --muted: #596861;
+      --paper: #fbfaf6;
+      --panel: #ffffff;
+      --line: #d8ded3;
+      --soft: #eef3ea;
+      --agent: #2f7a68;
+      --agent-soft: #e8f5f0;
+      --reviewer: #8b4e8f;
+      --reviewer-soft: #f6edf7;
+      --recap: #bd8625;
+      --recap-soft: #fbf1dc;
+      --wait: #b4513a;
+      --wait-soft: #fff1eb;
+      --shadow: 0 18px 50px rgba(28, 39, 33, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+      overflow-x: hidden;
+    }
+
+    main {
+      width: 100%;
+      max-width: 1212px;
+      margin: 0 auto;
+      padding: 34px 16px 44px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 390px);
+      gap: 28px;
+      align-items: end;
+      margin-bottom: 26px;
+    }
+
+    .kicker {
+      margin: 0 0 10px;
+      color: var(--agent);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      max-width: 910px;
+      margin: 0;
+      font-size: clamp(36px, 5.1vw, 72px);
+      line-height: 0.96;
+      letter-spacing: 0;
+      text-wrap: balance;
+    }
+
+    .summary {
+      margin: 0;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.45;
+    }
+
+    .timelines {
+      display: grid;
+      gap: 18px;
+    }
+
+    .timeline-card {
+      min-width: 0;
+      overflow: hidden;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .timeline-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: start;
+      padding: 22px 24px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .timeline-header > * {
+      min-width: 0;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.08;
+      letter-spacing: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .timeline-header p {
+      max-width: 620px;
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.45;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 32px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: var(--soft);
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .timeline {
+      padding: 18px 22px 22px;
+    }
+
+    .axis,
+    .lane {
+      display: grid;
+      grid-template-columns: 112px repeat(12, minmax(0, 1fr));
+      column-gap: 6px;
+      align-items: stretch;
+    }
+
+    .axis {
+      margin-bottom: 9px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .axis span:not(:first-child) {
+      min-width: 0;
+      text-align: center;
+    }
+
+    .lane + .lane {
+      margin-top: 12px;
+    }
+
+    .lane-label {
+      display: flex;
+      align-items: center;
+      min-height: 74px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .track {
+      position: relative;
+      grid-column: 2 / -1;
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      column-gap: 6px;
+      min-height: 74px;
+      padding: 6px 0;
+      background:
+        repeating-linear-gradient(
+          90deg,
+          transparent 0,
+          transparent calc((100% - 66px) / 12),
+          rgba(216, 222, 211, 0.64) calc((100% - 66px) / 12),
+          rgba(216, 222, 211, 0.64) calc((100% - 66px) / 12 + 1px)
+        );
+    }
+
+    .block {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 4px;
+      padding: 11px 12px;
+      border: 2px solid var(--line);
+      border-radius: 8px;
+      color: var(--ink);
+      line-height: 1.2;
+    }
+
+    .block strong {
+      display: block;
+      font-size: 15px;
+      overflow-wrap: anywhere;
+    }
+
+    .block span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .agent {
+      background: var(--agent-soft);
+      border-color: color-mix(in srgb, var(--agent), white 36%);
+    }
+
+    .reviewer {
+      background: var(--reviewer-soft);
+      border-color: color-mix(in srgb, var(--reviewer), white 42%);
+    }
+
+    .recap {
+      background: var(--recap-soft);
+      border-color: color-mix(in srgb, var(--recap), white 34%);
+    }
+
+    .wait {
+      background: var(--wait-soft);
+      border-color: color-mix(in srgb, var(--wait), white 38%);
+    }
+
+    .quiet {
+      background: #f8faf6;
+      border-color: var(--line);
+    }
+
+    .c1 { grid-column: 1 / 3; }
+    .c2 { grid-column: 3 / 5; }
+    .c3 { grid-column: 5 / 7; }
+    .c4 { grid-column: 7 / 9; }
+    .c5 { grid-column: 9 / 11; }
+    .c6 { grid-column: 11 / 13; }
+    .s1-3 { grid-column: 1 / 4; }
+    .s4-5 { grid-column: 4 / 6; }
+    .s6-8 { grid-column: 6 / 9; }
+    .s9-10 { grid-column: 9 / 11; }
+    .s11-12 { grid-column: 11 / 13; }
+    .s1-4 { grid-column: 1 / 5; }
+    .s4-5b { grid-column: 4 / 6; }
+    .s5-8 { grid-column: 5 / 9; }
+    .s8-10 { grid-column: 8 / 11; }
+    .s10-12 { grid-column: 10 / 13; }
+
+    .notes {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .note {
+      min-width: 0;
+      padding: 15px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--soft);
+    }
+
+    .note strong {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 15px;
+    }
+
+    .note span {
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    @media (max-width: 860px) {
+      .hero,
+      .timeline-header,
+      .notes {
+        grid-template-columns: 1fr;
+      }
+
+      .badge {
+        justify-self: start;
+      }
+    }
+
+    @media (max-width: 680px) {
+      main {
+        width: min(390px, 100%);
+        margin: 0;
+        padding: 24px 10px 38px;
+      }
+
+      h1 {
+        font-size: clamp(32px, 9vw, 40px);
+        overflow-wrap: break-word;
+      }
+
+      .timeline-header {
+        padding: 20px 18px 14px;
+      }
+
+      .timeline-card,
+      .timeline,
+      .track,
+      .block {
+        max-width: 100%;
+      }
+
+      .summary,
+      .timeline-header p {
+        overflow-wrap: anywhere;
+      }
+
+      .timeline {
+        padding: 16px 14px 18px;
+      }
+
+      .axis {
+        display: none;
+      }
+
+      .lane {
+        display: block;
+      }
+
+      .lane + .lane {
+        margin-top: 18px;
+      }
+
+      .lane-label {
+        min-height: 0;
+        margin-bottom: 8px;
+      }
+
+      .track {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 8px;
+        min-height: 0;
+        padding: 0;
+        background: transparent;
+      }
+
+      .block {
+        grid-column: auto;
+        position: relative;
+        min-height: 68px;
+        padding-left: 72px;
+      }
+
+      .block::before {
+        content: attr(data-time);
+        position: absolute;
+        left: 12px;
+        top: 13px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 900;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <div>
+        <p class="kicker">recap timeline contrast</p>
+        <h1>The gain is visible in time, not boxes.</h1>
+      </div>
+      <p class="summary">The old loop serialises work and review. recap turns the same events into overlapping lanes, with feedback returning as the next ordered action.</p>
+    </section>
+
+    <section class="timelines" aria-label="timeline contrast">
+      <article class="timeline-card">
+        <header class="timeline-header">
+          <div>
+            <h2>Without recap: review blocks the line</h2>
+            <p>The agent finishes a unit, then waits for attention. By the time feedback arrives, the work has to be reconstructed from chat, TODOs, and memory.</p>
+          </div>
+          <span class="badge">serial handoff</span>
+        </header>
+
+        <div class="timeline">
+          <div class="axis" aria-hidden="true">
+            <span></span><span>t1</span><span>t2</span><span>t3</span><span>t4</span><span>t5</span><span>t6</span><span>t7</span><span>t8</span><span>t9</span><span>t10</span><span>t11</span><span>t12</span>
+          </div>
+
+          <div class="lane">
+            <div class="lane-label">agent</div>
+            <div class="track">
+              <div class="block agent s1-3" data-time="t1-t3">
+                <strong>do work</strong>
+                <span>context is fresh</span>
+              </div>
+              <div class="block wait s4-5" data-time="t4-t5">
+                <strong>wait</strong>
+                <span>review is the gate</span>
+              </div>
+              <div class="block wait s9-10" data-time="t9-t10">
+                <strong>reload context</strong>
+                <span>what was this about?</span>
+              </div>
+              <div class="block agent s11-12" data-time="t11-t12">
+                <strong>fix</strong>
+                <span>thread may be stale</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="lane">
+            <div class="lane-label">reviewer</div>
+            <div class="track">
+              <div class="block quiet s1-3" data-time="t1-t3">
+                <strong>no item yet</strong>
+                <span>nothing reviewable</span>
+              </div>
+              <div class="block reviewer s6-8" data-time="t6-t8">
+                <strong>review later</strong>
+                <span>rebuild the story</span>
+              </div>
+              <div class="block quiet s11-12" data-time="t11-t12">
+                <strong>wait again</strong>
+                <span>feedback left the lane</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="lane">
+            <div class="lane-label">state</div>
+            <div class="track">
+              <div class="block quiet c1" data-time="t1-t2">
+                <strong>chat</strong>
+                <span>loose context</span>
+              </div>
+              <div class="block quiet c3" data-time="t5-t6">
+                <strong>TODO</strong>
+                <span>manual priority</span>
+              </div>
+              <div class="block quiet c5" data-time="t9-t10">
+                <strong>git</strong>
+                <span>diff without briefing</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="timeline-card">
+        <header class="timeline-header">
+          <div>
+            <h2>With recap: work and review overlap</h2>
+            <p>The agent records proof and moves on. The reviewer inspects when ready. Feedback re-enters through `recap next` before fresh TODO work.</p>
+          </div>
+          <span class="badge">async loop</span>
+        </header>
+
+        <div class="timeline">
+          <div class="axis" aria-hidden="true">
+            <span></span><span>t1</span><span>t2</span><span>t3</span><span>t4</span><span>t5</span><span>t6</span><span>t7</span><span>t8</span><span>t9</span><span>t10</span><span>t11</span><span>t12</span>
+          </div>
+
+          <div class="lane">
+            <div class="lane-label">agent</div>
+            <div class="track">
+              <div class="block agent s1-3" data-time="t1-t3">
+                <strong>do work</strong>
+                <span>criterion defined</span>
+              </div>
+              <div class="block recap s4-5b" data-time="t4-t5">
+                <strong>commit + done</strong>
+                <span>sha, check, summary</span>
+              </div>
+              <div class="block agent s5-8" data-time="t5-t8">
+                <strong>next item</strong>
+                <span>no dead time</span>
+              </div>
+              <div class="block agent s10-12" data-time="t10-t12">
+                <strong>fix forward</strong>
+                <span>amend outranks TODOs</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="lane">
+            <div class="lane-label">reviewer</div>
+            <div class="track">
+              <div class="block quiet s1-3" data-time="t1-t3">
+                <strong>available</strong>
+                <span>not blocking agent</span>
+              </div>
+              <div class="block reviewer s5-8" data-time="t5-t8">
+                <strong>review inbox</strong>
+                <span>diff + briefing + proof</span>
+              </div>
+              <div class="block reviewer s8-10" data-time="t8-t10">
+                <strong>feedback</strong>
+                <span>comment or request changes</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="lane">
+            <div class="lane-label">recap</div>
+            <div class="track">
+              <div class="block recap s4-5b" data-time="t4-t5">
+                <strong>records item</strong>
+                <span>private review layer</span>
+              </div>
+              <div class="block recap s8-10" data-time="t8-t10">
+                <strong>orders queue</strong>
+                <span>amends → replies → todos</span>
+              </div>
+              <div class="block recap s10-12" data-time="t10-t12">
+                <strong>same task</strong>
+                <span>revision history stays attached</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="notes" aria-label="benefits">
+      <div class="note">
+        <strong>Idle time becomes useful time</strong>
+        <span>The agent starts the next item while the reviewer reviews the last one.</span>
+      </div>
+      <div class="note">
+        <strong>Feedback has a route back</strong>
+        <span>Requested changes return as priority work rather than interrupting from the side.</span>
+      </div>
+      <div class="note">
+        <strong>Review starts with evidence</strong>
+        <span>Each item carries the success criterion, recheck command, result, summary, and sha.</span>
+      </div>
+      <div class="note">
+        <strong>The queue owns priority</strong>
+        <span>`recap next` prevents channel-sweeping and keeps one clear next action in flight.</span>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
