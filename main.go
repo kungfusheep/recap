@@ -135,7 +135,7 @@ usage:
                          redo (agent picks it up via recap next / recap redo)
   recap review show <review-id>
                          the agent's work order: verdict + summary + anchored
-                         comments + the original criterion
+                         the full task thread + the original criterion
   recap review resolve <review-id>
                          mark a review addressed (after a fix-forward commit)
   recap review discard <task>      drop the draft
@@ -870,20 +870,6 @@ func submitReview(st *Store, taskID int64, verdict, summary string) (Review, err
 	return st.SubmitReview(taskID, verdict, summary)
 }
 
-// selectReviewComments picks the comments to show under a review: this review's own
-// comments plus the task's loose thread comments (review_id 0, the usual home of
-// reviewer feedback), but NOT comments tied to a different review (avoids old-cycle
-// noise). Pure — the testable core of "review show surfaces the feedback".
-func selectReviewComments(all []Comment, reviewID int64) []Comment {
-	var out []Comment
-	for _, c := range all {
-		if c.ReviewID == reviewID || c.ReviewID == 0 {
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
 func cmdReviewShow(args []string) error {
 	idStr, _ := splitID(args)
 	if idStr == "" {
@@ -917,14 +903,12 @@ func cmdReviewShow(args []string) error {
 		fmt.Printf("\nsummary (what to change):\n  %s\n", rv.Summary)
 	}
 
-	// include the task's LOOSE thread comments (review_id 0) alongside this review's
-	// own comments — reviewer feedback is usually a loose comment (via `recap comment`
-	// or the TUI thread), never linked to the submitted review, so filtering by
-	// review_id alone hid the actionable feedback (it only showed via `recap show`).
-	all, _ := st.Comments(rv.TaskID)
-	comments := selectReviewComments(all, rv.ID)
-	if top, byParent := splitThread(comments); len(top) > 0 {
-		fmt.Printf("\ncomments (%d):\n", len(top))
+	// Show the FULL task thread — actionable feedback often lives in comments tied to an
+	// EARLIER review or loose in the thread, not the active one; filtering by review_id hid
+	// it (it was visible only via `recap show`). Never hide a comment.
+	if thread, _ := st.Comments(rv.TaskID); len(thread) > 0 {
+		top, byParent := splitThread(thread)
+		fmt.Printf("\nthread (%d):\n", len(thread))
 		for _, c := range top {
 			if c.File != "" {
 				loc := c.File
@@ -934,34 +918,16 @@ func cmdReviewShow(args []string) error {
 				if c.Line > 0 {
 					loc += fmt.Sprintf("  (line %d)", c.Line)
 				}
-				fmt.Printf("  ┌ [c%d] %s\n", c.ID, loc)
+				fmt.Printf("  ┌ [c%d] %s · %s (%s)\n", c.ID, loc, c.Who, c.CreatedAt)
 				if c.Snippet != "" {
 					fmt.Printf("  │   %s\n", c.Snippet)
 				}
 				fmt.Printf("  └ %s%s\n", c.Body, emoteSuffix(c))
 			} else {
-				fmt.Printf("  • [c%d] %s%s\n", c.ID, c.Body, emoteSuffix(c))
+				fmt.Printf("  • [c%d] %s (%s): %s%s\n", c.ID, c.Who, c.CreatedAt, c.Body, emoteSuffix(c))
 			}
 			printReplies(c.ID, byParent, 0)
 			fmt.Println()
-		}
-	}
-
-	// also surface any loose thread comments on the task (review_id NULL). These
-	// were historically invisible here — never hide a comment again.
-	if thread, _ := st.Comments(t.ID); len(thread) > 0 {
-		var loose []Comment
-		for _, c := range thread {
-			if c.ReviewID == 0 {
-				loose = append(loose, c)
-			}
-		}
-		if top, byParent := splitThread(loose); len(top) > 0 {
-			fmt.Printf("\nthread (%d):\n", len(top))
-			for _, c := range top {
-				fmt.Printf("  • [c%d] %s (%s): %s%s\n", c.ID, c.Who, c.CreatedAt, c.Body, emoteSuffix(c))
-				printReplies(c.ID, byParent, 0)
-			}
 		}
 	}
 	return nil
