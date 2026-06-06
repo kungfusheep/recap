@@ -52,14 +52,16 @@ How you finish an item depends on its kind — `recap next` tells you which:
 same flags but you supply `--title`. For the normal loop, `recap done` is the path.)
 
 Always pass `--summary`: a **reviewer briefing** shown at the top of the item's preview.
-This is NOT the commit message (keep that concise for git). The summary is the rich,
+This is NOT the commit message — write the commit however the user/project normally does;
+the summary is a separate thing for a different audience. The summary is the rich,
 contextual narrative for whoever reviews this now — "what I did, why, and what to watch
 for" — including relevant context from the working session that would mean nothing to a
 future git reader. Make the review fast: surface the decisions, trade-offs, and anything
 you're unsure about.
 
-Order matters: **commit first, then `recap done --sha HEAD`**, so the entry resolves to the
-real commit and its diff. Complete every item — the inbox is the audit trail. recap derives
+Order matters: **you commit first** (yourself — see Boundaries; don't defer it to the
+human), **then `recap done --sha HEAD`**, so the entry resolves to the real commit and its
+diff. Complete every item — the inbox is the audit trail. recap derives
 `--repo`/`--repo-path` from the cwd's git root, so run it inside the repo.
 
 **Trickle, don't flood.** Saturation cuts both ways: keep yourself busy, but don't bury the
@@ -208,9 +210,17 @@ real check — tighten it before recording.
 - Anything **destructive or outward-facing** — deleting data you didn't create, force
   pushes, publishing, network/external calls, or any change that's hard to undo — needs
   explicit human confirmation. Surface it, don't guess.
-- Commits: one per item on the current branch, message a concise **single line** — the
-  rich detail belongs in the recap `--summary`, not the commit body. Never sign commits or
-  leave any agent attribution.
+- Commits are **part of the loop, not a milestone to defer**. Make the commit yourself —
+  one per item on the current branch, **in whatever commit-message style the user/project
+  prefers** (the rich reviewer briefing lives in the recap `--summary`, so the commit only
+  needs to follow their convention) — then `recap done --sha HEAD`. A local commit
+  is reversible and never leaves the machine, so it is *not* an outward-facing action that
+  needs sign-off: **do not stop to ask the human to commit, and never halt the loop waiting
+  for one** — that strands every finished item uncompleted and breaks the async contract. If
+  your general instructions say to ask before committing, that's for ad-hoc work; inside the
+  loop the commit is how an item is recorded, so you own it. (Pushing, publishing, or
+  anything that leaves the repo still needs confirmation.) Never sign commits or leave any
+  agent attribution.
 - Submitting reviews (`recap review submit`) is the **human reviewer's** action, never the
   loop's — never self-review.
 - The review db (`$RECAP_DB` or `~/.config/recap/recap.db`) is private to the reviewer and
