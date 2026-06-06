@@ -142,8 +142,14 @@ var (
 	tasks    []Task
 	vmRows   []taskVM // flattened: task headers + (when expanded) their revision children
 	sel      int      // index into vmRows, NOT tasks (a row may be a revision child)
-	repoFltr string
-	repos    []string
+	// keepSelOnReload makes the next reloadTasks hold the cursor at its current index
+	// instead of chasing the selected task by id. Set by user marks (approve/submit) so
+	// the marked item leaves and the NEXT item slides up under the cursor — a clean path
+	// down the list — without changing the async-insert behaviour (which still tracks the
+	// task so a pushed item never yanks the reader's place).
+	keepSelOnReload bool
+	repoFltr        string
+	repos           []string
 
 	// expandedTasks tracks which tasks are expanded into their revision children
 	// (mail's thread-expand). Keyed by task id so it survives vmRows rebuilds.
@@ -467,7 +473,11 @@ func reloadTasks() {
 	}
 	// restore the selection to the same row (task + revision) it was on before, so
 	// items arriving above it don't yank the view; fall back to clamping if it's gone.
-	if prevID >= 0 {
+	// EXCEPT after a user mark (keepSelOnReload): hold the index so the marked item
+	// leaves and the next one slides up under the cursor.
+	if keepSelOnReload {
+		keepSelOnReload = false // one-shot; external reloads still track by id
+	} else if prevID >= 0 {
 		for i, r := range vmRows {
 			if r.ID == prevID && r.RevIdx == prevRev {
 				sel = i
@@ -1807,6 +1817,7 @@ func approveSelected() {
 	}
 	pushCategoriseUndo(t.ID)
 	statusMsg = fmt.Sprintf("#%d approved  ·  u to undo", t.ID)
+	keepSelOnReload = true // hold the cursor; let the next item slide up
 	reloadTasks()
 }
 
@@ -1927,6 +1938,7 @@ func submitSelected() {
 	}
 	pushCategoriseUndo(t.ID)
 	statusMsg = fmt.Sprintf("#%d submitted → amends  ·  u to undo", t.ID)
+	keepSelOnReload = true // hold the cursor; let the next item slide up
 	reloadTasks()
 }
 
