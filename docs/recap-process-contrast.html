@@ -3,559 +3,226 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>recap timeline contrast</title>
+  <title>async review loop</title>
   <style>
     :root {
       color-scheme: light;
       --ink: #15201b;
-      --muted: #596861;
+      --muted: #5b6a62;
       --paper: #fbfaf6;
       --panel: #ffffff;
       --line: #d8ded3;
-      --soft: #eef3ea;
-      --agent: #2f7a68;
-      --agent-soft: #e8f5f0;
-      --reviewer: #8b4e8f;
-      --reviewer-soft: #f6edf7;
-      --recap: #bd8625;
-      --recap-soft: #fbf1dc;
-      --wait: #b4513a;
-      --wait-soft: #fff1eb;
+      --agent:    #2f7a68;   /* build / new work */
+      --fix:      #c07d1c;   /* rework triggered by feedback */
+      --reviewer: #7c4a86;   /* review */
+      --idle:     #8a8f8a;   /* dead time, nothing happening */
+      --tax:      #b4513a;   /* integration cost: merge, drift */
+      --done:     #1f6f4f;   /* finished */
       --shadow: 0 18px 50px rgba(28, 39, 33, 0.12);
     }
-
-    * {
-      box-sizing: border-box;
-    }
-
+    * { box-sizing: border-box; }
     body {
-      margin: 0;
-      min-height: 100vh;
-      background: var(--paper);
-      color: var(--ink);
+      margin: 0; min-height: 100vh; background: var(--paper); color: var(--ink);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      letter-spacing: 0;
-      overflow-x: hidden;
     }
+    main { width: min(1080px, 100%); margin: 0 auto; padding: 44px 20px 50px; }
 
-    main {
-      width: 100%;
-      max-width: 1212px;
-      margin: 0 auto;
-      padding: 34px 16px 44px;
-    }
+    .kicker { margin: 0 0 12px; color: var(--agent); font-size: 13px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
+    h1 { max-width: 820px; margin: 0 0 14px; font-size: clamp(40px, 6vw, 72px); line-height: 0.95; text-wrap: balance; }
+    .summary { max-width: 680px; margin: 0 0 30px; color: var(--muted); font-size: 18px; line-height: 1.5; }
+    .summary b { color: var(--ink); }
 
-    .hero {
+    .stage { padding: 26px 30px 22px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+    .scroll { overflow-x: auto; }
+
+    .chart {
+      min-width: 740px;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(280px, 390px);
-      gap: 28px;
-      align-items: end;
-      margin-bottom: 26px;
-    }
-
-    .kicker {
-      margin: 0 0 10px;
-      color: var(--agent);
-      font-size: 13px;
-      font-weight: 800;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-
-    h1 {
-      max-width: 910px;
-      margin: 0;
-      font-size: clamp(36px, 5.1vw, 72px);
-      line-height: 0.96;
-      letter-spacing: 0;
-      text-wrap: balance;
-    }
-
-    .summary {
-      margin: 0;
-      color: var(--muted);
-      font-size: 17px;
-      line-height: 1.45;
-    }
-
-    .timelines {
-      display: grid;
-      gap: 18px;
-    }
-
-    .timeline-card {
-      min-width: 0;
-      overflow: hidden;
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      box-shadow: var(--shadow);
-    }
-
-    .timeline-header {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 16px;
-      align-items: start;
-      padding: 22px 24px 16px;
-      border-bottom: 1px solid var(--line);
-    }
-
-    .timeline-header > * {
-      min-width: 0;
-    }
-
-    h2 {
-      margin: 0;
-      font-size: 28px;
-      line-height: 1.08;
-      letter-spacing: 0;
-      overflow-wrap: anywhere;
-    }
-
-    .timeline-header p {
-      max-width: 620px;
-      margin: 8px 0 0;
-      color: var(--muted);
-      font-size: 15px;
-      line-height: 1.45;
-    }
-
-    .badge {
-      display: inline-flex;
+      grid-template-columns: 150px repeat(6, minmax(54px, 1fr)) 16px;
       align-items: center;
-      min-height: 32px;
-      padding: 7px 10px;
-      border-radius: 999px;
-      background: var(--soft);
-      color: var(--muted);
-      font-size: 13px;
-      font-weight: 800;
-      white-space: nowrap;
-    }
-
-    .timeline {
-      padding: 18px 22px 22px;
-    }
-
-    .axis,
-    .lane {
-      display: grid;
-      grid-template-columns: 112px repeat(12, minmax(0, 1fr));
-      column-gap: 6px;
-      align-items: stretch;
+      row-gap: 7px;
     }
 
     .axis {
-      margin-bottom: 9px;
-      color: var(--muted);
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
+      grid-column: 2 / 8; grid-row: 1;
+      display: flex; justify-content: space-between; align-items: center;
+      color: var(--muted); font-size: 12px; font-weight: 700;
+      border-bottom: 1.5px solid var(--line); padding-bottom: 5px; margin-bottom: 2px;
     }
+    .axis .arrow { color: var(--ink); }
 
-    .axis span:not(:first-child) {
-      min-width: 0;
-      text-align: center;
+    .head { display: flex; align-items: baseline; gap: 10px; }
+    .head b { font-size: 16px; }
+    .head .sub { color: var(--muted); font-size: 13px; }
+    .head .cyc { margin-left: auto; font-size: 13px; font-weight: 900; padding: 3px 11px; border-radius: 999px; }
+    .head.slow .cyc { color: var(--idle); background: color-mix(in srgb, var(--idle), white 82%); }
+    .head.fast .cyc { color: var(--done); background: color-mix(in srgb, var(--done), white 84%); }
+    .head.regress .cyc { color: var(--tax); background: color-mix(in srgb, var(--tax), white 84%); }
+
+    .role { grid-column: 1; padding-right: 14px; text-align: right; color: var(--muted); font-size: 13px; font-weight: 700; }
+
+    .seam { width: 0; justify-self: start; z-index: 4; pointer-events: none; }
+    .seam.slow { border-left: 2px solid color-mix(in srgb, var(--idle), white 40%); }
+    .seam.fast { border-left: 2px solid color-mix(in srgb, var(--done), white 22%); }
+    .seam.regress { border-left: 2px solid color-mix(in srgb, var(--tax), white 22%); }
+    /* ghost line: where async already finished, so the merge tail reads as "late" */
+    .ghost { border-left: 2px dashed color-mix(in srgb, var(--done), white 45%); }
+
+    .seg {
+      display: flex; align-items: center; justify-content: center;
+      height: 54px; margin: 0 3px; padding: 0 4px;
+      border-radius: 9px; font-size: 13.5px; font-weight: 800; text-align: center; line-height: 1.05;
     }
-
-    .lane + .lane {
-      margin-top: 12px;
+    .work { color: var(--agent);    background: color-mix(in srgb, var(--agent), white 88%);    border: 1.5px solid color-mix(in srgb, var(--agent), white 26%); }
+    .fix  { color: var(--fix);      background: color-mix(in srgb, var(--fix), white 86%);      border: 1.5px solid color-mix(in srgb, var(--fix), white 26%); }
+    .rev  { color: var(--reviewer); background: color-mix(in srgb, var(--reviewer), white 88%); border: 1.5px solid color-mix(in srgb, var(--reviewer), white 32%); }
+    /* a review OF a fix — purple, flagged with the amber rework accent */
+    .rerev { color: var(--reviewer); background: color-mix(in srgb, var(--reviewer), white 88%); border: 1.5px solid color-mix(in srgb, var(--reviewer), white 32%); border-left: 5px solid color-mix(in srgb, var(--fix), white 12%); }
+    .idle {
+      color: var(--idle); font-weight: 700;
+      background: repeating-linear-gradient(45deg, transparent, transparent 7px, color-mix(in srgb, var(--idle), white 78%) 7px, color-mix(in srgb, var(--idle), white 78%) 13px);
+      border: 1.5px dashed color-mix(in srgb, var(--idle), white 34%);
     }
+    /* integration cost only worktrees pay: merging the trees back, resolving drift */
+    .tax { color: var(--tax); background: color-mix(in srgb, var(--tax), white 84%); border: 1.5px solid color-mix(in srgb, var(--tax), white 24%); }
 
-    .lane-label {
-      display: flex;
-      align-items: center;
-      min-height: 74px;
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 900;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
+    /* parallel worktrees: two builds stacked in one time slot */
+    .wt {
+      display: flex; flex-direction: column; gap: 3px; justify-content: center;
+      height: 54px; margin: 0 3px; padding: 5px; border-radius: 9px;
+      background: color-mix(in srgb, var(--agent), white 88%);
+      border: 1.5px solid color-mix(in srgb, var(--agent), white 26%);
     }
+    .wt .chip { font-size: 11px; font-weight: 800; color: var(--agent); background: #fff; border: 1px solid color-mix(in srgb, var(--agent), white 40%); border-radius: 5px; padding: 1px 0; text-align: center; }
 
-    .track {
-      position: relative;
-      grid-column: 2 / -1;
-      display: grid;
-      grid-template-columns: repeat(12, minmax(0, 1fr));
-      column-gap: 6px;
-      min-height: 74px;
-      padding: 6px 0;
-      background:
-        repeating-linear-gradient(
-          90deg,
-          transparent 0,
-          transparent calc((100% - 66px) / 12),
-          rgba(216, 222, 211, 0.64) calc((100% - 66px) / 12),
-          rgba(216, 222, 211, 0.64) calc((100% - 66px) / 12 + 1px)
-        );
+    .overlap { margin: -3px 1px; border-radius: 11px; border: 2px dashed color-mix(in srgb, var(--ink), white 70%); background: color-mix(in srgb, var(--ink), white 96%); z-index: 0; pointer-events: none; }
+    .tag { text-align: center; font-size: 12.5px; font-weight: 800; margin-top: 1px; }
+    .tag.parallel { color: var(--ink); }
+    .tag.bottleneck { color: var(--reviewer); }
+
+    .done {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      height: 54px; margin: 0 3px; border-radius: 9px;
+      border: 1.5px solid color-mix(in srgb, var(--done), white 30%);
+      background: color-mix(in srgb, var(--done), white 86%);
+      color: var(--done); text-align: center;
     }
+    .done b { font-size: 14px; } .done span { font-size: 10.5px; font-weight: 700; opacity: 0.82; }
 
-    .block {
-      min-width: 0;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      gap: 4px;
-      padding: 11px 12px;
-      border: 2px solid var(--line);
-      border-radius: 8px;
-      color: var(--ink);
-      line-height: 1.2;
+    .result { display: flex; align-items: baseline; gap: 16px; margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--line); }
+    .result strong { font-size: clamp(30px, 4.4vw, 50px); line-height: 0.9; white-space: nowrap; }
+    .result strong .a { color: var(--idle); } .result strong .b { color: var(--done); } .result strong .c { color: var(--tax); } .result strong .sep { color: var(--line); font-weight: 700; }
+    .result p { margin: 0; max-width: 560px; color: var(--muted); font-size: 16px; line-height: 1.45; }
+    .result p b { color: var(--ink); }
+
+    .taxnote {
+      margin-top: 20px; padding: 16px 18px;
+      border: 1px solid color-mix(in srgb, var(--tax), white 60%); border-left: 4px solid var(--tax);
+      border-radius: 9px; background: color-mix(in srgb, var(--tax), white 92%);
     }
+    .taxnote b.lead { display: block; margin-bottom: 8px; font-size: 15px; color: var(--ink); }
+    .taxnote ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 14px; line-height: 1.55; }
+    .taxnote li b { color: var(--tax); }
 
-    .block strong {
-      display: block;
-      font-size: 15px;
-      overflow-wrap: anywhere;
-    }
+    .legend { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 16px; color: var(--muted); font-size: 13px; }
+    .legend span { display: inline-flex; align-items: center; gap: 8px; }
+    .sw { width: 18px; height: 13px; border-radius: 3px; border: 1.5px solid; }
+    .sw-work { background: color-mix(in srgb, var(--agent), white 88%); border-color: color-mix(in srgb, var(--agent), white 26%); }
+    .sw-fix  { background: color-mix(in srgb, var(--fix), white 86%); border-color: color-mix(in srgb, var(--fix), white 26%); }
+    .sw-rev  { background: color-mix(in srgb, var(--reviewer), white 88%); border-color: color-mix(in srgb, var(--reviewer), white 32%); }
+    .sw-idle { background: repeating-linear-gradient(45deg, transparent, transparent 4px, color-mix(in srgb, var(--idle), white 70%) 4px, color-mix(in srgb, var(--idle), white 70%) 8px); border-color: color-mix(in srgb, var(--idle), white 34%); border-style: dashed; }
+    .sw-tax  { background: color-mix(in srgb, var(--tax), white 84%); border-color: color-mix(in srgb, var(--tax), white 24%); }
+    .sw-done { background: color-mix(in srgb, var(--done), white 86%); border-color: color-mix(in srgb, var(--done), white 30%); }
 
-    .block span {
-      display: block;
-      color: var(--muted);
-      font-size: 12px;
-      overflow-wrap: anywhere;
-    }
-
-    .agent {
-      background: var(--agent-soft);
-      border-color: color-mix(in srgb, var(--agent), white 36%);
-    }
-
-    .reviewer {
-      background: var(--reviewer-soft);
-      border-color: color-mix(in srgb, var(--reviewer), white 42%);
-    }
-
-    .recap {
-      background: var(--recap-soft);
-      border-color: color-mix(in srgb, var(--recap), white 34%);
-    }
-
-    .wait {
-      background: var(--wait-soft);
-      border-color: color-mix(in srgb, var(--wait), white 38%);
-    }
-
-    .quiet {
-      background: #f8faf6;
-      border-color: var(--line);
-    }
-
-    .c1 { grid-column: 1 / 3; }
-    .c2 { grid-column: 3 / 5; }
-    .c3 { grid-column: 5 / 7; }
-    .c4 { grid-column: 7 / 9; }
-    .c5 { grid-column: 9 / 11; }
-    .c6 { grid-column: 11 / 13; }
-    .s1-3 { grid-column: 1 / 4; }
-    .s4-5 { grid-column: 4 / 6; }
-    .s6-8 { grid-column: 6 / 9; }
-    .s9-10 { grid-column: 9 / 11; }
-    .s11-12 { grid-column: 11 / 13; }
-    .s1-4 { grid-column: 1 / 5; }
-    .s4-5b { grid-column: 4 / 6; }
-    .s5-8 { grid-column: 5 / 9; }
-    .s8-10 { grid-column: 8 / 11; }
-    .s10-12 { grid-column: 10 / 13; }
-
-    .notes {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 12px;
-      margin-top: 18px;
-    }
-
-    .note {
-      min-width: 0;
-      padding: 15px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--soft);
-    }
-
-    .note strong {
-      display: block;
-      margin-bottom: 5px;
-      font-size: 15px;
-    }
-
-    .note span {
-      display: block;
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.4;
-    }
-
-    @media (max-width: 860px) {
-      .hero,
-      .timeline-header,
-      .notes {
-        grid-template-columns: 1fr;
-      }
-
-      .badge {
-        justify-self: start;
-      }
-    }
-
-    @media (max-width: 680px) {
-      main {
-        width: min(390px, 100%);
-        margin: 0;
-        padding: 24px 10px 38px;
-      }
-
-      h1 {
-        font-size: clamp(32px, 9vw, 40px);
-        overflow-wrap: break-word;
-      }
-
-      .timeline-header {
-        padding: 20px 18px 14px;
-      }
-
-      .timeline-card,
-      .timeline,
-      .track,
-      .block {
-        max-width: 100%;
-      }
-
-      .summary,
-      .timeline-header p {
-        overflow-wrap: anywhere;
-      }
-
-      .timeline {
-        padding: 16px 14px 18px;
-      }
-
-      .axis {
-        display: none;
-      }
-
-      .lane {
-        display: block;
-      }
-
-      .lane + .lane {
-        margin-top: 18px;
-      }
-
-      .lane-label {
-        min-height: 0;
-        margin-bottom: 8px;
-      }
-
-      .track {
-        display: grid;
-        grid-template-columns: 1fr;
-        gap: 8px;
-        min-height: 0;
-        padding: 0;
-        background: transparent;
-      }
-
-      .block {
-        grid-column: auto;
-        position: relative;
-        min-height: 68px;
-        padding-left: 72px;
-      }
-
-      .block::before {
-        content: attr(data-time);
-        position: absolute;
-        left: 12px;
-        top: 13px;
-        color: var(--muted);
-        font-size: 11px;
-        font-weight: 900;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-      }
+    @media (max-width: 720px) {
+      main { padding: 30px 14px 38px; }
+      h1 { font-size: clamp(34px, 10vw, 48px); }
+      .stage { padding: 18px 14px; }
+      .result { flex-direction: column; gap: 6px; }
     }
   </style>
 </head>
 <body>
   <main>
-    <section class="hero">
-      <div>
-        <p class="kicker">recap timeline contrast</p>
-        <h1>The gain is visible in time, not boxes.</h1>
-      </div>
-      <p class="summary">The old loop serialises work and review. recap turns the same events into overlapping lanes, with feedback returning as the next ordered action.</p>
-    </section>
+    <p class="kicker">async review loop</p>
+    <h1>What moves the finish&nbsp;line?</h1>
+    <p class="summary">The same two tasks &mdash; <b>task&nbsp;1 takes a fix and a re&#8209;review, task&nbsp;2 passes first time</b> &mdash; run three ways, on one clock, with one reviewer. Watch what actually moves the finish: and what doesn't.</p>
 
-    <section class="timelines" aria-label="timeline contrast">
-      <article class="timeline-card">
-        <header class="timeline-header">
-          <div>
-            <h2>Without recap: review blocks the line</h2>
-            <p>The agent finishes a unit, then waits for attention. By the time feedback arrives, the work has to be reconstructed from chat, TODOs, and memory.</p>
-          </div>
-          <span class="badge">serial handoff</span>
-        </header>
+    <section class="stage" aria-label="three review flows on one clock">
+      <div class="scroll">
+        <div class="chart">
+          <div class="axis"><span>start</span><span class="arrow">wall time &rarr;</span></div>
 
-        <div class="timeline">
-          <div class="axis" aria-hidden="true">
-            <span></span><span>t1</span><span>t2</span><span>t3</span><span>t4</span><span>t5</span><span>t6</span><span>t7</span><span>t8</span><span>t9</span><span>t10</span><span>t11</span><span>t12</span>
-          </div>
+          <!-- 1 · STOP & WAIT — turn-taking ----------------------------------- -->
+          <div class="head slow" style="grid-column:1/9;grid-row:2"><b>Stop &amp; wait</b><span class="sub">they take turns</span><span class="cyc">6 cycles</span></div>
+          <div class="seam slow" style="grid-column:8;grid-row:3/5"></div>
+          <div class="role" style="grid-row:3">agent</div>
+          <div class="seg work" style="grid-row:3;grid-column:2/3">task 1</div>
+          <div class="seg idle" style="grid-row:3;grid-column:3/4">waiting</div>
+          <div class="seg fix"  style="grid-row:3;grid-column:4/5">fix 1</div>
+          <div class="seg idle" style="grid-row:3;grid-column:5/6">waiting</div>
+          <div class="seg work" style="grid-row:3;grid-column:6/7">task 2</div>
+          <div class="seg idle" style="grid-row:3;grid-column:7/8">waiting</div>
+          <div class="role" style="grid-row:4">reviewer</div>
+          <div class="seg rev"   style="grid-row:4;grid-column:3/4">review 1</div>
+          <div class="seg rerev" style="grid-row:4;grid-column:5/6">review fix 1</div>
+          <div class="seg rev"   style="grid-row:4;grid-column:7/8">review 2</div>
 
-          <div class="lane">
-            <div class="lane-label">agent</div>
-            <div class="track">
-              <div class="block agent s1-3" data-time="t1-t3">
-                <strong>do work</strong>
-                <span>context is fresh</span>
-              </div>
-              <div class="block wait s4-5" data-time="t4-t5">
-                <strong>wait</strong>
-                <span>review is the gate</span>
-              </div>
-              <div class="block wait s9-10" data-time="t9-t10">
-                <strong>reload context</strong>
-                <span>what was this about?</span>
-              </div>
-              <div class="block agent s11-12" data-time="t11-t12">
-                <strong>fix</strong>
-                <span>thread may be stale</span>
-              </div>
-            </div>
-          </div>
+          <!-- 2 · ASYNC — one agent, pipelined -------------------------------- -->
+          <div class="head fast" style="grid-column:1/9;grid-row:5;margin-top:14px"><b>Async</b><span class="sub">one agent, never waits</span><span class="cyc">4 cycles</span></div>
+          <div class="seam fast" style="grid-column:6;grid-row:6/8"></div>
+          <div class="overlap" style="grid-column:3/5;grid-row:6/8"></div>
+          <div class="role" style="grid-row:6">agent</div>
+          <div class="seg work" style="grid-row:6;grid-column:2/3">task 1</div>
+          <div class="seg work" style="grid-row:6;grid-column:3/4">task 2</div>
+          <div class="seg fix"  style="grid-row:6;grid-column:4/5">fix 1</div>
+          <div class="done"     style="grid-row:6/8;grid-column:6/8"><b>&#10003; done</b><span>stop &amp; wait still going</span></div>
+          <div class="role" style="grid-row:7">reviewer</div>
+          <div class="seg rev"   style="grid-row:7;grid-column:3/4">review 1</div>
+          <div class="seg rev"   style="grid-row:7;grid-column:4/5">review 2</div>
+          <div class="seg rerev" style="grid-row:7;grid-column:5/6">review fix 1</div>
+          <div class="tag parallel" style="grid-column:3/5;grid-row:8">&#8597; agent &amp; reviewer overlap</div>
 
-          <div class="lane">
-            <div class="lane-label">reviewer</div>
-            <div class="track">
-              <div class="block quiet s1-3" data-time="t1-t3">
-                <strong>no item yet</strong>
-                <span>nothing reviewable</span>
-              </div>
-              <div class="block reviewer s6-8" data-time="t6-t8">
-                <strong>review later</strong>
-                <span>rebuild the story</span>
-              </div>
-              <div class="block quiet s11-12" data-time="t11-t12">
-                <strong>wait again</strong>
-                <span>feedback left the lane</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="lane">
-            <div class="lane-label">state</div>
-            <div class="track">
-              <div class="block quiet c1" data-time="t1-t2">
-                <strong>chat</strong>
-                <span>loose context</span>
-              </div>
-              <div class="block quiet c3" data-time="t5-t6">
-                <strong>TODO</strong>
-                <span>manual priority</span>
-              </div>
-              <div class="block quiet c5" data-time="t9-t10">
-                <strong>git</strong>
-                <span>diff without briefing</span>
-              </div>
-            </div>
-          </div>
+          <!-- 3 · WORKTREES — parallel build, then pay to merge --------------- -->
+          <div class="head regress" style="grid-column:1/9;grid-row:9;margin-top:16px"><b>Worktrees</b><span class="sub">parallel build, then merge back</span><span class="cyc">5 cycles</span></div>
+          <div class="ghost" style="grid-column:6;grid-row:10/12"></div>
+          <div class="seam regress" style="grid-column:7;grid-row:10/12"></div>
+          <div class="role" style="grid-row:10">agent</div>
+          <div class="wt" style="grid-row:10;grid-column:2/3"><div class="chip">task 1</div><div class="chip">task 2</div></div>
+          <div class="seg idle" style="grid-row:10;grid-column:3/4">waiting</div>
+          <div class="seg fix"  style="grid-row:10;grid-column:4/5">fix 1</div>
+          <div class="seg idle" style="grid-row:10;grid-column:5/6">waiting</div>
+          <div class="seg tax"  style="grid-row:10;grid-column:6/7">merge + drift</div>
+          <div class="done"     style="grid-row:10/12;grid-column:7/9"><b>&#10003; done</b><span>a cycle behind async</span></div>
+          <div class="role" style="grid-row:11">reviewer</div>
+          <div class="seg rev"   style="grid-row:11;grid-column:3/4">review 1</div>
+          <div class="seg rev"   style="grid-row:11;grid-column:4/5">review 2</div>
+          <div class="seg rerev" style="grid-row:11;grid-column:5/6">review fix 1</div>
+          <div class="tag bottleneck" style="grid-column:3/7;grid-row:12">reviewer never sped up &mdash; and now there&rsquo;s a merge to pay for &#8593;</div>
         </div>
-      </article>
-
-      <article class="timeline-card">
-        <header class="timeline-header">
-          <div>
-            <h2>With recap: work and review overlap</h2>
-            <p>The agent records proof and moves on. The reviewer inspects when ready. Feedback re-enters through `recap next` before fresh TODO work.</p>
-          </div>
-          <span class="badge">async loop</span>
-        </header>
-
-        <div class="timeline">
-          <div class="axis" aria-hidden="true">
-            <span></span><span>t1</span><span>t2</span><span>t3</span><span>t4</span><span>t5</span><span>t6</span><span>t7</span><span>t8</span><span>t9</span><span>t10</span><span>t11</span><span>t12</span>
-          </div>
-
-          <div class="lane">
-            <div class="lane-label">agent</div>
-            <div class="track">
-              <div class="block agent s1-3" data-time="t1-t3">
-                <strong>do work</strong>
-                <span>criterion defined</span>
-              </div>
-              <div class="block recap s4-5b" data-time="t4-t5">
-                <strong>commit + done</strong>
-                <span>sha, check, summary</span>
-              </div>
-              <div class="block agent s5-8" data-time="t5-t8">
-                <strong>next item</strong>
-                <span>no dead time</span>
-              </div>
-              <div class="block agent s10-12" data-time="t10-t12">
-                <strong>fix forward</strong>
-                <span>amend outranks TODOs</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="lane">
-            <div class="lane-label">reviewer</div>
-            <div class="track">
-              <div class="block quiet s1-3" data-time="t1-t3">
-                <strong>available</strong>
-                <span>not blocking agent</span>
-              </div>
-              <div class="block reviewer s5-8" data-time="t5-t8">
-                <strong>review inbox</strong>
-                <span>diff + briefing + proof</span>
-              </div>
-              <div class="block reviewer s8-10" data-time="t8-t10">
-                <strong>feedback</strong>
-                <span>comment or request changes</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="lane">
-            <div class="lane-label">recap</div>
-            <div class="track">
-              <div class="block recap s4-5b" data-time="t4-t5">
-                <strong>records item</strong>
-                <span>private review layer</span>
-              </div>
-              <div class="block recap s8-10" data-time="t8-t10">
-                <strong>orders queue</strong>
-                <span>amends → replies → todos</span>
-              </div>
-              <div class="block recap s10-12" data-time="t10-t12">
-                <strong>same task</strong>
-                <span>revision history stays attached</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </article>
-    </section>
-
-    <section class="notes" aria-label="benefits">
-      <div class="note">
-        <strong>Idle time becomes useful time</strong>
-        <span>The agent starts the next item while the reviewer reviews the last one.</span>
       </div>
-      <div class="note">
-        <strong>Feedback has a route back</strong>
-        <span>Requested changes return as priority work rather than interrupting from the side.</span>
+
+      <div class="result">
+        <strong><span class="a">6</span> <span class="sep">&rarr;</span> <span class="b">4</span> <span class="sep">&rarr;</span> <span class="c">5</span></strong>
+        <p>Stop&#8209;and&#8209;wait to async: <b>a third faster</b>. Async to worktrees: <b>a cycle slower</b>. Parallel building collapses the agent&rsquo;s time &mdash; but the reviewer reads the same things in the same order, so review stays the bottleneck, and now you owe an integration step async never needed. More agents just buys <b>more idle agents and a merge</b>.</p>
       </div>
-      <div class="note">
-        <strong>Review starts with evidence</strong>
-        <span>Each item carries the success criterion, recheck command, result, summary, and sha.</span>
+
+      <div class="taxnote">
+        <b class="lead">And that&rsquo;s the optimistic read &mdash; off the clock, worktrees add cost the diagram can&rsquo;t time:</b>
+        <ul>
+          <li><b>drift</b> &mdash; trees diverge from main and from each other while they run</li>
+          <li><b>merge conflicts</b> &mdash; reconciling them is serial, error&#8209;prone work, and can force a re&#8209;review</li>
+          <li><b>cross&#8209;tree dependencies</b> &mdash; when task 2 leans on task 1, you hold the coupling in your own head</li>
+        </ul>
       </div>
-      <div class="note">
-        <strong>The queue owns priority</strong>
-        <span>`recap next` prevents channel-sweeping and keeps one clear next action in flight.</span>
+
+      <div class="legend">
+        <span><i class="sw sw-work"></i> build</span>
+        <span><i class="sw sw-fix"></i> fix (rework)</span>
+        <span><i class="sw sw-rev"></i> review</span>
+        <span><i class="sw sw-idle"></i> waiting</span>
+        <span><i class="sw sw-tax"></i> merge / drift</span>
+        <span><i class="sw sw-done"></i> done</span>
       </div>
     </section>
   </main>
