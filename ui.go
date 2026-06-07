@@ -1864,6 +1864,29 @@ func cycleFilter() {
 	reloadTasks()
 }
 
+// filterOmniItems builds the omnibox's repo-filter choices from the repos currently
+// present — "all repos" plus one per project — so the palette lists the filters as
+// directly selectable items (not just the f-key cycle). Rebuilt each time the palette
+// opens, so a repo that appeared mid-session shows up.
+func filterOmniItems() []omniItem {
+	items := []omniItem{{
+		Label:       "filter: all repos",
+		Description: "show tasks from every repo",
+		Section:     "filter",
+		Action:      func() { repoFltr = ""; sel = 0; reloadTasks() },
+	}}
+	for _, rp := range repos {
+		rp := rp // capture per iteration
+		items = append(items, omniItem{
+			Label:       "filter: " + rp,
+			Description: "show only " + rp + " tasks",
+			Section:     "filter",
+			Action:      func() { repoFltr = rp; sel = 0; reloadTasks() },
+		})
+	}
+	return items
+}
+
 func rerun() {
 	t, ok := selectedTask()
 	if !ok {

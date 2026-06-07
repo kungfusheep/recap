@@ -69,19 +69,23 @@ func omniCommands() []omniItem {
 type OmniBox struct {
 	app   *App
 	open  bool
-	items []omniItem
+	base  []omniItem // the static commands; dynamic filter items are appended each open
+	items []omniItem // base + current repo-filter items (what the FilterList reads)
 	list  *FilterListC[omniItem]
 	ref   NodeRef
 }
 
 func newOmniBox(app *App, items []omniItem) *OmniBox {
-	return &OmniBox{app: app, items: items}
+	return &OmniBox{app: app, base: items, items: items}
 }
 
 func (b *OmniBox) Open() {
 	if b.open {
 		return
 	}
+	// rebuild the item list so the repo-filter choices reflect the repos present now
+	// (Clear re-reads &b.items, so the freshly-built filter items show up).
+	b.items = append(append([]omniItem(nil), b.base...), filterOmniItems()...)
 	if b.list != nil {
 		b.list.Clear()
 		b.list.Refresh()
