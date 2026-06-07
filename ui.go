@@ -1206,6 +1206,8 @@ func buildMain() Component {
 					If(&pane).Eq(paneList).Then(On(
 						Key("j", func() { moveSel(1) }),
 						Key("k", func() { moveSel(-1) }),
+						Key("gg", selectTop),    // vim: jump to the first task
+						Key("G", selectBottom),  // vim: jump to the last task
 						Key("<Enter>", func() { setPane(paneDiff) }),
 						Key("a", approveSelected),
 						Key("u", undoCategorise), // undo the last approve/submit
@@ -1788,6 +1790,15 @@ func moveSel(d int) {
 	if sel >= len(vmRows) {
 		sel = len(vmRows) - 1
 	}
+	if sel < 0 {
+		sel = 0
+	}
+}
+
+// selectTop / selectBottom are the list's vim gg / G — jump to the first / last row.
+func selectTop() { sel = 0 }
+func selectBottom() {
+	sel = len(vmRows) - 1
 	if sel < 0 {
 		sel = 0
 	}
