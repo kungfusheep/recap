@@ -61,6 +61,7 @@ var (
 	cDel       = Hex(0xc08a72) // diff -, muted terracotta
 	cHunk      = Hex(0x6f8fa8) // @@ hunk, muted blue
 	cCommentBG = Hex(0x23282e) // faint blue wash on a commented diff line
+	cFileHdrBG = Hex(0x33322e) // full-width band behind a file-name header in the diff
 )
 
 // canonical diff hues. setThemeVars blends these toward each theme's fg so the
@@ -930,6 +931,7 @@ type diffLineMeta struct {
 	Line        int    // new-side line number (0 for deletions / non-code rows)
 	Text        string // the line content (no gutter), captured as the snippet
 	Commentable bool
+	FileHeader  bool // this row is a file-name header → render a full-width bg band
 }
 
 // setDiff rebuilds the diff content and resets scroll. Invalidate tells the
@@ -1009,7 +1011,7 @@ func buildDiffLines(files []DiffFile) ([][]Span, []diffLineMeta) {
 		case "renamed":
 			sym, c = "»", cBright
 		}
-		add(sym+"  "+cleanLine(f.Path), c, true, diffLineMeta{})
+		add(sym+"  "+cleanLine(f.Path), c, true, diffLineMeta{FileHeader: true})
 		for _, hk := range f.Hunks {
 			add("  "+cleanLine(hk.Header), cMuted, false, diffLineMeta{})
 			cur := hunkNewStart(hk.Header)
@@ -1091,9 +1093,27 @@ func renderDiffLayer() {
 			buf.WriteSpans(0, y, []Span{{Text: "█", Style: Style{FG: cHunk, BG: cCommentBG, Attr: AttrBold}}}, w)
 		}
 	}
+	paintFileHeaderBands(buf, w, h, diffMeta)
 	scrollY := diffLayer.ScrollY()
 	diffLayer.SetBuffer(buf)    // resets scrollY to 0…
 	diffLayer.ScrollTo(scrollY) // …so restore it (preserves scroll across re-render)
+}
+
+// paintFileHeaderBands gives every file-name header row a full-width background band so
+// it reads as a clear section divider in the diff — the status-coloured, bold path text
+// (already written into the buffer) sits on the band, and the fill stretches the whole
+// width. Pure over the buffer, so it's the testable core of the header styling.
+func paintFileHeaderBands(buf *Buffer, w, h int, meta []diffLineMeta) {
+	for y := 0; y < h && y < len(meta); y++ {
+		if !meta[y].FileHeader {
+			continue
+		}
+		for cx := 0; cx < w; cx++ {
+			cell := buf.Get(cx, y)
+			cell.Style.BG = cFileHdrBG
+			buf.Set(cx, y, cell)
+		}
+	}
 }
 
 func dash(s string) string {
