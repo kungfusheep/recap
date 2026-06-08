@@ -1293,6 +1293,8 @@ func buildMain() Component {
 						Key("e", openEditorPick), // jump-pick a line → open it in $EDITOR
 						Key("z", openFoldPick),   // jump-pick a file header → fold/unfold it
 						Key("Z", foldAllFiles),   // fold/unfold ALL files (overview ↔ detail)
+						Key("]", nextFile),       // jump to the next file header
+						Key("[", prevFile),       // jump to the previous file header
 						Key("<Enter>", func() { setPane(paneList) }),
 						Key("<Esc>", func() { setPane(paneList) }),
 					)),
@@ -2048,6 +2050,35 @@ func foldAllFiles() {
 		fileFolded[f.Path] = !allFolded
 	}
 	setDiff(false)
+}
+
+// nextFile / prevFile scroll the diff so the next / previous file header sits at the top —
+// quick movement through a multi-file diff. They read diffMeta's FileHeader rows (buffer Y
+// == row index) against the current scroll.
+func nextFile() { scrollToFileHeader(1) }
+func prevFile() { scrollToFileHeader(-1) }
+
+func scrollToFileHeader(dir int) {
+	if diffLayer == nil {
+		return
+	}
+	cur := diffLayer.ScrollY()
+	if dir > 0 {
+		for y, m := range diffMeta {
+			if m.FileHeader && y > cur {
+				diffLayer.ScrollTo(y)
+				return
+			}
+		}
+		return // already at/past the last file
+	}
+	target := 0 // before the first file header → top
+	for y, m := range diffMeta {
+		if m.FileHeader && y < cur {
+			target = y
+		}
+	}
+	diffLayer.ScrollTo(target)
 }
 
 // commentOnDiffLine captures the picked line's anchor and opens the body prompt.

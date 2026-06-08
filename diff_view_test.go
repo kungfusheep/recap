@@ -304,3 +304,34 @@ func TestFoldAllFiles(t *testing.T) {
 		t.Fatal("foldAllFiles again should unfold every file")
 	}
 }
+
+// nextFile / prevFile scroll to the next / previous file header. (file navigation)
+func TestNextPrevFile(t *testing.T) {
+	prev := diffLayer
+	t.Cleanup(func() { diffLayer = prev; diffMeta = nil })
+	diffLayer = NewLayer()
+	diffLayer.SetViewport(80, 5)
+	diffLayer.SetBuffer(NewBuffer(80, 30)) // maxScroll = 25
+	diffMeta = make([]diffLineMeta, 30)
+	diffMeta[2].FileHeader = true
+	diffMeta[12].FileHeader = true
+	diffMeta[20].FileHeader = true
+
+	diffLayer.ScrollTo(0)
+	nextFile()
+	if diffLayer.ScrollY() != 2 {
+		t.Fatalf("nextFile from 0 → %d, want 2", diffLayer.ScrollY())
+	}
+	nextFile()
+	if diffLayer.ScrollY() != 12 {
+		t.Fatalf("nextFile from 2 → %d, want 12", diffLayer.ScrollY())
+	}
+	prevFile()
+	if diffLayer.ScrollY() != 2 {
+		t.Fatalf("prevFile from 12 → %d, want 2", diffLayer.ScrollY())
+	}
+	prevFile() // before the first header → top
+	if diffLayer.ScrollY() != 0 {
+		t.Fatalf("prevFile from 2 → %d, want 0 (top)", diffLayer.ScrollY())
+	}
+}
