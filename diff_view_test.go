@@ -144,3 +144,31 @@ func TestToggleFileFold(t *testing.T) {
 		t.Fatal("toggle again should unfold")
 	}
 }
+
+// regression (c179): the diff body must PRESERVE leading whitespace/indentation. The
+// Rich Textf path trims it; plain Text keeps it. Asserted on the rendered buffer.
+func TestBuildDiffViewPreservesIndent(t *testing.T) {
+	files := []DiffFile{{
+		Path:   "main.go",
+		Status: "modified",
+		Hunks:  []DiffHunk{{Header: "@@ -1,1 +1,1 @@", Lines: []DiffLine{{Kind: LineAdd, Text: "        deeplyIndented()"}}}},
+	}}
+	tree, meta := buildDiffView(files, 60)
+	buf := NewBuffer(60, len(meta)+2)
+	Build(tree).Execute(buf, 60, int16(len(meta)+2))
+
+	found := false
+	for y := 0; y < len(meta)+2; y++ {
+		line := buf.GetLine(y)
+		if strings.Contains(line, "deeplyIndented") {
+			found = true
+			// "+ " gutter + 8 spaces of indent must be intact before the code
+			if !strings.Contains(line, "+         deeplyIndented") {
+				t.Fatalf("indentation lost: %q", line)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("added line not rendered")
+	}
+}

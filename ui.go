@@ -1045,8 +1045,10 @@ func buildDiffView(files []DiffFile, w int) (Component, []diffLineMeta) {
 					m.Line = cur
 					cur++
 				}
-				// body: Rich Textf. A commented line gets a full-width wash via row .Fill.
-				var row Component = Textf(FG(clip(gutter), col))
+				// body: plain Text, which PRESERVES leading whitespace. Rich (Textf) trims it,
+				// which destroys code indentation — unusable for a diff. A commented line gets
+				// a full-width wash via row .Fill.
+				var row Component = Text(clip(gutter)).FG(col)
 				if commentedLines[lineKey(m.File, m.Line)] {
 					row = HBox.Fill(cCommentBG)(row)
 				}
