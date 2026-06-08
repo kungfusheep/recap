@@ -591,9 +591,9 @@ func TestStatusIconColorByRender(t *testing.T) {
 	t.Cleanup(func() { vmRows = prevRows; sel = prevSel })
 
 	vmRows = []taskVM{
-		{ID: 1, Title: "pending", Repo: "recap", Glyph: stateGlyph(StatePending), GlyphColor: stateColor(StatePending), Pending: true, Selected: true},
-		{ID: 2, Title: "rework", Repo: "recap", Glyph: stateGlyph(StateRework), GlyphColor: stateColor(StateRework)},
-		{ID: 3, Title: "done", Repo: "recap", Glyph: stateGlyph(StateDone), GlyphColor: stateColor(StateDone)},
+		{ID: 1, Title: "pending", Repo: "recap", Glyph: stateGlyph(StatePending), GlyphColor: stateColor(StatePending), Pending: true, Selected: true, Header: true},
+		{ID: 2, Title: "rework", Repo: "recap", Glyph: stateGlyph(StateRework), GlyphColor: stateColor(StateRework), Header: true},
+		{ID: 3, Title: "done", Repo: "recap", Glyph: stateGlyph(StateDone), GlyphColor: stateColor(StateDone), Header: true},
 	}
 	sel = 0
 	node := List(&vmRows).Selection(&sel).Style(&listBaseStyle).

@@ -99,6 +99,7 @@ type taskVM struct {
 	InFlight     bool // this task is the in-flight amends item → flare it in place (spinner)
 	HasGroup     bool
 	GroupLabel   string
+	Header       bool // a normal task header row (vs a revision child or load-more row)
 	LoadMore     bool // a "load more" pseudo-row at the bottom of the paginated done section
 
 	// revision threading (mail-style): a task with >1 diff is expandable with `o`.
@@ -441,6 +442,7 @@ func reloadTasks() {
 			Pending:    st == StatePending,
 			InFlight:   currentRef == fmt.Sprintf("amends:%d", t.ID),
 			RevIdx:     -1, // task header row
+			Header:     true,
 		}
 		vm.When = hhmm(t.CreatedAt)
 		// unsubmitted draft feedback → a pill on the row (doesn't affect state).
@@ -1551,12 +1553,14 @@ func taskRow(r *taskVM) Component {
 			Text("·").FG(cMuted),
 			SpaceW(1),
 			Text(&r.RevLabel).FG(cSubtle),
+			Space(), // fill width intrinsically (so independent Ifs don't collapse the row)
 		),
 	)
 	// the "load more" pseudo-row: a plain, focus-aware line at the bottom of the done list.
 	loadMoreBG := If(&r.Selected).Then(&curSelBG).Else(&cPaneBG)
 	loadMoreBody := VBox.Fill(loadMoreBG).PaddingVH(0, 2)(
-		HBox(SpaceW(1), Text(&r.Title).FG(cHunk)),
+		HBox(SpaceW(1), Text(&r.Title).FG(cHunk), Space()), // Space() fills width so the row
+		// keeps full width (a narrow branch would collapse the compiled row's measured width).
 	)
 	// Grouped/LoadMore are pointer-bound, so each row picks its branch per frame (a Go
 	// if would bake the placeholder's branch into the one compiled row template).
@@ -1566,9 +1570,12 @@ func taskRow(r *taskVM) Component {
 				Text(&r.GroupLabel).FG(cMuted).Bold(),
 			),
 		),
-		If(&r.LoadMore).Then(loadMoreBody).Else(
-			If(&r.Grouped).Then(childBody).Else(headerBody),
-		),
+		// exactly one of these is set per row. Independent Ifs (NOT nested If/Else): the nested
+		// form collapses a child/load-more row's width to a sibling branch; each body here is
+		// intrinsically full-width (trailing Space/Grow) so a single-level If renders it correctly.
+		If(&r.LoadMore).Then(loadMoreBody),
+		If(&r.Grouped).Then(childBody),
+		If(&r.Header).Then(headerBody),
 	)
 }
 
