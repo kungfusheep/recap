@@ -49,6 +49,11 @@ the reviewer submits `request_changes`: no restart, no "shall I continue?", no h
 On the rare timeout it returns idle; just call `recap next --wait` again. Treat reaching
 the end of the queue as the cue to **wait**, never as permission to leave.
 
+**A user message still takes precedence.** If the human says something mid-loop, handle it
+and continue the conversation as normal — that is not exiting the loop. The hard-loop rule
+is only about where *work* comes from: you pick up tasks from the loop (`recap next`), never
+from inventing your own, unless the human explicitly redirects you.
+
 ## Completing work (→ inbox)
 
 How you finish an item depends on its kind — `recap next` tells you which:
