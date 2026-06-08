@@ -35,7 +35,7 @@ func TestEditorArgs(t *testing.T) {
 // target count == commentable rows, labels assigned, and OnSelect picks the right
 // line (a spy, so no editor launches).
 func TestJumpPickFlow(t *testing.T) {
-	prevLayer, prevAction := diffLayer, pickAction
+	prevLayer, prevAction, prevFiles := diffLayer, pickAction, diffFiles
 	uiApp = NewApp()
 	diffLayer = NewLayer()
 	diffLayer.Render = renderDiffLayer
@@ -46,19 +46,16 @@ func TestJumpPickFlow(t *testing.T) {
 		uiApp = nil
 		diffLayer = prevLayer
 		pickAction = prevAction
+		diffFiles = prevFiles
 		diffMeta, diffLines = nil, nil
 	})
 
-	// banner row (not commentable) + two commentable code rows
-	diffMeta = []diffLineMeta{
-		{Text: "@@ hunk @@"},
-		{File: "main.go", Line: 42, Text: "a := 1", Commentable: true},
-		{File: "util.go", Line: 7, Text: "b := 2", Commentable: true},
-	}
-	diffLines = [][]Span{
-		{{Text: "@@ hunk @@"}},
-		{{Text: "a := 1"}},
-		{{Text: "b := 2"}},
+	// two files, each with one commentable code row — renderDiffLayer builds diffMeta from
+	// diffFiles (the source of truth). new-side line numbers come from the hunk headers
+	// (+42, +7), so the commentable rows are main.go:42 then util.go:7.
+	diffFiles = []DiffFile{
+		{Path: "main.go", Status: "modified", Hunks: []DiffHunk{{Header: "@@ -1,1 +42,1 @@", Lines: []DiffLine{{Kind: LineAdd, Text: "a := 1"}}}}},
+		{Path: "util.go", Status: "modified", Hunks: []DiffHunk{{Header: "@@ -1,1 +7,1 @@", Lines: []DiffLine{{Kind: LineAdd, Text: "b := 2"}}}}},
 	}
 	// put the diff on screen so renderDiffLayer has a real viewport + screen rect
 	uiApp.SetView(VBox.Width(80).Height(20)(

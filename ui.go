@@ -1117,35 +1117,41 @@ func renderDiffLayer() {
 	if w <= 0 {
 		return
 	}
-	h := len(diffLines)
+	// build the diff as a component tree each render: banner rows (Textf from their spans)
+	// + the per-file component diff (buildDiffView). diffMeta is rebuilt parallel to the
+	// rendered rows so the jump/anchor mapping still works by buffer row. Components own the
+	// visuals (band + wash are row .Fills); we still own the line-pick coordinates.
+	diffTree, dmeta := buildDiffView(diffFiles, w-2)
+	children := make([]Component, 0, len(diffBanner)+1)
+	diffMeta = diffMeta[:0]
+	for _, brow := range diffBanner {
+		parts := make([]any, len(brow))
+		for i, sp := range brow {
+			parts[i] = sp
+		}
+		children = append(children, Textf(parts...))
+		diffMeta = append(diffMeta, diffLineMeta{})
+	}
+	children = append(children, diffTree)
+	diffMeta = append(diffMeta, dmeta...)
+
+	h := len(diffMeta)
 	if vh := diffLayer.ViewportHeight(); h < vh {
 		h = vh // pad to viewport so the themed fill covers the whole pane
 	}
-	clear := Style{Fill: cBG, BG: cBG, FG: cFG}
 	buf := NewBuffer(w, h)
-	// leave a small right margin so code never butts against the scrollbar edge.
-	textW := w - 2
-	if textW < 1 {
-		textW = w
-	}
+	Build(VBox.Fill(cBG).Gap(0)(children...)).Execute(buf, int16(w), int16(h))
 
-	// while glyph's jump mode is active, register one jump target per visible
-	// commentable row at its on-screen position; glyph assigns + paints the labels
-	// (home-row, multi-char as needed) and routes the keystrokes. Picking a label
-	// fires pickAction with that row's meta. The screen mapping is ours because the
-	// diff is a scrolled layer: screenY = layer top (diffViewRef.Y) + (row - scroll).
-	top, vh := diffLayer.ScrollY(), diffLayer.ViewportHeight()
-	jumping := uiApp != nil && uiApp.JumpModeActive()
-	lblStyle := Style{FG: cBG, BG: cHunk, Attr: AttrBold}
-
-	for y := 0; y < h; y++ {
-		buf.ClearLineWithStyle(y, clear)
-		if y >= len(diffLines) {
-			continue
-		}
-		buf.WriteSpans(0, y, diffLines[y], textW)
-		switch {
-		case jumping && y >= top && y < top+vh && y < len(diffMeta) && diffMeta[y].Commentable:
+	// while glyph's jump mode is active, register one jump target per visible commentable
+	// row at its screen position (screenY = diffViewRef.Y + row − scroll) — same manual
+	// mapping as before, since the diff is a scrolled layer rendered off-screen.
+	if uiApp != nil && uiApp.JumpModeActive() {
+		top, vh := diffLayer.ScrollY(), diffLayer.ViewportHeight()
+		lblStyle := Style{FG: cBG, BG: cHunk, Attr: AttrBold}
+		for y := top; y < top+vh && y < len(diffMeta); y++ {
+			if !diffMeta[y].Commentable {
+				continue
+			}
 			row := y // capture per target so each onSelect picks its own row
 			sx, sy := diffViewRef.X, diffViewRef.Y+(y-top)
 			uiApp.AddJumpTarget(int16(sx), int16(sy), func() {
@@ -1153,19 +1159,9 @@ func renderDiffLayer() {
 					pickAction(diffMeta[row])
 				}
 			}, lblStyle)
-		case !jumping && y < len(diffMeta) && diffMeta[y].Commentable &&
-			commentedLines[lineKey(diffMeta[y].File, diffMeta[y].Line)]:
-			// normal: a bright filled gutter block marks a commented line, with a
-			// faint tinted wash across the row so it's easy to spot at a glance.
-			for cx := 0; cx < w; cx++ {
-				cell := buf.Get(cx, y)
-				cell.Style.BG = cCommentBG
-				buf.Set(cx, y, cell)
-			}
-			buf.WriteSpans(0, y, []Span{{Text: "█", Style: Style{FG: cHunk, BG: cCommentBG, Attr: AttrBold}}}, w)
 		}
 	}
-	paintFileHeaderBands(buf, w, h, diffMeta)
+
 	scrollY := diffLayer.ScrollY()
 	diffLayer.SetBuffer(buf)    // resets scrollY to 0…
 	diffLayer.ScrollTo(scrollY) // …so restore it (preserves scroll across re-render)
