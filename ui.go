@@ -987,12 +987,13 @@ func span(text string, fg Color, bold bool) Span {
 // existing renderer; the swap happens once it's render-verified.
 func buildDiffView(files []DiffFile, w int) (Component, []diffLineMeta) {
 	var meta []diffLineMeta
-	clip := func(s string) string {
-		if r := []rune(s); w > 0 && len(r) > w {
-			return string(r[:w])
+	clipN := func(s string, max int) string {
+		if r := []rune(s); max > 0 && len(r) > max {
+			return string(r[:max])
 		}
 		return s
 	}
+	clip := func(s string) string { return clipN(s, w) }
 	if len(files) == 0 {
 		meta = append(meta, diffLineMeta{})
 		return VBox.Fill(cBG)(Text("no changes").FG(cSubtle)), meta
@@ -1026,6 +1027,7 @@ func buildDiffView(files []DiffFile, w int) (Component, []diffLineMeta) {
 			fileBoxes = append(fileBoxes, VBox.Gap(0)(rows...))
 			continue
 		}
+		lexer := lexerFor(f.Path) // nil for unknown languages → added lines render unhighlighted
 		for _, hk := range f.Hunks {
 			rows = append(rows, Text(clip("  "+cleanLine(hk.Header))).FG(cMuted))
 			meta = append(meta, diffLineMeta{})
@@ -1033,22 +1035,26 @@ func buildDiffView(files []DiffFile, w int) (Component, []diffLineMeta) {
 			for _, l := range hk.Lines {
 				txt := cleanLine(l.Text)
 				m := diffLineMeta{File: f.Path, Anchor: hk.Header, Text: txt, Commentable: true}
-				gutter, col := "  "+txt, cSubtle
+				var row Component
 				switch l.Kind {
 				case LineAdd:
 					m.Line = cur
 					cur++
-					gutter, col = "+ "+txt, cAdd
+					// ONLY added code is syntax-highlighted. The "+ " gutter (green) and the
+					// leading indent are a plain Text — Rich trims leading whitespace, so the
+					// indent must live outside it; the code after the indent is highlighted Rich.
+					code := clipN(txt, w-2) // leave room for the 2-char gutter
+					indent := code[:len(code)-len(strings.TrimLeft(code, " "))]
+					rest := code[len(indent):]
+					row = HBox(Text("+ "+indent).FG(cAdd), Textf(highlightParts(rest, lexer, cFG)...))
 				case LineDel:
-					gutter, col = "- "+txt, cDel // del: old-side line, leave Line 0
+					row = Text(clip("- "+txt)).FG(cDel) // removed: stays red, not highlighted
 				default:
 					m.Line = cur
 					cur++
+					row = Text(clip("  "+txt)).FG(cSubtle) // context: unchanged, subtle
 				}
-				// body: plain Text, which PRESERVES leading whitespace. Rich (Textf) trims it,
-				// which destroys code indentation — unusable for a diff. A commented line gets
-				// a full-width wash via row .Fill.
-				var row Component = Text(clip(gutter)).FG(col)
+				// a commented line gets a full-width wash via row .Fill.
 				if commentedLines[lineKey(m.File, m.Line)] {
 					row = HBox.Fill(cCommentBG)(row)
 				}

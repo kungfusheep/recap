@@ -172,3 +172,49 @@ func TestBuildDiffViewPreservesIndent(t *testing.T) {
 		t.Fatal("added line not rendered")
 	}
 }
+
+// added code is syntax-highlighted while gutters and removed lines keep their diff colour:
+// the '+' gutter stays cAdd, an added keyword gets a syntax colour (≠ cAdd, ≠ cFG), and a
+// removed line stays cDel (not highlighted). (chroma highlighting)
+func TestDiffAddedLineHighlighted(t *testing.T) {
+	files := []DiffFile{{
+		Path:   "main.go",
+		Status: "modified",
+		Hunks: []DiffHunk{{Header: "@@ -1,2 +1,2 @@", Lines: []DiffLine{
+			{Kind: LineAdd, Text: "func main() {"},
+			{Kind: LineDel, Text: "func old() {"},
+		}}},
+	}}
+	tree, meta := buildDiffView(files, 60)
+	buf := NewBuffer(60, len(meta)+2)
+	Build(tree).Execute(buf, 60, int16(len(meta)+2))
+
+	addY, delY := -1, -1
+	for y := 0; y < len(meta)+2; y++ {
+		line := buf.GetLine(y)
+		if strings.Contains(line, "func main") {
+			addY = y
+		}
+		if strings.Contains(line, "func old") {
+			delY = y
+		}
+	}
+	if addY < 0 || delY < 0 {
+		t.Fatalf("added/removed lines not rendered (add=%d del=%d)", addY, delY)
+	}
+
+	// added: '+' gutter green; 'func' keyword syntax-coloured (not the gutter green, not plain fg)
+	if g := buf.Get(0, addY).Style.FG; g != cAdd {
+		t.Fatalf("added gutter '+' = %v, want cAdd", g)
+	}
+	if kw := buf.Get(2, addY).Style.FG; kw == cAdd || kw == cFG {
+		t.Fatalf("added 'func' keyword not highlighted: %v (cAdd=%v cFG=%v)", kw, kw == cAdd, kw == cFG)
+	}
+	// removed: gutter + code stay cDel (no highlighting)
+	if g := buf.Get(0, delY).Style.FG; g != cDel {
+		t.Fatalf("removed gutter '-' = %v, want cDel", g)
+	}
+	if code := buf.Get(2, delY).Style.FG; code != cDel {
+		t.Fatalf("removed code should stay cDel (unhighlighted), got %v", code)
+	}
+}
