@@ -27,25 +27,39 @@ the diff's two interactive features depend on exactly that.
 | Styled rows | `Text`/`HBox` with FG/BG | ✅ trivial |
 | Per-row full-width BG | `HBox.Fill(color)` fills `boxW` edge-to-edge (`template.go` `FillRect`) | ✅ works |
 | Native scroll | `SetContent(tmpl, w, totalH)` renders full height; layer windows it via `ScrollY` | ✅ but resets `scrollY=0` (save/restore, like `SetBuffer` already does) |
-| Per-row comment anchoring | `ForEach` exposes **no** per-item geometry; `List` exposes only the **selected** row (`SelectedRef`) | ⚠️ not built-in |
-| Per-row jump targets | `AddJumpTarget` needs explicit screen coords per row; no declarative per-row extraction | ⚠️ hard |
+| Per-row comment anchoring | wrap each row in `Jump(row, onSelect)`; the `onSelect` closure carries that row's `diffMeta` | ✅ via Jump |
+| Per-row / per-element jump targets | `Jump(child, onSelect)` registers a target at the child's rendered position; Rich spans also jump (`richSpanJumpFunc`) | ✅ via Jump / Rich spans |
 
-The obstacle is shared by 3 and 4: **glyph never hands you each row's rendered `(x,y)`.**
-`NodeRef` captures a node's `Rect` after layout, but you can't attach one *per item* inside
-a `ForEach`, and `List` tracks only the selected row. The hand-rolled renderer sidesteps
-this entirely — it owns the row→buffer-Y mapping, so `diffMeta[rowIdx]` and the jump
-coordinate `diffViewRef.Y + (y - scrollY)` fall out for free. A component tree would have
-to *re-derive* that mapping it doesn't expose.
+**Correction (review #171 — I was too pessimistic).** Interactivity is *not* the obstacle I
+first claimed. Two glyph mechanisms cover it declaratively:
+
+- **`Jump(child, onSelect)`** (components.go:1817) wraps any component and registers a jump
+  target at the child's *rendered* position, with `onSelect` a closure. Wrap each
+  commentable row in `Jump(row, func(){ pickLine(diffMeta[i]) })` and both features fall
+  out: a jump-mode label per row, and the closure carries that row's metadata — so **no
+  manual coordinate extraction is needed at all**, which was the whole crux of my earlier
+  "obstacle".
+- **Rich spans** jump too (`richSpanJumpFunc` / `wrapSpansDraw`, template.go:8513), giving
+  per-*element* targets — e.g. a file-header span can be its own target. That's exactly what
+  opens the door to **per-file fold / open-close** (toggle a file's hunks).
+
+The one genuine implementation detail: jump targets register at the child's *render*
+coordinates. The diff is a `Layer` rendered off-screen (`SetBuffer`/`SetContent`) then
+blitted with scroll, so a `Jump` inside that buffer sees buffer-relative coords, not screen.
+The component version needs either the layer to translate jump coords by `screenY − scrollY`,
+or to drive scroll where `Jump` sees screen coords. A detail to handle, not a blocker.
+(Perf: window to visible rows for very large diffs — `SetContent` builds the full height.)
 
 ## Options
 
-**A — add a small glyph primitive first, then convert (best long-term).**
-Teach `ForEach`/`List` (or a new `RowList`) to expose each visible row's geometry — e.g.
-per-item `NodeRef`s, or an `OnRows([]Rect)` callback after layout. That single capability
-unlocks *any* interactive scrollable-rows view, not just this diff. Then the diff becomes a
-declarative `RowList` of styled rows; band/wash are row `.Fill`s; anchoring + jump read the
-exposed per-row rects. Cost: real framework work + tests; benefit: reusable, and the diff
-gets simpler. **Recommended if we want the declarative version.**
+**A — convert directly with `Jump`-wrapped rows + Rich spans (no new primitive).**
+Per the correction above, glyph already gives per-element targets, so no framework change is
+needed first. Rebuild the diff as a column of `Jump`-wrapped rows (Rich spans for line
+content; file-header rows as their own jump/fold targets); each row's `onSelect` closes over
+its `diffMeta` for anchoring; band/wash are row `.Fill`s. Resolve the layer jump-coordinate
+translation and window large diffs. Cost: a real rewrite + those two details; benefit:
+declarative diff *and* it unlocks per-file fold/open-close. **Recommended if we want the
+declarative version.**
 
 **B — hybrid (not worth it).** Render rows as components for the visuals but keep a parallel
 coordinate-tracking pass for anchoring/jump. This duplicates the row↔coordinate bookkeeping
@@ -56,13 +70,16 @@ interactivity *wants* an explicit row→coordinate map, which is exactly what ma
 rendering gives you. The file-header band's `buf.Set` is consistent with this model (same as
 the commented-line wash). Cost: nothing; it stays "low-level" but for a good reason.
 
-## Recommendation
+## Revised recommendation
 
-Don't do a naive 1:1 component rewrite — it would either duplicate coordinate tracking (B)
-or drop comment-anchoring + jump-to-line (a regression). The clean path is **A**: add a
-per-row-geometry capability to glyph's row components, *then* the diff (and future
-interactive lists) can be declarative. If we're not ready to invest in that primitive,
-**C** (keep it hand-rolled) is the right call, and the band staying `buf.Set` is correct.
+**Feasible, and worth it** — the per-file fold/open-close upside is real, and `Jump` + Rich
+spans mean no new framework primitive is required (option A's "build a primitive first" is
+no longer needed). Shape: rebuild `renderDiffLayer` as a column of `Jump`-wrapped rows (Rich
+spans for line content; file-header rows as their own jump/fold targets), each row's
+`onSelect` closing over its `diffMeta`; band/wash become row `.Fill`s. The two things to
+nail are (1) the layer jump-coordinate translation and (2) windowing for large diffs —
+implementation details, not blockers.
 
-Either way it's a separate, sized piece of work — this records the feasibility, not the
-build.
+It's still a sized, self-contained task (a real rewrite + those two details), so it wants to
+be its own todo rather than a drop-in — but the interactivity I'd flagged as the obstacle is
+handled. This records the corrected feasibility, not the build.
