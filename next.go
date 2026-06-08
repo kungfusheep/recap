@@ -76,8 +76,11 @@ func buildQueue(st *Store, repo, repoPath string) []WorkItem {
 		}
 	}
 
-	// 3. todos — the next incomplete todo lines from the repo's TODO file.
+	// 3. todos — the next incomplete todo lines from the repo's TODO file, minus any
+	// snoozed by a recent --skip (so a blocked todo doesn't keep the queue hot and
+	// defeat `recap next --wait`'s park; snoozes expire, so it'll re-surface later).
 	if repoPath != "" {
+		snoozed := loadSnoozed(repo)
 		if cfg, err := LoadConfig(); err == nil {
 			if path, err := cfg.todoPathFor(repoPath); err == nil && path != "" {
 				if items, err := readTodo(path); err == nil {
@@ -86,8 +89,11 @@ func buildQueue(st *Store, repo, repoPath string) []WorkItem {
 							continue
 						}
 						text := strings.TrimSpace(it.Text)
-						q = append(q, WorkItem{Kind: "todo", Repo: repo, Title: text,
-							Ref: fmt.Sprintf("todo:%08x", fnvHash(text))})
+						ref := fmt.Sprintf("todo:%08x", fnvHash(text))
+						if snoozed[ref] {
+							continue
+						}
+						q = append(q, WorkItem{Kind: "todo", Repo: repo, Title: text, Ref: ref})
 					}
 				}
 			}
@@ -195,6 +201,10 @@ func cmdNext(args []string) error {
 	if skipped {
 		if cur.TaskID != 0 {
 			st.AddComment(cur.TaskID, identityWho(), "⤳ skipped (still open): "+*skipReason)
+		} else if strings.HasPrefix(cur.Ref, "todo:") {
+			// a todo has no task to comment on — snooze it so it leaves the queue and
+			// `recap next --wait` can park instead of re-handing it forever.
+			snoozeTodo(repo, cur.Ref)
 		}
 		fmt.Printf("skipped %s — %s\n", cur.Title, *skipReason)
 	}
