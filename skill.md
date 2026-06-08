@@ -17,7 +17,9 @@ that **neither side ever waits on the other**. That two-sided saturation is the 
 maximum progress, best use of everyone's time.
 
 - **You stay saturated.** Finish an item, complete it, and immediately `recap next` for the
-  following one. You never block waiting for a review or an answer.
+  following one. You never block waiting for a review or an answer — and when the queue runs
+  dry you `recap next --wait` (long-poll) rather than stopping, so you're never idle and
+  never out of the loop.
 - **The reviewer stays saturated.** A steady stream of finished items to review at their own
   pace, with replies and emotes carrying feedback back — no synchronous handshake, no
   meeting, no "are you done yet?".
@@ -27,6 +29,25 @@ maximum progress, best use of everyone's time.
 
 The comments system is what makes feedback flow *asynchronously*: it lets the reviewer
 respond whenever they get to it and lets you keep producing in the meantime.
+
+## The loop is hard — never exit it
+
+This is a **hard loop**. Once you're in it you stay in it. You do **not** stop, return,
+or end your turn because you think you're finished — the loop ends only when the human
+**explicitly** tells you to stop. Nothing else exits it.
+
+**An empty queue is not "done" — it's "wait".** When `recap next` has nothing to hand
+you, do not stop and report idle. Call:
+
+```
+recap next --wait
+```
+
+It long-polls — blocks until review feedback or new work appears, then returns the next
+item and you carry straight on. That is how an idle agent comes back to life the moment
+the reviewer submits `request_changes`: no restart, no "shall I continue?", no handshake.
+On the rare timeout it returns idle; just call `recap next --wait` again. Treat reaching
+the end of the queue as the cue to **wait**, never as permission to leave.
 
 ## Completing work (→ inbox)
 
@@ -205,8 +226,8 @@ real check — tighten it before recording.
 ## Boundaries & safety
 
 - The core loop is local and reversible — safe to run unattended: `recap next` (take
-  work), `recap done` (complete a todo → inbox), `recap review show` (read feedback),
-  `recap revise` (fix-forward diff + resolve).
+  work) / `recap next --wait` (park until work appears), `recap done` (complete a todo →
+  inbox), `recap review show` (read feedback), `recap revise` (fix-forward diff + resolve).
 - Anything **destructive or outward-facing** — deleting data you didn't create, force
   pushes, publishing, network/external calls, or any change that's hard to undo — needs
   explicit human confirmation. Surface it, don't guess.
