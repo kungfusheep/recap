@@ -80,6 +80,13 @@ spans for line content; file-header rows as their own jump/fold targets), each r
 nail are (1) the layer jump-coordinate translation and (2) windowing for large diffs —
 implementation details, not blockers.
 
+**Structure (per review #566):** don't render the whole diff as one big Rich block. Make it
+**per-file components** — a `VBox` per file whose *chrome* (the file header band + a fold
+open/close control) is standard glyph components, and only the diff *body* (the +/‑/context
+lines) is rendered with Rich spans. So: standard components on the outside, Rich on the
+inside, one file component each. That keeps the fold/header logic declarative and scopes Rich
+to where it earns its keep (the line content + per-line jump targets).
+
 It's still a sized, self-contained task (a real rewrite + those two details), so it wants to
 be its own todo rather than a drop-in — but the interactivity I'd flagged as the obstacle is
-handled. This records the corrected feasibility, not the build.
+handled. This records the corrected feasibility, not the build. **Queued** (TODO + this doc).
