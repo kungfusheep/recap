@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -216,5 +218,75 @@ func TestDiffAddedLineHighlighted(t *testing.T) {
 	}
 	if code := buf.Get(2, delY).Style.FG; code != cDel {
 		t.Fatalf("removed code should stay cDel (unhighlighted), got %v", code)
+	}
+}
+
+// regression (#127): an inbox reload that adds an item but leaves the SELECTED task
+// unchanged must keep the diff scroll position; switching to a different task resets it.
+func TestDiffScrollPreservedOnReload(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RECAP_DB", dir+"/recap.db")
+	g := func(a ...string) { git(dir, a...) }
+	g("init")
+	g("config", "user.email", "t@t")
+	g("config", "user.name", "t")
+	var b strings.Builder
+	for i := 0; i < 60; i++ {
+		fmt.Fprintf(&b, "line %d\n", i)
+	}
+	os.WriteFile(dir+"/a.txt", []byte(b.String()), 0o644)
+	g("add", "-A")
+	g("commit", "-m", "add a")
+	sha, _ := git(dir, "rev-parse", "--short", "HEAD")
+
+	st := testStore(t)
+	prevStore, prevApp, prevLayer := uiStore, uiApp, diffLayer
+	uiStore = st
+	uiApp = NewApp()
+	diffLayer = NewLayer()
+	diffLayer.Render = renderDiffLayer
+	expandedTasks = map[int64]bool{}
+	t.Cleanup(func() {
+		uiStore = prevStore
+		uiApp = prevApp
+		diffLayer = prevLayer
+		vmRows, diffMeta, diffFiles = nil, nil, nil
+		sel, lastSel, lastLen, lastDiffKey, detailDirty = 0, 0, 0, "", false
+	})
+	st.Add(Task{Repo: "r", RepoPath: dir, SHA: sha, Title: "t1", Status: StatusPending})
+	reloadTasks()
+	sel = 0
+	uiApp.SetView(VBox.Width(80).Height(8)(
+		HBox.Grow(1).NodeRef(&diffViewRef)(LayerView(diffLayer).Grow(1)),
+	))
+	detailDirty = true
+	refreshDetail()
+	uiApp.RenderNow()
+
+	diffLayer.ScrollTo(5)
+	uiApp.RenderNow()
+	scrolled := diffLayer.ScrollY()
+	if scrolled == 0 {
+		t.Fatal("could not scroll the diff (setup)")
+	}
+
+	// inbox reload: add a NEWER task (sorts after in the oldest-first inbox), so sel still
+	// points at t1 — the shown diff is unchanged, scroll must be kept.
+	st.Add(Task{Repo: "r", RepoPath: dir, SHA: sha, Title: "t2", Status: StatusPending})
+	reloadTasks()
+	detailDirty = true
+	refreshDetail()
+	uiApp.RenderNow()
+	if diffLayer.ScrollY() != scrolled {
+		t.Fatalf("scroll reset on same-task reload: was %d, now %d", scrolled, diffLayer.ScrollY())
+	}
+
+	// switching to a different task DOES reset scroll to the top
+	sel = 1
+	detailDirty = true
+	refreshDetail()
+	uiApp.RenderNow()
+	if diffLayer.ScrollY() != 0 {
+		t.Fatalf("switching tasks should reset scroll, got %d", diffLayer.ScrollY())
 	}
 }

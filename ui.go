@@ -229,6 +229,10 @@ var (
 	lastSel, lastLen int
 	lastFltr         string
 	detailDirty      bool
+	// lastDiffKey identifies the diff currently shown (task:rev:sha). refreshDetail only
+	// resets the diff scroll when this changes — so an inbox reload that adds an item but
+	// leaves the selected task unchanged keeps the reader's scroll position.
+	lastDiffKey string
 
 	// set by the SIGUSR1 handler; consumed on the render thread to reload the
 	// inbox when another process (e.g. `recap add`) changes the db.
@@ -641,11 +645,19 @@ func refreshDetail() {
 
 	row := selectedRow()
 	t, ok := selectedTask()
+	// only reset the diff scroll when the SHOWN diff (task:rev:sha) actually changes — so an
+	// inbox reload that left the selected task unchanged keeps the reader's scroll position.
+	diffKey := ""
+	if ok && row != nil {
+		diffKey = fmt.Sprintf("%d:%d:%s", t.ID, row.RevIdx, row.DiffSHA)
+	}
+	resetScroll := diffKey != lastDiffKey
+	lastDiffKey = diffKey
 	if !ok || row == nil {
 		detailTitle, metaRepo, metaWhen, metaResult = "no tasks", "", "", ""
 		filesText, diffFiles, draftNote = "", nil, ""
 		hasDraft, draftComments = false, nil
-		setDiff()
+		setDiff(resetScroll)
 		return
 	}
 	detailTitle = t.Title
@@ -669,7 +681,7 @@ func refreshDetail() {
 	sha := row.DiffSHA
 	if sha == "" || t.RepoPath == "" {
 		filesText, diffFiles = "no diff — task has no sha", nil
-		setDiff()
+		setDiff(resetScroll)
 		return
 	}
 	filesText = changedFiles(t.RepoPath, sha)
@@ -679,7 +691,7 @@ func refreshDetail() {
 	} else {
 		diffFiles = parseUnifiedDiff(full)
 	}
-	setDiff()
+	setDiff(resetScroll)
 }
 
 // buildBanner produces the context rows shown above the diff:
@@ -938,13 +950,16 @@ type diffLineMeta struct {
 
 // setDiff rebuilds the diff content and resets scroll. Invalidate tells the
 // layer to re-run renderDiffLayer on the next display pass (content changed).
-func setDiff() {
-	// renderDiffLayer now builds the component tree + diffMeta from diffFiles/diffBanner
-	// each render, so setDiff only resets scroll + invalidates. jump mode (line-picking)
-	// is owned by glyph, not reset here — setDiff can run mid-pick (via the OnBeforeRender
-	// refresh); the next render just re-registers targets from the rebuilt diffMeta.
+func setDiff(resetScroll bool) {
+	// renderDiffLayer rebuilds the component tree + diffMeta from diffFiles/diffBanner each
+	// render, so setDiff only (optionally) resets scroll + invalidates. resetScroll is false
+	// when the shown diff is unchanged (an inbox reload that didn't change the selected task,
+	// or a fold toggle) so the reader's scroll is kept. jump mode (line-picking) is owned by
+	// glyph, not reset here — the next render re-registers targets from the rebuilt diffMeta.
 	if diffLayer != nil {
-		diffLayer.ScrollToTop()
+		if resetScroll {
+			diffLayer.ScrollToTop()
+		}
 		diffLayer.Invalidate()
 	}
 }
@@ -1993,7 +2008,7 @@ func openFoldPick() {
 func toggleFileFold(m diffLineMeta) {
 	fileFolded[m.File] = !fileFolded[m.File]
 	pickHeaders = false
-	setDiff()
+	setDiff(false)
 }
 
 // commentOnDiffLine captures the picked line's anchor and opens the body prompt.
