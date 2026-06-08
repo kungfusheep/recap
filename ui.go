@@ -99,6 +99,7 @@ type taskVM struct {
 	InFlight     bool // this task is the in-flight amends item → flare it in place (spinner)
 	HasGroup     bool
 	GroupLabel   string
+	LoadMore     bool // a "load more" pseudo-row at the bottom of the paginated done section
 
 	// revision threading (mail-style): a task with >1 diff is expandable with `o`.
 	// A header row (RevIdx < 0) shows the latest diff by default; expanding splices
@@ -233,6 +234,10 @@ var (
 	// resets the diff scroll when this changes — so an inbox reload that adds an item but
 	// leaves the selected task unchanged keeps the reader's scroll position.
 	lastDiffKey string
+	// doneOldLimit caps how many completed items OLDER THAN A DAY the inbox list renders;
+	// the rest sit behind a "load more" row (avoids rendering a huge done history). Recent
+	// (< 24h) completed items always show. "load more" raises this by a batch.
+	doneOldLimit = 20
 
 	// set by the SIGUSR1 handler; consumed on the render thread to reload the
 	// inbox when another process (e.g. `recap add`) changes the db.
@@ -413,8 +418,18 @@ func reloadTasks() {
 
 	vmRows = vmRows[:0]
 	prev := ""
+	oldDoneShown, oldDoneSkipped := 0, 0
 	for _, t := range tasks {
 		st := state[t.ID]
+		// paginate completed items older than a day: show recent (<24h) done always, but
+		// only doneOldLimit of the older ones — the rest hide behind a "load more" row.
+		if st == StateDone && !isRecent(t.CreatedAt) {
+			if oldDoneShown >= doneOldLimit {
+				oldDoneSkipped++
+				continue
+			}
+			oldDoneShown++
+		}
 		vm := taskVM{
 			ID:         t.ID,
 			IDText:     fmt.Sprintf("#%d", t.ID),
@@ -478,6 +493,15 @@ func reloadTasks() {
 			}
 		}
 	}
+	// a "load more" row at the very bottom when older completed items are hidden.
+	if oldDoneSkipped > 0 {
+		vmRows = append(vmRows, taskVM{
+			LoadMore: true,
+			RevIdx:   -1,
+			Title:    fmt.Sprintf("load more  ·  %d older completed", oldDoneSkipped),
+		})
+	}
+
 	// restore the selection to the same row (task + revision) it was on before, so
 	// items arriving above it don't yank the view; fall back to clamping if it's gone.
 	// EXCEPT after a user mark (keepSelOnReload): hold the index so the marked item
@@ -1238,7 +1262,7 @@ func buildMain() Component {
 						Key("k", func() { moveSel(-1) }),
 						Key("gg", selectTop),    // vim: jump to the first task
 						Key("G", selectBottom),  // vim: jump to the last task
-						Key("<Enter>", func() { setPane(paneDiff) }),
+						Key("<Enter>", openOrLoadMore),
 						Key("a", approveSelected),
 						Key("u", undoCategorise), // undo the last approve/submit
 						Key("c", openComment),
@@ -1529,7 +1553,12 @@ func taskRow(r *taskVM) Component {
 			Text(&r.RevLabel).FG(cSubtle),
 		),
 	)
-	// Grouped is pointer-bound, so each row picks header vs child per frame (a Go
+	// the "load more" pseudo-row: a plain, focus-aware line at the bottom of the done list.
+	loadMoreBG := If(&r.Selected).Then(&curSelBG).Else(&cPaneBG)
+	loadMoreBody := VBox.Fill(loadMoreBG).PaddingVH(0, 2)(
+		HBox(SpaceW(1), Text(&r.Title).FG(cHunk)),
+	)
+	// Grouped/LoadMore are pointer-bound, so each row picks its branch per frame (a Go
 	// if would bake the placeholder's branch into the one compiled row template).
 	return VBox(
 		If(&r.HasGroup).Then(
@@ -1537,7 +1566,9 @@ func taskRow(r *taskVM) Component {
 				Text(&r.GroupLabel).FG(cMuted).Bold(),
 			),
 		),
-		If(&r.Grouped).Then(childBody).Else(headerBody),
+		If(&r.LoadMore).Then(loadMoreBody).Else(
+			If(&r.Grouped).Then(childBody).Else(headerBody),
+		),
 	)
 }
 
@@ -1995,6 +2026,30 @@ func rerun() {
 
 // anyCommentableRow reports whether the current diff has at least one line that
 // can be picked (commented on / opened) — used to gate the jump-label picker.
+// openOrLoadMore is the list's Enter: a "load more" row reveals the next batch of older
+// completed items; any other row opens the diff pane.
+func openOrLoadMore() {
+	if r := selectedRow(); r != nil && r.LoadMore {
+		doneOldLimit += 20
+		reloadTasks()
+		return
+	}
+	setPane(paneDiff)
+}
+
+// isRecent reports whether a "2006-01-02 15:04:05[...]" timestamp is within the last day.
+// Unparseable/blank stamps count as recent (shown), never hidden behind "load more".
+func isRecent(stamp string) bool {
+	if len(stamp) < 19 {
+		return true
+	}
+	tm, err := time.ParseInLocation("2006-01-02 15:04:05", stamp[:19], time.Local)
+	if err != nil {
+		return true
+	}
+	return time.Since(tm) < 24*time.Hour
+}
+
 func anyCommentableRow() bool {
 	for _, m := range diffMeta {
 		if m.Commentable {
