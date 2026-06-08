@@ -1292,6 +1292,7 @@ func buildMain() Component {
 						Key("c", openDiffLineComment),
 						Key("e", openEditorPick), // jump-pick a line → open it in $EDITOR
 						Key("z", openFoldPick),   // jump-pick a file header → fold/unfold it
+						Key("Z", foldAllFiles),   // fold/unfold ALL files (overview ↔ detail)
 						Key("<Enter>", func() { setPane(paneList) }),
 						Key("<Esc>", func() { setPane(paneList) }),
 					)),
@@ -2030,6 +2031,22 @@ func openFoldPick() {
 func toggleFileFold(m diffLineMeta) {
 	fileFolded[m.File] = !fileFolded[m.File]
 	pickHeaders = false
+	setDiff(false)
+}
+
+// foldAllFiles closes every file in the diff (collapse to headers); if they're already all
+// folded it opens them all — so one key toggles the whole diff between overview and detail.
+func foldAllFiles() {
+	allFolded := len(diffFiles) > 0
+	for _, f := range diffFiles {
+		if !fileFolded[f.Path] {
+			allFolded = false
+			break
+		}
+	}
+	for _, f := range diffFiles {
+		fileFolded[f.Path] = !allFolded
+	}
 	setDiff(false)
 }
 

@@ -290,3 +290,17 @@ func TestDiffScrollPreservedOnReload(t *testing.T) {
 		t.Fatalf("switching tasks should reset scroll, got %d", diffLayer.ScrollY())
 	}
 }
+
+// foldAllFiles toggles every file between folded and open. (close all files)
+func TestFoldAllFiles(t *testing.T) {
+	defer func() { clear(fileFolded); diffFiles = nil }()
+	diffFiles = []DiffFile{{Path: "a.go"}, {Path: "b.go"}}
+	foldAllFiles() // none folded → fold all
+	if !fileFolded["a.go"] || !fileFolded["b.go"] {
+		t.Fatal("foldAllFiles should fold every file")
+	}
+	foldAllFiles() // all folded → unfold all
+	if fileFolded["a.go"] || fileFolded["b.go"] {
+		t.Fatal("foldAllFiles again should unfold every file")
+	}
+}
