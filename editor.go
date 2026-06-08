@@ -67,6 +67,7 @@ func openEditorPick() {
 		statusMsg = "(no diff lines to open)"
 		return
 	}
+	pickHeaders = false
 	pickAction = editDiffLine
 	uiApp.EnterJumpMode()
 }

@@ -177,6 +177,10 @@ var (
 	// pickAction is what to do with the picked diff line (comment on it, or open it in
 	// $EDITOR). Set before EnterJumpMode; the picked target's onSelect calls it.
 	pickAction func(diffLineMeta)
+	// pickHeaders switches jump-pick from commentable body rows to file-header rows
+	// (the fold-pick mode); fileFolded collapses a file to its header in the diff.
+	pickHeaders bool
+	fileFolded  = map[string]bool{}
 
 	// commentedLines marks diff rows that already carry a draft comment, keyed by
 	// "file:line", so renderDiffLayer can draw a visual cue in the gutter.
@@ -1009,9 +1013,19 @@ func buildDiffView(files []DiffFile, w int) (Component, []diffLineMeta) {
 		case "renamed":
 			sym, c = "»", cBright
 		}
-		// chrome: standard components. The header band is a full-width row .Fill.
-		rows = append(rows, HBox.Fill(cFileHdrBG)(Text(clip(sym+"  "+cleanLine(f.Path))).FG(c).Bold()))
+		// chrome: standard components. The header band is a full-width row .Fill, led by a
+		// fold indicator (▾ open / ▸ folded). A folded file collapses to its header only.
+		folded := fileFolded[f.Path]
+		caret := "▾ "
+		if folded {
+			caret = "▸ "
+		}
+		rows = append(rows, HBox.Fill(cFileHdrBG)(Text(clip(caret+sym+" "+cleanLine(f.Path))).FG(c).Bold()))
 		meta = append(meta, diffLineMeta{FileHeader: true, File: f.Path})
+		if folded {
+			fileBoxes = append(fileBoxes, VBox.Gap(0)(rows...))
+			continue
+		}
 		for _, hk := range f.Hunks {
 			rows = append(rows, Text(clip("  "+cleanLine(hk.Header))).FG(cMuted))
 			meta = append(meta, diffLineMeta{})
@@ -1086,7 +1100,12 @@ func renderDiffLayer() {
 		top, vh := diffLayer.ScrollY(), diffLayer.ViewportHeight()
 		lblStyle := Style{FG: cBG, BG: cHunk, Attr: AttrBold}
 		for y := top; y < top+vh && y < len(diffMeta); y++ {
-			if !diffMeta[y].Commentable {
+			// fold-pick targets file headers; the normal pick targets commentable lines.
+			target := diffMeta[y].Commentable
+			if pickHeaders {
+				target = diffMeta[y].FileHeader
+			}
+			if !target {
 				continue
 			}
 			row := y // capture per target so each onSelect picks its own row
@@ -1249,6 +1268,7 @@ func buildMain() Component {
 						Key("G", diffBottom),
 						Key("c", openDiffLineComment),
 						Key("e", openEditorPick), // jump-pick a line → open it in $EDITOR
+						Key("z", openFoldPick),   // jump-pick a file header → fold/unfold it
 						Key("<Enter>", func() { setPane(paneList) }),
 						Key("<Esc>", func() { setPane(paneList) }),
 					)),
@@ -1935,8 +1955,37 @@ func openDiffLineComment() {
 		statusMsg = "(no diff lines to comment on)"
 		return
 	}
+	pickHeaders = false
 	pickAction = commentOnDiffLine
 	uiApp.EnterJumpMode()
+}
+
+// openFoldPick starts a header-pick over the diff: jump labels land on the file headers,
+// and picking one toggles that file's fold (collapse to header / expand). Reuses the same
+// jump engine as line-picking, just targeting FileHeader rows.
+func openFoldPick() {
+	hasHeader := false
+	for _, m := range diffMeta {
+		if m.FileHeader {
+			hasHeader = true
+			break
+		}
+	}
+	if !hasHeader {
+		statusMsg = "(no files to fold)"
+		return
+	}
+	pickHeaders = true
+	pickAction = toggleFileFold
+	uiApp.EnterJumpMode()
+}
+
+// toggleFileFold collapses/expands the picked file in the diff, then rebuilds so the
+// next render reflects it. Clears the fold-pick mode so the normal line-pick resumes.
+func toggleFileFold(m diffLineMeta) {
+	fileFolded[m.File] = !fileFolded[m.File]
+	pickHeaders = false
+	setDiff()
 }
 
 // commentOnDiffLine captures the picked line's anchor and opens the body prompt.
