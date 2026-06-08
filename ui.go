@@ -1036,6 +1036,78 @@ func buildDiffLines(files []DiffFile) ([][]Span, []diffLineMeta) {
 	return rows, meta
 }
 
+// buildDiffView is the component-tree form of buildDiffLines (todo: diff renderer as
+// glyph components). It renders the parsed model as a per-file VBox — file chrome (the
+// header band, hunk headers) as standard glyph components, the diff body as Rich Textf
+// rows, the commented-line wash as a row .Fill — and returns a parallel meta slice with
+// one entry per rendered 1-line row in render order, so jump/anchor registration still
+// works by buffer row. Text is clipped to w so each row is exactly one line, preserving
+// the row==Y mapping the jump registration relies on (no wrap). Built alongside the
+// existing renderer; the swap happens once it's render-verified.
+func buildDiffView(files []DiffFile, w int) (Component, []diffLineMeta) {
+	var meta []diffLineMeta
+	clip := func(s string) string {
+		if r := []rune(s); w > 0 && len(r) > w {
+			return string(r[:w])
+		}
+		return s
+	}
+	if len(files) == 0 {
+		meta = append(meta, diffLineMeta{})
+		return VBox.Fill(cBG)(Text("no changes").FG(cSubtle)), meta
+	}
+	var fileBoxes []Component
+	for fi, f := range files {
+		var rows []Component
+		if fi > 0 {
+			rows = append(rows, Text("")) // blank spacer row between files
+			meta = append(meta, diffLineMeta{})
+		}
+		sym, c := "~", cBright
+		switch f.Status {
+		case "new file":
+			sym, c = "+", cAdd
+		case "deleted":
+			sym, c = "-", cDel
+		case "renamed":
+			sym, c = "»", cBright
+		}
+		// chrome: standard components. The header band is a full-width row .Fill.
+		rows = append(rows, HBox.Fill(cFileHdrBG)(Text(clip(sym+"  "+cleanLine(f.Path))).FG(c).Bold()))
+		meta = append(meta, diffLineMeta{FileHeader: true, File: f.Path})
+		for _, hk := range f.Hunks {
+			rows = append(rows, Text(clip("  "+cleanLine(hk.Header))).FG(cMuted))
+			meta = append(meta, diffLineMeta{})
+			cur := hunkNewStart(hk.Header)
+			for _, l := range hk.Lines {
+				txt := cleanLine(l.Text)
+				m := diffLineMeta{File: f.Path, Anchor: hk.Header, Text: txt, Commentable: true}
+				gutter, col := "  "+txt, cSubtle
+				switch l.Kind {
+				case LineAdd:
+					m.Line = cur
+					cur++
+					gutter, col = "+ "+txt, cAdd
+				case LineDel:
+					gutter, col = "- "+txt, cDel // del: old-side line, leave Line 0
+				default:
+					m.Line = cur
+					cur++
+				}
+				// body: Rich Textf. A commented line gets a full-width wash via row .Fill.
+				var row Component = Textf(FG(clip(gutter), col))
+				if commentedLines[lineKey(m.File, m.Line)] {
+					row = HBox.Fill(cCommentBG)(row)
+				}
+				rows = append(rows, row)
+				meta = append(meta, m)
+			}
+		}
+		fileBoxes = append(fileBoxes, VBox.Gap(0)(rows...))
+	}
+	return VBox.Fill(cBG).Gap(0)(fileBoxes...), meta
+}
+
 // renderDiffLayer (re)builds the layer buffer from diffLines. Called by the
 // framework only when the viewport width changes or after Invalidate — never
 // per-frame. A fresh, exact-size buffer means no stale rows; every cell is
