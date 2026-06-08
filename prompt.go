@@ -83,7 +83,7 @@ func inputPromptOverlay() Component {
 				// modal scope confuses glyph's route-modal pop.
 				Text(&promptLoc).FG(cSubtle),
 				Text(&promptSnip).FG(cMuted),
-				Input().Field(&commentField).Bind().Placeholder("…").Width(66),
+				Input().Field(&commentField).Bind().Placeholder("…").Width(66).MultiLine(),
 			),
 		),
 	)
