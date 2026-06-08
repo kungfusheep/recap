@@ -40,10 +40,11 @@ func TestOmniCommandsCoverActions(t *testing.T) {
 	}
 }
 
-// regression (#162): an omnibox action that opens another modal (e.g. todo:) used to
-// orphan the omnibox's modal router (its fade-out defers the pop) — dead keys until kill.
-// exec must drain the input stack back to base so a freshly-opened modal stacks cleanly.
-func TestOmniExecDrainsModalRouter(t *testing.T) {
+// regression (#162/#165): an omnibox action that opens another modal (e.g. todo:) must
+// not leave the omnibox's modal router orphaned — dead keys until kill. The fix lives in
+// glyph (an exiting overlay releases its router), so exec needs NO manual drain: once the
+// omnibox closes and renders out, the input stack is back to base.
+func TestOmniActionNoOrphanedRouter(t *testing.T) {
 	prev := uiStore
 	st := testStore(t)
 	uiStore = st
@@ -61,8 +62,9 @@ func TestOmniExecDrainsModalRouter(t *testing.T) {
 	if uiApp.Input().Depth() <= base {
 		t.Fatalf("omnibox should push a modal router (base=%d)", base)
 	}
-	omni.exec() // runs the selected action and must drain the omnibox router
+	omni.exec()       // closes the omnibox + runs the action — no manual drain
+	uiApp.RenderNow() // the omnibox exits → glyph releases its router
 	if d := uiApp.Input().Depth(); d != base {
-		t.Fatalf("omnibox router orphaned after exec: depth %d, want base %d", d, base)
+		t.Fatalf("omnibox router orphaned after exec+render: depth %d, want base %d", d, base)
 	}
 }

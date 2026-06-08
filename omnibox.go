@@ -110,16 +110,6 @@ func (b *OmniBox) Close() {
 func (b *OmniBox) exec() {
 	it := b.selected()
 	b.Close()
-	// The omnibox's fade-out exit animation defers its On.Modal router pop by a few frames.
-	// If the action opens ANOTHER modal (e.g. the todo view), that stale router is orphaned
-	// on the input stack where it swallows every key but its own — dead keys, kill-to-recover.
-	// Drain back to the base router now, before the action runs, so a freshly-opened modal
-	// stacks cleanly. (Same fix as applyTheme.)
-	if b.app != nil {
-		for in := b.app.Input(); in != nil && in.Depth() > 1; {
-			b.app.PopRouter()
-		}
-	}
 	if it != nil && it.Action != nil {
 		it.Action()
 	}
