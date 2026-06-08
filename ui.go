@@ -1364,6 +1364,17 @@ var helpActionRows = []helpRow{
 	{"q", "quit"},
 }
 
+// diff-pane keys (shown in the cheatsheet's third column).
+var helpDiffRows = []helpRow{
+	{"j / k", "scroll"},
+	{"d / u", "half page"},
+	{"g / G", "top / bottom"},
+	{"] / [", "next / prev file"},
+	{"z / Z", "fold file / all"},
+	{"c", "comment line"},
+	{"e", "open in $EDITOR"},
+}
+
 var helpRef NodeRef
 
 // column node refs for the focus-fade effect (mail's FocusShade): each column
@@ -1396,7 +1407,7 @@ func columnShades() Component {
 // screen-effect treatment (animated dodged vignette + focused drop shadow).
 func helpOverlay() Component {
 	return Overlay.Centered()(
-		VBox.Width(56).Fill(cFloat).CascadeStyle(&Style{Fill: cFloat, BG: cFloat, FG: cFG}).
+		VBox.Width(80).Fill(cFloat).CascadeStyle(&Style{Fill: cFloat, BG: cFloat, FG: cFG}).
 			PaddingVH(1, 2).NodeRef(&helpRef).
 			Opacity(In(Animate(1.0)).Out(Animate(0))).
 			Gap(1)(
@@ -1409,6 +1420,7 @@ func helpOverlay() Component {
 			HBox(
 				helpSection("navigate", 3, 12, &helpNavRows),
 				helpSection("actions", 2, 8, &helpActionRows),
+				helpSection("diff", 3, 9, &helpDiffRows),
 			),
 			ScreenEffect(
 				SEVignette().Strength(In(Animate.From(0)(0.55)).Out(Animate(0))).Dodge(&helpRef).Smooth(),
