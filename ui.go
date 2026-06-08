@@ -1929,6 +1929,28 @@ func filterOmniItems() []omniItem {
 	return items
 }
 
+// todoOmniItems lists a "todo: <project>" item per repo currently present, each opening
+// that project's TODO list (editor) — so you can jump to any project's todos quickly, not
+// just the selected task's repo.
+func todoOmniItems() []omniItem {
+	seen := map[string]bool{}
+	var items []omniItem
+	for _, t := range tasks {
+		if t.Repo == "" || t.RepoPath == "" || seen[t.Repo] {
+			continue
+		}
+		seen[t.Repo] = true
+		repo, path := t.Repo, t.RepoPath
+		items = append(items, omniItem{
+			Label:       "todo: " + repo,
+			Description: "open " + repo + "'s TODO list",
+			Section:     "todo",
+			Action:      func() { openTodoFor(repo, path) },
+		})
+	}
+	return items
+}
+
 func rerun() {
 	t, ok := selectedTask()
 	if !ok {

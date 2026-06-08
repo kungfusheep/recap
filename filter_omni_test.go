@@ -46,3 +46,33 @@ func TestFilterOmniItems(t *testing.T) {
 		t.Fatalf("selecting 'filter: all repos' should clear repoFltr, got %q", repoFltr)
 	}
 }
+
+// todoOmniItems lists one "todo: <repo>" per distinct repo present (with a repo path), so
+// any project's TODO list is reachable from the palette. (todo: project)
+func TestTodoOmniItems(t *testing.T) {
+	prev := tasks
+	t.Cleanup(func() { tasks = prev })
+	tasks = []Task{
+		{Repo: "alpha", RepoPath: "/a"},
+		{Repo: "alpha", RepoPath: "/a"}, // dup repo → one item
+		{Repo: "beta", RepoPath: "/b"},
+		{Repo: "noPath"}, // no RepoPath → skipped
+	}
+	items := todoOmniItems()
+	got := map[string]bool{}
+	for _, it := range items {
+		got[it.Label] = true
+		if it.Action == nil {
+			t.Fatalf("%q has no action", it.Label)
+		}
+	}
+	if len(items) != 2 {
+		t.Fatalf("want 2 todo items (alpha, beta), got %d: %v", len(items), got)
+	}
+	if !got["todo: alpha"] || !got["todo: beta"] {
+		t.Fatalf("missing todo items: %v", got)
+	}
+	if got["todo: noPath"] {
+		t.Fatal("repo without a path should be skipped")
+	}
+}

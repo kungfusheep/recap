@@ -83,9 +83,10 @@ func (b *OmniBox) Open() {
 	if b.open {
 		return
 	}
-	// rebuild the item list so the repo-filter choices reflect the repos present now
-	// (Clear re-reads &b.items, so the freshly-built filter items show up).
+	// rebuild the item list so the repo-filter + per-project todo choices reflect the repos
+	// present now (Clear re-reads &b.items, so the freshly-built items show up).
 	b.items = append(append([]omniItem(nil), b.base...), filterOmniItems()...)
+	b.items = append(b.items, todoOmniItems()...)
 	if b.list != nil {
 		b.list.Clear()
 		b.list.Refresh()

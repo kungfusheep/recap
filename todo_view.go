@@ -36,8 +36,15 @@ func openTodoEditor() {
 		statusMsg = "no task selected"
 		return
 	}
+	openTodoFor(t.Repo, t.RepoPath)
+}
+
+// openTodoFor opens the TODO editor for a specific repo (by name + path), so the omnibox
+// can launch any project's todo list, not just the selected task's. Reports why if it
+// can't resolve/read the file.
+func openTodoFor(repo, repoPath string) {
 	cfg, _ := LoadConfig()
-	path, err := cfg.todoPathFor(t.RepoPath)
+	path, err := cfg.todoPathFor(repoPath)
 	if err != nil {
 		statusMsg = "todo path: " + err.Error()
 		return
@@ -57,7 +64,7 @@ func openTodoEditor() {
 	if todoSel < 0 {
 		todoSel = 0
 	}
-	todoTitle = "TODO · " + t.Repo
+	todoTitle = "TODO · " + repo
 	todoPrep()
 	todoOpen = true
 	uiApp.RequestRender()
