@@ -47,7 +47,7 @@ func TestJumpPickFlow(t *testing.T) {
 		diffLayer = prevLayer
 		pickAction = prevAction
 		diffFiles = prevFiles
-		diffMeta, diffLines = nil, nil
+		diffMeta = nil
 	})
 
 	// two files, each with one commentable code row — renderDiffLayer builds diffMeta from

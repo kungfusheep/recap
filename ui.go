@@ -159,13 +159,11 @@ var (
 	// reloadTasks). Rows carry only a task ID; this maps back to the full Task.
 	taskByID = map[int64]Task{}
 
-	// diff pane: a native-scroll Layer. diffLines is the full styled content
-	// (every span carries BG so cells never fall back to terminal default);
-	// renderDiffLayer builds the buffer on content/size change, then the
-	// framework blits the visible window each frame — scroll is free.
+	// diff pane: a native-scroll Layer. renderDiffLayer builds a component tree from
+	// diffFiles/diffBanner into the buffer on content/size change (see buildDiffView),
+	// then the framework blits the visible window each frame — scroll is free.
 	diffLayer  *Layer
-	diffLines  [][]Span
-	diffMeta   []diffLineMeta // parallel to diffLines: anchor info per row
+	diffMeta   []diffLineMeta // one entry per rendered row (render order): anchor info
 	diffBanner [][]Span       // optional context rows prepended to the diff
 
 	// line-comment "pick a line" mode rides glyph's jump-label engine: while
@@ -937,19 +935,10 @@ type diffLineMeta struct {
 // setDiff rebuilds the diff content and resets scroll. Invalidate tells the
 // layer to re-run renderDiffLayer on the next display pass (content changed).
 func setDiff() {
-	lines, meta := buildDiffLines(diffFiles)
-	// prepend the context banner (amends summary / re-review header) if any;
-	// banner rows carry empty meta so they're never commentable / labelled.
-	if len(diffBanner) > 0 {
-		bMeta := make([]diffLineMeta, len(diffBanner))
-		diffLines = append(append([][]Span{}, diffBanner...), lines...)
-		diffMeta = append(append([]diffLineMeta{}, bMeta...), meta...)
-	} else {
-		diffLines, diffMeta = lines, meta
-	}
-	// jump mode (line-picking) is owned by glyph, not reset here — setDiff can run
-	// mid-pick (via the OnBeforeRender refresh); the next render just re-registers
-	// targets from the new diffMeta.
+	// renderDiffLayer now builds the component tree + diffMeta from diffFiles/diffBanner
+	// each render, so setDiff only resets scroll + invalidates. jump mode (line-picking)
+	// is owned by glyph, not reset here — setDiff can run mid-pick (via the OnBeforeRender
+	// refresh); the next render just re-registers targets from the rebuilt diffMeta.
 	if diffLayer != nil {
 		diffLayer.ScrollToTop()
 		diffLayer.Invalidate()
@@ -984,59 +973,7 @@ func span(text string, fg Color, bold bool) Span {
 	return Span{Text: text, Style: st}
 }
 
-// buildDiffLines renders the parsed model as styled rows (a clean per-file
-// header, dim hunk context, gutter-marked add/del/context lines) and a parallel
-// metadata slice so any row can be anchored back to its file/hunk/line.
-func buildDiffLines(files []DiffFile) ([][]Span, []diffLineMeta) {
-	if len(files) == 0 {
-		return [][]Span{{span("no changes", cSubtle, false)}}, []diffLineMeta{{}}
-	}
-	var rows [][]Span
-	var meta []diffLineMeta
-	add := func(text string, c Color, bold bool, m diffLineMeta) {
-		rows = append(rows, []Span{span(text, c, bold)})
-		meta = append(meta, m)
-	}
-	for fi, f := range files {
-		if fi > 0 {
-			rows = append(rows, []Span{}) // blank spacer row (cleared to cBG)
-			meta = append(meta, diffLineMeta{})
-		}
-		sym, c := "~", cBright
-		switch f.Status {
-		case "new file":
-			sym, c = "+", cAdd
-		case "deleted":
-			sym, c = "-", cDel
-		case "renamed":
-			sym, c = "»", cBright
-		}
-		add(sym+"  "+cleanLine(f.Path), c, true, diffLineMeta{FileHeader: true})
-		for _, hk := range f.Hunks {
-			add("  "+cleanLine(hk.Header), cMuted, false, diffLineMeta{})
-			cur := hunkNewStart(hk.Header)
-			for _, l := range hk.Lines {
-				txt := cleanLine(l.Text)
-				m := diffLineMeta{File: f.Path, Anchor: hk.Header, Text: txt, Commentable: true}
-				switch l.Kind {
-				case LineAdd:
-					m.Line = cur
-					cur++
-					add("+ "+txt, cAdd, false, m)
-				case LineDel:
-					add("- "+txt, cDel, false, m) // del: old-side line, leave Line 0
-				default:
-					m.Line = cur
-					cur++
-					add("  "+txt, cSubtle, false, m)
-				}
-			}
-		}
-	}
-	return rows, meta
-}
-
-// buildDiffView is the component-tree form of buildDiffLines (todo: diff renderer as
+// buildDiffView builds the diff as a glyph component tree (todo: diff renderer as
 // glyph components). It renders the parsed model as a per-file VBox — file chrome (the
 // header band, hunk headers) as standard glyph components, the diff body as Rich Textf
 // rows, the commented-line wash as a row .Fill — and returns a parallel meta slice with
@@ -1108,7 +1045,7 @@ func buildDiffView(files []DiffFile, w int) (Component, []diffLineMeta) {
 	return VBox.Fill(cBG).Gap(0)(fileBoxes...), meta
 }
 
-// renderDiffLayer (re)builds the layer buffer from diffLines. Called by the
+// renderDiffLayer (re)builds the layer buffer from diffFiles via buildDiffView. Called by the
 // framework only when the viewport width changes or after Invalidate — never
 // per-frame. A fresh, exact-size buffer means no stale rows; every cell is
 // cleared to cBG and spans carry an explicit BG, so nothing bleeds.
@@ -1165,23 +1102,6 @@ func renderDiffLayer() {
 	scrollY := diffLayer.ScrollY()
 	diffLayer.SetBuffer(buf)    // resets scrollY to 0…
 	diffLayer.ScrollTo(scrollY) // …so restore it (preserves scroll across re-render)
-}
-
-// paintFileHeaderBands gives every file-name header row a full-width background band so
-// it reads as a clear section divider in the diff — the status-coloured, bold path text
-// (already written into the buffer) sits on the band, and the fill stretches the whole
-// width. Pure over the buffer, so it's the testable core of the header styling.
-func paintFileHeaderBands(buf *Buffer, w, h int, meta []diffLineMeta) {
-	for y := 0; y < h && y < len(meta); y++ {
-		if !meta[y].FileHeader {
-			continue
-		}
-		for cx := 0; cx < w; cx++ {
-			cell := buf.Get(cx, y)
-			cell.Style.BG = cFileHdrBG
-			buf.Set(cx, y, cell)
-		}
-	}
 }
 
 func dash(s string) string {

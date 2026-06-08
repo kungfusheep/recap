@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"strings"
 	"testing"
 
 	. "github.com/kungfusheep/glyph"
@@ -45,12 +44,15 @@ func TestThemeRepaintsDiffLayer(t *testing.T) {
 	addLineFG := func() (Color, bool) {
 		detailDirty = true
 		lastSel = -99
-		refreshDetail()
-		for _, row := range diffLines {
-			for _, s := range row {
-				if strings.HasPrefix(s.Text, "+ ") {
-					return s.Style.FG, true
-				}
+		refreshDetail() // sets diffFiles (the real path)
+		// the diff is built into the buffer via components now; render it and read the
+		// add-coloured '+' gutter cell (added line / new-file header — both use cAdd).
+		tree, _ := buildDiffView(diffFiles, 80)
+		buf := NewBuffer(80, 200)
+		Build(tree).Execute(buf, 80, 200)
+		for y := 0; y < 200; y++ {
+			if c := buf.Get(0, y); c.Rune == '+' {
+				return c.Style.FG, true
 			}
 		}
 		return Color{}, false
