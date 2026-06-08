@@ -1,14 +1,23 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"hash/fnv"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/kungfusheep/recap/notify"
+	"github.com/kungfusheep/recap/poll"
+)
+
+const (
+	waitInterval = time.Second      // how often `recap next --wait` re-checks the queue
+	waitTimeout  = 30 * time.Minute // how long it parks before returning idle
 )
 
 // recap next is the protocol form of "what do I work on": it returns the next work
@@ -125,6 +134,7 @@ func cmdNext(args []string) error {
 	fs := flag.NewFlagSet("next", flag.ExitOnError)
 	skipReason := fs.String("skip", "", "reason this item is being skipped (recorded on it)")
 	dryRun := fs.Bool("dry-run", false, "preview the next item without advancing the cursor")
+	wait := fs.Bool("wait", false, "long-poll: when nothing is queued, block until work appears instead of exiting the loop")
 	fs.Parse(args)
 
 	st, err := Open()
@@ -164,10 +174,20 @@ func cmdNext(args []string) error {
 	}
 
 	if !ok {
-		saveCurrent(repo, "", "")
-		notify.Reload()
-		fmt.Println("(nothing to work on — inbox + todos are clear)")
-		return nil
+		if *wait {
+			// hard loop: an empty queue is "wait", not "done". Park until work appears
+			// (so a request_changes from the reviewer brings the agent back to life).
+			next, ok = waitForWork(st, repo)
+			if !ok {
+				return nil // timed out or canceled — message already printed
+			}
+			skipped = false
+		} else {
+			saveCurrent(repo, "", "")
+			notify.Reload()
+			fmt.Println("(nothing to work on — inbox + todos are clear)")
+			return nil
+		}
 	}
 
 	// a deliberate --skip past an unfinished item: record the reason on it (when it has a
@@ -185,6 +205,31 @@ func cmdNext(args []string) error {
 	notify.Reload()
 	printWorkOrder(next)
 	return nil
+}
+
+// waitForWork long-polls until the repo's queue has something, then returns the head.
+// On timeout or Ctrl-C it prints why and returns ok=false. This is what keeps an idle
+// agent IN the loop (`recap next --wait`) instead of exiting it: the blocked call returns
+// the moment the reviewer's request_changes — or any new work — lands.
+func waitForWork(st *Store, repo string) (WorkItem, bool) {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	fmt.Fprintf(os.Stderr, "waiting for work (--wait, up to %s; Ctrl-C to stop)…\n", waitTimeout)
+	switch poll.Wait(ctx, waitInterval, waitTimeout, func() bool {
+		return len(buildQueue(st, repo, currentRepoPath())) > 0
+	}) {
+	case poll.TimedOut:
+		fmt.Printf("(idle — no work after %s; recap next --wait to keep waiting)\n", waitTimeout)
+		return WorkItem{}, false
+	case poll.Canceled:
+		fmt.Println("(stopped)")
+		return WorkItem{}, false
+	}
+	// Ready: recompute against the fresh queue + cursor and hand out the head.
+	q := buildQueue(st, repo, currentRepoPath())
+	curRef, _ := loadCurrent(repo)
+	next, _, ok := advance(q, curRef)
+	return next, ok
 }
 
 // cmdDone is the explicit completion for a TODO item: name the item by its ref (from
