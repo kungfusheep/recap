@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/kungfusheep/recap/config"
+	"github.com/kungfusheep/recap/todo"
 	. "github.com/kungfusheep/glyph"
 )
 
@@ -45,7 +46,7 @@ func openTodoEditor() {
 // can't resolve/read the file.
 func openTodoFor(repo, repoPath string) {
 	cfg, _ := config.LoadConfig()
-	path, err := cfg.TODOPathFor(repoPath)
+	path, err := todo.PathFor(cfg.TODOTemplate, repoPath)
 	if err != nil {
 		statusMsg = "todo path: " + err.Error()
 		return

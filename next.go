@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kungfusheep/recap/config"
+	"github.com/kungfusheep/recap/todo"
 	"github.com/kungfusheep/recap/notify"
 	"github.com/kungfusheep/recap/poll"
 )
@@ -83,7 +84,7 @@ func buildQueue(st *Store, repo, repoPath string) []WorkItem {
 	if repoPath != "" {
 		snoozed := loadSnoozed(repo)
 		if cfg, err := config.LoadConfig(); err == nil {
-			if path, err := cfg.TODOPathFor(repoPath); err == nil && path != "" {
+			if path, err := todo.PathFor(cfg.TODOTemplate, repoPath); err == nil && path != "" {
 				if items, err := readTodo(path); err == nil {
 					for _, it := range items {
 						if !it.IsTask || it.Done {
@@ -298,7 +299,7 @@ func cmdDone(args []string) error {
 
 	// ... and mark the todo line [x] in the file (surgical: only the matching line).
 	if cfg, err := config.LoadConfig(); err == nil {
-		if path, err := cfg.TODOPathFor(repoPath); err == nil && path != "" {
+		if path, err := todo.PathFor(cfg.TODOTemplate, repoPath); err == nil && path != "" {
 			if err := markTodoLineDone(path, item.Title); err != nil {
 				fmt.Fprintf(os.Stderr, "recap: recorded #%d but couldn't mark the TODO line (%v)\n", id, err)
 			}

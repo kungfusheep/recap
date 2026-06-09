@@ -26,7 +26,16 @@ Ordered low-risk → high-risk so the reviewer can stop/redirect at any boundary
 
 - [x] **Slice 1 — `config` package.** Extract `config.go` → `config/config.go`
       (`Config`, `LoadConfig`, `Config.TODOPathFor`, `AppendTODO`). Pure file-I/O leaf,
-      no UI coupling. Test moved to `config/config_test.go`. *(this commit)*
+      no UI coupling. Test moved to `config/config_test.go`.
+- [x] **Slice 1b — split `todo` out of `config`** (reviewer steer, #170 c205: "config is
+      application *config*, TODO is application *data* — split them"). New `todo` package
+      owns the TODO data ops: `todo.PathFor(template, repoPath)` (was `Config.TODOPathFor`)
+      and `todo.Append` (was `AppendTODO`). `config` is now pure app config
+      (`Config{TODOTemplate, NameTheme}`, `LoadConfig`). `todo` takes the template as a
+      param so the data package doesn't depend on config. **Deferred:** the rest of the
+      TODO data layer (`todo_edit.go`: `todoItem` + parse/read/write/toggle) carries
+      glyph-coupled UI fields on its struct, so it moves into `todo` as part of slice 5
+      (UI-globals decoupling), where those UI fields get separated from the data.
 - [ ] **Slice 2 — `store` → `db` package.** The canonical "db package". `store.go` is
       already a zero-coupling leaf and `store_test.go` is already pure-store. The cost is
       blast radius: every `Task`/`Comment`/`Review`/`State*`/`Verdict*`/`Status*` and

@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/kungfusheep/recap/config"
+	"github.com/kungfusheep/recap/todo"
 	. "github.com/kungfusheep/glyph"
 )
 
@@ -108,7 +109,7 @@ func loadUpcoming(repoPath string) []string {
 	if err != nil {
 		return nil
 	}
-	path, err := cfg.TODOPathFor(repoPath)
+	path, err := todo.PathFor(cfg.TODOTemplate, repoPath)
 	if err != nil || path == "" {
 		return nil
 	}
