@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/kungfusheep/recap/db"
 	"testing"
 
 	. "github.com/kungfusheep/glyph"
@@ -25,7 +26,7 @@ func TestDraftPaneScrollbarWired(t *testing.T) {
 		draftFocused = 0
 		draftScrollOffset, draftScrollVisible, draftScrollTotal = 0, 0, 0
 	})
-	st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	reloadTasks()
 
 	draftComments = make([]draftCommentVM, 30)
@@ -33,8 +34,8 @@ func TestDraftPaneScrollbarWired(t *testing.T) {
 		draftComments[i] = draftCommentVM{Body: fmt.Sprintf("comment-%02d", i), Location: "general"}
 	}
 	hasDraft = true
-	pane = paneDraft     // focused on the comments column
-	draftFocused = 1.0   // scrollbar fully visible
+	pane = paneDraft   // focused on the comments column
+	draftFocused = 1.0 // scrollbar fully visible
 	draftSel = len(draftComments) - 1
 
 	tmpl := Build(buildMain())

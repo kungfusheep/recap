@@ -54,6 +54,7 @@
       margin: 0 auto;
       max-width: 59ch;
       padding: 4rem 1rem 3rem;
+      width: 100%;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
     }
@@ -98,9 +99,10 @@
       background: var(--code-bg);
       border-radius: 1.1em;
       color: var(--fg);
-      margin: 1.35em -1.1em;
+      margin: 1.35em calc(50% - min(96vw, 58rem) / 2);
       overflow: hidden;
       padding: 1em 1.1em;
+      width: min(96vw, 58rem);
     }
 
     .figure-scroll {
@@ -367,12 +369,52 @@
 
     @media (max-width: 560px) {
       body {
+        margin-left: 0;
+        margin-right: 0;
+        max-width: 390px;
         padding: 2rem 1rem 3rem;
       }
       .review-loop-figure {
-        margin-left: 0.65em;
-        margin-right: 0.65em;
-        padding: 1em;
+        margin-left: calc(50% - min(100%, 24rem) / 2);
+        margin-right: calc(50% - min(100%, 24rem) / 2);
+        padding: 0.9em;
+        width: min(100%, 24rem);
+      }
+      .figure-scroll {
+        overflow-x: visible;
+      }
+      .chart {
+        grid-template-columns: 7.2ch repeat(6, minmax(0, 1fr));
+        min-width: 0;
+        row-gap: 0.5em;
+      }
+      .axis {
+        font-size: 0.66em;
+      }
+      .flow-head {
+        flex-wrap: wrap;
+        gap: 0.2em 0.75ch;
+      }
+      .flow-head b {
+        letter-spacing: 1.4px;
+      }
+      .flow-head .cycles {
+        margin-left: 0;
+      }
+      .role {
+        font-size: 0.68em;
+        padding-right: 0.7ch;
+      }
+      .seg,
+      .done,
+      .wt {
+        font-size: 0.62em;
+        margin: 0 0.1ch;
+        min-height: 4.1em;
+        padding: 0.25em 0.25ch;
+      }
+      .tag {
+        font-size: 0.62em;
       }
       .result {
         flex-direction: column;
@@ -429,7 +471,7 @@
           <div class="seg fix" style="grid-row:10;grid-column:4/5">fix 1</div>
           <div class="seg idle" style="grid-row:10;grid-column:5/6">waiting</div>
           <div class="seg tax" style="grid-row:10;grid-column:6/7">merge + drift</div>
-          <div class="done" style="grid-row:10/12;grid-column:7/9"><b>done</b><span>a cycle behind async</span></div>
+          <div class="done" style="grid-row:10/12;grid-column:7/8"><b>done</b><span>a cycle behind async</span></div>
           <div class="role" style="grid-row:11">reviewer</div>
           <div class="seg rev" style="grid-row:11;grid-column:3/4">review 1</div>
           <div class="seg rev" style="grid-row:11;grid-column:4/5">review 2</div>

@@ -1,4 +1,4 @@
-package main
+package db
 
 import (
 	"database/sql"
@@ -205,8 +205,8 @@ func (s *Store) migrate() error {
 	return nil
 }
 
-// dbPath resolves the global review db location: $RECAP_DB or ~/.config/recap/recap.db.
-func dbPath() (string, error) {
+// Path resolves the global review db location: $RECAP_DB or ~/.config/recap/recap.db.
+func Path() (string, error) {
 	if p := os.Getenv("RECAP_DB"); p != "" {
 		return p, nil
 	}
@@ -219,7 +219,7 @@ func dbPath() (string, error) {
 
 // Open opens the global review db (creating it and its dir if needed).
 func Open() (*Store, error) {
-	p, err := dbPath()
+	p, err := Path()
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +251,7 @@ func OpenAt(path string) (*Store, error) {
 
 func (s *Store) Close() error { return s.db.Close() }
 
-func nowStamp() string { return time.Now().Format("2006-01-02 15:04:05") }
+func NowStamp() string { return time.Now().Format("2006-01-02 15:04:05") }
 
 // Add records a completed task and returns its id.
 func (s *Store) Add(t Task) (int64, error) {
@@ -265,7 +265,7 @@ func (s *Store) Add(t Task) (int64, error) {
 		return 0, fmt.Errorf("invalid status %q", t.Status)
 	}
 	if t.CreatedAt == "" {
-		t.CreatedAt = nowStamp()
+		t.CreatedAt = NowStamp()
 	}
 	res, err := s.db.Exec(
 		`INSERT INTO tasks (repo, repo_path, sha, title, criterion, check_cmd, result, status, created_at, parent_id, summary)
@@ -348,7 +348,7 @@ func (s *Store) AddComment(taskID int64, who, body string) (int64, error) {
 	}
 	res, err := s.db.Exec(
 		`INSERT INTO comments (task_id, who, body, created_at) VALUES (?,?,?,?)`,
-		taskID, who, body, nowStamp())
+		taskID, who, body, NowStamp())
 	if err != nil {
 		return 0, err
 	}
@@ -378,7 +378,7 @@ func (s *Store) markRead(col string, ids ...int64) error {
 	}
 	q := make([]string, len(ids))
 	args := make([]any, 0, len(ids)+1)
-	args = append(args, nowStamp())
+	args = append(args, NowStamp())
 	for i, id := range ids {
 		q[i] = "?"
 		args = append(args, id)
@@ -439,7 +439,7 @@ func (s *Store) AddReply(parentID int64, who, body string) (int64, error) {
 	res, err := s.db.Exec(
 		`INSERT INTO comments (task_id, review_id, parent_id, who, body, created_at)
 		 VALUES (?,?,?,?,?,?)`,
-		taskID, nullID(reviewID), parentID, who, body, nowStamp())
+		taskID, nullID(reviewID), parentID, who, body, NowStamp())
 	if err != nil {
 		return 0, err
 	}
@@ -528,7 +528,7 @@ func (s *Store) draftReview(taskID int64) (int64, error) {
 	}
 	res, err := s.db.Exec(
 		`INSERT INTO reviews (task_id, state, created_at) VALUES (?,?,?)`,
-		taskID, ReviewDraft, nowStamp())
+		taskID, ReviewDraft, NowStamp())
 	if err != nil {
 		return 0, err
 	}
@@ -623,7 +623,7 @@ func (s *Store) AddReviewComment(taskID int64, who, body, file string, line int,
 	res, err := s.db.Exec(
 		`INSERT INTO comments (task_id, review_id, who, body, file, line, anchor, snippet, created_at)
 		 VALUES (?,?,?,?,?,?,?,?,?)`,
-		taskID, rid, who, body, nullStr(file), nullInt(line), nullStr(anchor), nullStr(snippet), nowStamp())
+		taskID, rid, who, body, nullStr(file), nullInt(line), nullStr(anchor), nullStr(snippet), NowStamp())
 	if err != nil {
 		return 0, err
 	}
@@ -688,7 +688,7 @@ func (s *Store) SubmitReview(taskID int64, verdict, summary string) (Review, err
 	}
 	if _, err := s.db.Exec(
 		`UPDATE reviews SET verdict = ?, summary = ?, state = ?, submitted_at = ? WHERE id = ?`,
-		verdict, summary, ReviewSubmitted, nowStamp(), rid); err != nil {
+		verdict, summary, ReviewSubmitted, NowStamp(), rid); err != nil {
 		return Review{}, err
 	}
 	switch verdict {
@@ -767,7 +767,7 @@ func (s *Store) AddRevision(taskID int64, sha, summary string) (int64, error) {
 	}
 	res, err := s.db.Exec(
 		`INSERT INTO revisions (task_id, sha, summary, created_at) VALUES (?,?,?,?)`,
-		taskID, sha, nullStr(summary), nowStamp())
+		taskID, sha, nullStr(summary), NowStamp())
 	if err != nil {
 		return 0, err
 	}
@@ -802,11 +802,11 @@ func (s *Store) Revisions(taskID int64) ([]Revision, error) {
 	return out, rows.Err()
 }
 
-// resolveOpenRequestChanges resolves a task's newest submitted request_changes
+// ResolveOpenRequestChanges resolves a task's newest submitted request_changes
 // review — the one a fix-forward addresses — returning its id (0 if none is open).
 // This is what returns a revised task to the inbox: with the blocking review
 // resolved, ReviewState derives back to pending.
-func (s *Store) resolveOpenRequestChanges(taskID int64) (int64, error) {
+func (s *Store) ResolveOpenRequestChanges(taskID int64) (int64, error) {
 	var rid int64
 	err := s.db.QueryRow(
 		`SELECT id FROM reviews WHERE task_id = ? AND state = ? AND verdict = ? ORDER BY id DESC LIMIT 1`,
@@ -858,7 +858,7 @@ func (s *Store) ResolveReview(id int64) error {
 	// though they were dealt with. (The fix for: "multiple comments aren't all marked read".)
 	if _, err := s.db.Exec(
 		`UPDATE comments SET read_agent = ? WHERE review_id = ? AND who = 'you' AND COALESCE(read_agent,'') = ''`,
-		nowStamp(), id); err != nil {
+		NowStamp(), id); err != nil {
 		return err
 	}
 	return nil

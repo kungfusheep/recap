@@ -8,6 +8,7 @@ import (
 	_ "embed"
 	"flag"
 	"fmt"
+	"github.com/kungfusheep/recap/db"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -206,7 +207,7 @@ func cmdAdd(args []string) error {
 	repoPath := fs.String("repo-path", "", "repo path (default: git root of cwd)")
 	repo := fs.String("repo", "", "short repo name (default: basename)")
 	sha := fs.String("sha", "", "commit sha (default: short HEAD)")
-	status := fs.String("status", StatusPending, "pending|approved|redo")
+	status := fs.String("status", db.StatusPending, "pending|approved|redo")
 	parent := fs.Int64("parent", 0, "id of the task this fixes forward")
 	summary := fs.String("summary", "", "reviewer briefing: what you did + why + what to watch (richer than the commit msg)")
 	fs.Parse(args)
@@ -234,7 +235,7 @@ func cmdAdd(args []string) error {
 		*sha = h
 	}
 
-	st, err := Open()
+	st, err := db.Open()
 	if err != nil {
 		return err
 	}
@@ -244,7 +245,7 @@ func cmdAdd(args []string) error {
 			return fmt.Errorf("--parent: %w", err)
 		}
 	}
-	id, err := st.Add(Task{
+	id, err := st.Add(db.Task{
 		Repo: *repo, RepoPath: *repoPath, SHA: *sha, Title: *title,
 		Criterion: *criterion, CheckCmd: *check, Result: *result, Status: *status,
 		ParentID: *parent, Summary: *summary,
@@ -263,16 +264,16 @@ func cmdAdd(args []string) error {
 
 func statusGlyph(s string) string {
 	switch s {
-	case StatusApproved:
+	case db.StatusApproved:
 		return "✓"
-	case StatusRedo:
+	case db.StatusRedo:
 		return "↻"
 	default:
 		return "●"
 	}
 }
 
-func printTaskLine(t Task) {
+func printTaskLine(t db.Task) {
 	fmt.Printf("%-4d %s %-8s %-10s %s\n", t.ID, statusGlyph(t.Status), t.CreatedAt[11:], t.Repo, t.Title)
 }
 
@@ -285,9 +286,9 @@ func cmdLs(args []string) error {
 
 	filter := *status
 	if filter == "" && !*all {
-		filter = StatusPending
+		filter = db.StatusPending
 	}
-	st, err := Open()
+	st, err := db.Open()
 	if err != nil {
 		return err
 	}
@@ -340,7 +341,7 @@ func cmdShow(args []string) error {
 		return err
 	}
 
-	st, err := Open()
+	st, err := db.Open()
 	if err != nil {
 		return err
 	}
@@ -400,7 +401,7 @@ func cmdRedo(args []string) error {
 	if !*allRepos {
 		repo = currentRepo() // scope to this project so a loop never drains another's
 	}
-	st, err := Open()
+	st, err := db.Open()
 	if err != nil {
 		return err
 	}
@@ -413,9 +414,9 @@ func cmdRedo(args []string) error {
 	if err != nil {
 		return err
 	}
-	var tasks []Task
+	var tasks []db.Task
 	for i := len(all) - 1; i >= 0; i-- { // List is id DESC; drain oldest first
-		if st.ReviewState(all[i].ID) == StateRework {
+		if st.ReviewState(all[i].ID) == db.StateRework {
 			tasks = append(tasks, all[i])
 		}
 	}
@@ -458,7 +459,7 @@ func cmdComment(args []string) error {
 	if *body == "" {
 		return fmt.Errorf("--body is required")
 	}
-	st, err := Open()
+	st, err := db.Open()
 	if err != nil {
 		return err
 	}
@@ -482,7 +483,7 @@ func cmdUnread(args []string) error {
 	if !*allRepos {
 		repo = currentRepo() // scope to this project so a loop never sees another's feedback
 	}
-	st, err := Open()
+	st, err := db.Open()
 	if err != nil {
 		return err
 	}
@@ -528,7 +529,7 @@ func cmdRead(args []string) error {
 	if len(ids) == 0 {
 		return fmt.Errorf("usage: recap read <comment-id>…")
 	}
-	st, err := Open()
+	st, err := db.Open()
 	if err != nil {
 		return err
 	}
@@ -600,7 +601,7 @@ func cmdCurrent(args []string) error {
 	// re-inspect without advancing: print the full work order (concrete verbs + the
 	// exact review id) by resolving the cursor against the live queue. Fall back to the
 	// stored title if the item has since left the queue (e.g. just completed).
-	st, err := Open()
+	st, err := db.Open()
 	if err != nil {
 		return err
 	}
@@ -636,7 +637,7 @@ func cmdEmote(args []string) error {
 	if emote == "" { // positional form: recap emote <id> 👍
 		emote = strings.TrimSpace(strings.Join(positional, " "))
 	}
-	st, err := Open()
+	st, err := db.Open()
 	if err != nil {
 		return err
 	}
@@ -678,7 +679,7 @@ func cmdReply(args []string) error {
 	if *body == "" {
 		return fmt.Errorf("--body is required")
 	}
-	st, err := Open()
+	st, err := db.Open()
 	if err != nil {
 		return err
 	}
@@ -705,7 +706,7 @@ func cmdDelete(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("usage: recap delete <id>... (alias: rm)")
 	}
-	st, err := Open()
+	st, err := db.Open()
 	if err != nil {
 		return err
 	}
@@ -753,7 +754,7 @@ func cmdRevise(args []string) error {
 	if err != nil {
 		return err
 	}
-	st, err := Open()
+	st, err := db.Open()
 	if err != nil {
 		return err
 	}
@@ -775,7 +776,7 @@ func cmdRevise(args []string) error {
 	if _, err := st.AddRevision(id, *sha, *summary); err != nil {
 		return err
 	}
-	resolved, err := st.resolveOpenRequestChanges(id)
+	resolved, err := st.ResolveOpenRequestChanges(id)
 	if err != nil {
 		return err
 	}
@@ -835,7 +836,7 @@ func cmdReviewComment(args []string) error {
 	if *body == "" {
 		return fmt.Errorf("--body is required")
 	}
-	st, err := Open()
+	st, err := db.Open()
 	if err != nil {
 		return err
 	}
@@ -870,7 +871,7 @@ func cmdReviewSubmit(args []string) error {
 	if *verdict == "" {
 		return fmt.Errorf("--verdict is required (request_changes|approve|comment)")
 	}
-	st, err := Open()
+	st, err := db.Open()
 	if err != nil {
 		return err
 	}
@@ -888,7 +889,7 @@ func cmdReviewSubmit(args []string) error {
 // the agent directly from the db (recap next's amends tier / recap redo) — no TODO
 // breadcrumb: the db is the single source, and a breadcrumb would both pollute the
 // human's TODO and double-list the review in recap next. Shared by the CLI and TUI.
-func submitReview(st *Store, taskID int64, verdict, summary string) (Review, error) {
+func submitReview(st *db.Store, taskID int64, verdict, summary string) (db.Review, error) {
 	return st.SubmitReview(taskID, verdict, summary)
 }
 
@@ -901,7 +902,7 @@ func cmdReviewShow(args []string) error {
 	if err != nil {
 		return err
 	}
-	st, err := Open()
+	st, err := db.Open()
 	if err != nil {
 		return err
 	}
@@ -959,8 +960,8 @@ func cmdReviewShow(args []string) error {
 // ones (in order) and a parent_id → replies index for nesting. A reply whose
 // parent isn't in the set (shouldn't happen) is treated as top-level so it's
 // never hidden.
-func splitThread(cs []Comment) (top []Comment, byParent map[int64][]Comment) {
-	byParent = map[int64][]Comment{}
+func splitThread(cs []db.Comment) (top []db.Comment, byParent map[int64][]db.Comment) {
+	byParent = map[int64][]db.Comment{}
 	present := map[int64]bool{}
 	for _, c := range cs {
 		present[c.ID] = true
@@ -977,7 +978,7 @@ func splitThread(cs []Comment) (top []Comment, byParent map[int64][]Comment) {
 
 // printReplies renders a comment's reply subtree, indented by depth (general
 // threading: a reply can itself have replies).
-func printReplies(parentID int64, byParent map[int64][]Comment, depth int) {
+func printReplies(parentID int64, byParent map[int64][]db.Comment, depth int) {
 	for _, r := range byParent[parentID] {
 		fmt.Printf("%s↳ [c%d] %s (%s): %s%s\n", strings.Repeat("  ", depth+2), r.ID, r.Who, r.CreatedAt, r.Body, emoteSuffix(r))
 		printReplies(r.ID, byParent, depth+1)
@@ -985,7 +986,7 @@ func printReplies(parentID int64, byParent map[int64][]Comment, depth int) {
 }
 
 // emoteSuffix renders a comment's reaction as a trailing "  👍" (or "" if none).
-func emoteSuffix(c Comment) string {
+func emoteSuffix(c db.Comment) string {
 	if c.Emote == "" {
 		return ""
 	}
@@ -1001,7 +1002,7 @@ func cmdReviewResolve(args []string) error {
 	if err != nil {
 		return err
 	}
-	st, err := Open()
+	st, err := db.Open()
 	if err != nil {
 		return err
 	}
@@ -1023,7 +1024,7 @@ func cmdReviewDiscard(args []string) error {
 	if err != nil {
 		return err
 	}
-	st, err := Open()
+	st, err := db.Open()
 	if err != nil {
 		return err
 	}
@@ -1055,7 +1056,7 @@ func cmdReviewLs(args []string) error {
 		*repo = ""
 	}
 
-	st, err := Open()
+	st, err := db.Open()
 	if err != nil {
 		return err
 	}
@@ -1082,7 +1083,7 @@ func cmdSet(args []string) error {
 	if err != nil {
 		return err
 	}
-	st, err := Open()
+	st, err := db.Open()
 	if err != nil {
 		return err
 	}

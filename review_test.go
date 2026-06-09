@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/kungfusheep/recap/db"
 	"os"
 	"testing"
 )
@@ -11,7 +12,7 @@ func TestReviewLifecycle(t *testing.T) {
 	st := testStore(t)
 	defer st.Close()
 
-	id, err := st.Add(Task{Repo: "wed", RepoPath: "/tmp/wed", Title: "split editor", Status: StatusPending})
+	id, err := st.Add(db.Task{Repo: "wed", RepoPath: "/tmp/wed", Title: "split editor", Status: db.StatusPending})
 	if err != nil {
 		t.Fatalf("add: %v", err)
 	}
@@ -24,24 +25,24 @@ func TestReviewLifecycle(t *testing.T) {
 		t.Fatalf("comment 2: %v", err)
 	}
 
-	drafts, _ := st.ListReviews(ReviewDraft, "")
+	drafts, _ := st.ListReviews(db.ReviewDraft, "")
 	if len(drafts) != 1 {
 		t.Fatalf("want 1 draft review, got %d", len(drafts))
 	}
 
 	// submit request_changes -> task flips to redo, review becomes submitted
-	rv, err := st.SubmitReview(id, VerdictRequestChanges, "break the editor->app config edge")
+	rv, err := st.SubmitReview(id, db.VerdictRequestChanges, "break the editor->app config edge")
 	if err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	if rv.State != ReviewSubmitted || rv.Verdict != VerdictRequestChanges {
+	if rv.State != db.ReviewSubmitted || rv.Verdict != db.VerdictRequestChanges {
 		t.Fatalf("review not submitted correctly: %+v", rv)
 	}
 	if rv.SubmittedAt == "" {
 		t.Fatalf("submitted_at not stamped")
 	}
 	got, _ := st.Get(id)
-	if got.Status != StatusRedo {
+	if got.Status != db.StatusRedo {
 		t.Fatalf("want task redo after request_changes, got %q", got.Status)
 	}
 
@@ -59,7 +60,7 @@ func TestReviewLifecycle(t *testing.T) {
 		t.Fatalf("resolve: %v", err)
 	}
 	again, _ := st.GetReview(rv.ID)
-	if again.State != ReviewResolved {
+	if again.State != db.ReviewResolved {
 		t.Fatalf("want resolved, got %q", again.State)
 	}
 }
@@ -73,12 +74,12 @@ func TestSubmitVerdictStatus(t *testing.T) {
 		verdict string
 		want    string
 	}{
-		{VerdictApprove, StatusApproved},
-		{VerdictRequestChanges, StatusRedo},
-		{VerdictComment, StatusPending}, // non-blocking: status untouched
+		{db.VerdictApprove, db.StatusApproved},
+		{db.VerdictRequestChanges, db.StatusRedo},
+		{db.VerdictComment, db.StatusPending}, // non-blocking: status untouched
 	}
 	for _, tc := range cases {
-		id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+		id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 		if _, err := st.SubmitReview(id, tc.verdict, "note"); err != nil {
 			t.Fatalf("%s submit: %v", tc.verdict, err)
 		}
@@ -97,8 +98,8 @@ func TestSubmitVerdictStatus(t *testing.T) {
 func TestParentLineage(t *testing.T) {
 	st := testStore(t)
 	defer st.Close()
-	orig, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "original", Status: StatusRedo})
-	fix, err := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "fix forward", Status: StatusPending, ParentID: orig})
+	orig, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "original", Status: db.StatusRedo})
+	fix, err := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "fix forward", Status: db.StatusPending, ParentID: orig})
 	if err != nil {
 		t.Fatalf("add fix: %v", err)
 	}
@@ -117,7 +118,7 @@ func TestParentLineage(t *testing.T) {
 func TestEditDeleteComment(t *testing.T) {
 	st := testStore(t)
 	defer st.Close()
-	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	c1, _ := st.AddReviewComment(id, "you", "first", "a.go", 1, "@@", "x")
 	c2, _ := st.AddReviewComment(id, "you", "second", "a.go", 2, "@@", "y")
 
@@ -144,7 +145,7 @@ func TestEditDeleteComment(t *testing.T) {
 	}
 
 	// once submitted, comments are immutable
-	if _, err := st.SubmitReview(id, VerdictComment, "done"); err != nil {
+	if _, err := st.SubmitReview(id, db.VerdictComment, "done"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
 	if err := st.UpdateComment(c1, "too late"); err == nil {
@@ -160,17 +161,17 @@ func TestEditDeleteComment(t *testing.T) {
 func TestUnsubmitReview(t *testing.T) {
 	st := testStore(t)
 	defer st.Close()
-	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	cid, _ := st.AddReviewComment(id, "you", "fix this", "a.go", 1, "@@", "x")
-	st.SubmitReview(id, VerdictRequestChanges, "")
-	if got := st.ReviewState(id); got != StateRework {
+	st.SubmitReview(id, db.VerdictRequestChanges, "")
+	if got := st.ReviewState(id); got != db.StateRework {
 		t.Fatalf("after submit: want rework, got %s", got)
 	}
 
 	if err := st.UnsubmitReview(id); err != nil {
 		t.Fatalf("unsubmit: %v", err)
 	}
-	if got := st.ReviewState(id); got != StatePending {
+	if got := st.ReviewState(id); got != db.StatePending {
 		t.Fatalf("after unsubmit: want pending(inbox), got %s", got)
 	}
 	// the comment is back on a draft and editable again
@@ -192,47 +193,47 @@ func TestUnsubmitReview(t *testing.T) {
 func TestReviewStateDerivation(t *testing.T) {
 	st := testStore(t)
 	defer st.Close()
-	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 
 	// fresh task: pending
-	if got := st.ReviewState(id); got != StatePending {
+	if got := st.ReviewState(id); got != db.StatePending {
 		t.Fatalf("fresh: want pending, got %s", got)
 	}
 
 	// a draft comment must NOT change state
 	st.AddReviewComment(id, "you", "wip", "a.go", 1, "@@", "x")
-	if got := st.ReviewState(id); got != StatePending {
+	if got := st.ReviewState(id); got != db.StatePending {
 		t.Fatalf("draft present: want pending, got %s", got)
 	}
 
 	// submit request_changes → rework
-	if _, err := st.SubmitReview(id, VerdictRequestChanges, "fix"); err != nil {
+	if _, err := st.SubmitReview(id, db.VerdictRequestChanges, "fix"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	if got := st.ReviewState(id); got != StateRework {
+	if got := st.ReviewState(id); got != db.StateRework {
 		t.Fatalf("after request_changes: want rework, got %s", got)
 	}
 
 	// resolve → back to pending (addressed via fix-forward)
-	rv, _ := st.ListReviews(ReviewSubmitted, "")
+	rv, _ := st.ListReviews(db.ReviewSubmitted, "")
 	if err := st.ResolveReview(rv[0].ID); err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if got := st.ReviewState(id); got != StatePending {
+	if got := st.ReviewState(id); got != db.StatePending {
 		t.Fatalf("after resolve: want pending, got %s", got)
 	}
 
 	// approve review → approved
-	if _, err := st.SubmitReview(id, VerdictApprove, ""); err != nil {
+	if _, err := st.SubmitReview(id, db.VerdictApprove, ""); err != nil {
 		t.Fatalf("approve: %v", err)
 	}
-	if got := st.ReviewState(id); got != StateDone {
+	if got := st.ReviewState(id); got != db.StateDone {
 		t.Fatalf("after approve: want approved, got %s", got)
 	}
 
 	// a task approved directly (legacy flag, no review) is honoured
-	id2, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t2", Status: StatusApproved})
-	if got := st.ReviewState(id2); got != StateDone {
+	id2, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t2", Status: db.StatusApproved})
+	if got := st.ReviewState(id2); got != db.StateDone {
 		t.Fatalf("direct approval: want approved, got %s", got)
 	}
 }
@@ -246,26 +247,26 @@ func TestReviewStateDerivation(t *testing.T) {
 func TestReworkQueueIsDerivedNotFlagged(t *testing.T) {
 	st := testStore(t)
 	defer st.Close()
-	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	st.AddReviewComment(id, "you", "fix this", "a.go", 1, "@@", "x")
-	st.SubmitReview(id, VerdictRequestChanges, "")
+	st.SubmitReview(id, db.VerdictRequestChanges, "")
 
 	// while submitted: both agree it needs rework.
-	if got, _ := st.Get(id); got.Status != StatusRedo {
+	if got, _ := st.Get(id); got.Status != db.StatusRedo {
 		t.Fatalf("submit should set the legacy flag to redo, got %q", got.Status)
 	}
-	if got := st.ReviewState(id); got != StateRework {
+	if got := st.ReviewState(id); got != db.StateRework {
 		t.Fatalf("submitted request_changes: want rework, got %s", got)
 	}
 
-	rv, _ := st.ListReviews(ReviewSubmitted, "")
+	rv, _ := st.ListReviews(db.ReviewSubmitted, "")
 	st.ResolveReview(rv[0].ID)
 
 	// the divergence: the flag is stale, the derived state is the truth.
-	if got, _ := st.Get(id); got.Status != StatusRedo {
+	if got, _ := st.Get(id); got.Status != db.StatusRedo {
 		t.Fatalf("resolve intentionally leaves the legacy flag at redo, got %q", got.Status)
 	}
-	if got := st.ReviewState(id); got != StatePending {
+	if got := st.ReviewState(id); got != db.StatePending {
 		t.Fatalf("resolved task must derive to pending (out of the rework queue), got %s", got)
 	}
 }
@@ -315,7 +316,7 @@ func TestRevisions(t *testing.T) {
 	st := testStore(t)
 	defer st.Close()
 
-	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", SHA: "base000", Title: "t", Summary: "original", Status: StatusPending})
+	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", SHA: "base000", Title: "t", Summary: "original", Status: db.StatusPending})
 
 	// a fresh task has exactly the base revision
 	revs, err := st.Revisions(id)
@@ -369,10 +370,10 @@ func TestReviseReturnsToInbox(t *testing.T) {
 	st := testStore(t)
 	defer st.Close()
 
-	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", SHA: "base000", Title: "t", Status: StatusPending})
+	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", SHA: "base000", Title: "t", Status: db.StatusPending})
 	st.AddReviewComment(id, "you", "fix this", "a.go", 1, "@@", "x")
-	st.SubmitReview(id, VerdictRequestChanges, "needs work")
-	if got := st.ReviewState(id); got != StateRework {
+	st.SubmitReview(id, db.VerdictRequestChanges, "needs work")
+	if got := st.ReviewState(id); got != db.StateRework {
 		t.Fatalf("after submit: want rework, got %s", got)
 	}
 
@@ -380,7 +381,7 @@ func TestReviseReturnsToInbox(t *testing.T) {
 	if _, err := st.AddRevision(id, "fix111", "addressed it"); err != nil {
 		t.Fatalf("add revision: %v", err)
 	}
-	resolved, err := st.resolveOpenRequestChanges(id)
+	resolved, err := st.ResolveOpenRequestChanges(id)
 	if err != nil {
 		t.Fatalf("resolve open: %v", err)
 	}
@@ -389,11 +390,11 @@ func TestReviseReturnsToInbox(t *testing.T) {
 	}
 
 	// same task, back in the inbox (pending), now carrying two diffs
-	if got := st.ReviewState(id); got != StatePending {
+	if got := st.ReviewState(id); got != db.StatePending {
 		t.Fatalf("after revise: want pending(inbox), got %s", got)
 	}
 	// and the legacy status flag tracks, so flag-based `recap ls` agrees
-	if got, _ := st.Get(id); got.Status != StatusPending {
+	if got, _ := st.Get(id); got.Status != db.StatusPending {
 		t.Fatalf("after revise: legacy status should be pending, got %q", got.Status)
 	}
 	revs, _ := st.Revisions(id)
@@ -406,7 +407,7 @@ func TestReviseReturnsToInbox(t *testing.T) {
 	}
 
 	// with no open request_changes, resolveOpenRequestChanges is a no-op (0)
-	again, err := st.resolveOpenRequestChanges(id)
+	again, err := st.ResolveOpenRequestChanges(id)
 	if err != nil || again != 0 {
 		t.Fatalf("second resolve should be a no-op, got id=%d err=%v", again, err)
 	}
@@ -418,10 +419,10 @@ func TestDeleteTask(t *testing.T) {
 	st := testStore(t)
 	defer st.Close()
 
-	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "doomed", Status: StatusPending})
+	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "doomed", Status: db.StatusPending})
 	st.AddReviewComment(id, "you", "a note", "a.go", 1, "@@", "x")
-	st.SubmitReview(id, VerdictRequestChanges, "fix it")
-	child, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "fix", Status: StatusPending, ParentID: id})
+	st.SubmitReview(id, db.VerdictRequestChanges, "fix it")
+	child, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "fix", Status: db.StatusPending, ParentID: id})
 
 	if err := st.Delete(id); err != nil {
 		t.Fatalf("delete: %v", err)
@@ -456,20 +457,20 @@ func TestDeleteTask(t *testing.T) {
 func TestListReviewsByRepo(t *testing.T) {
 	st := testStore(t)
 	defer st.Close()
-	a, _ := st.Add(Task{Repo: "alpha", RepoPath: "/tmp/alpha", Title: "a", Status: StatusPending})
-	b, _ := st.Add(Task{Repo: "beta", RepoPath: "/tmp/beta", Title: "b", Status: StatusPending})
-	st.SubmitReview(a, VerdictRequestChanges, "fix a")
-	st.SubmitReview(b, VerdictRequestChanges, "fix b")
+	a, _ := st.Add(db.Task{Repo: "alpha", RepoPath: "/tmp/alpha", Title: "a", Status: db.StatusPending})
+	b, _ := st.Add(db.Task{Repo: "beta", RepoPath: "/tmp/beta", Title: "b", Status: db.StatusPending})
+	st.SubmitReview(a, db.VerdictRequestChanges, "fix a")
+	st.SubmitReview(b, db.VerdictRequestChanges, "fix b")
 
-	all, _ := st.ListReviews(ReviewSubmitted, "")
+	all, _ := st.ListReviews(db.ReviewSubmitted, "")
 	if len(all) != 2 {
 		t.Fatalf("unscoped: want 2 reviews, got %d", len(all))
 	}
-	onlyAlpha, _ := st.ListReviews(ReviewSubmitted, "alpha")
+	onlyAlpha, _ := st.ListReviews(db.ReviewSubmitted, "alpha")
 	if len(onlyAlpha) != 1 || onlyAlpha[0].TaskID != a {
 		t.Fatalf("repo scope alpha = %+v, want just task %d", onlyAlpha, a)
 	}
-	if none, _ := st.ListReviews(ReviewSubmitted, "gamma"); len(none) != 0 {
+	if none, _ := st.ListReviews(db.ReviewSubmitted, "gamma"); len(none) != 0 {
 		t.Fatalf("repo scope gamma: want 0, got %d", len(none))
 	}
 }
@@ -478,12 +479,12 @@ func TestListReviewsByRepo(t *testing.T) {
 func TestDiscardReview(t *testing.T) {
 	st := testStore(t)
 	defer st.Close()
-	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	st.AddReviewComment(id, "you", "wip note", "", 0, "", "")
 	if err := st.DiscardReview(id); err != nil {
 		t.Fatalf("discard: %v", err)
 	}
-	if drafts, _ := st.ListReviews(ReviewDraft, ""); len(drafts) != 0 {
+	if drafts, _ := st.ListReviews(db.ReviewDraft, ""); len(drafts) != 0 {
 		t.Fatalf("want 0 drafts after discard, got %d", len(drafts))
 	}
 	// the comment went with it (review comments are scoped to the review)
@@ -500,14 +501,14 @@ func TestDiscardReview(t *testing.T) {
 // addressed (todo:1a115ddb: "multiple comments aren't all marked read").
 func TestResolveReviewMarksCommentsRead(t *testing.T) {
 	st := testStore(t)
-	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	if _, err := st.AddReviewComment(id, "you", "fix A", "f.go", 1, "@@", "x"); err != nil {
 		t.Fatalf("comment A: %v", err)
 	}
 	if _, err := st.AddReviewComment(id, "you", "fix B", "f.go", 2, "@@", "y"); err != nil {
 		t.Fatalf("comment B: %v", err)
 	}
-	rv, err := st.SubmitReview(id, VerdictRequestChanges, "changes")
+	rv, err := st.SubmitReview(id, db.VerdictRequestChanges, "changes")
 	if err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -525,4 +526,3 @@ func TestResolveReviewMarksCommentsRead(t *testing.T) {
 
 // TODO-template + AppendTODO behaviour moved to the config package
 // (config/config_test.go) when config was extracted to its own package.
-

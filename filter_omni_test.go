@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/kungfusheep/recap/db"
+)
 
 // filterOmniItems lists the repo filters as selectable palette items — "all repos"
 // plus one per project — and each item's action sets the filter. (todo #123)
@@ -52,7 +56,7 @@ func TestFilterOmniItems(t *testing.T) {
 func TestTodoOmniItems(t *testing.T) {
 	prev := tasks
 	t.Cleanup(func() { tasks = prev })
-	tasks = []Task{
+	tasks = []db.Task{
 		{Repo: "alpha", RepoPath: "/a"},
 		{Repo: "alpha", RepoPath: "/a"}, // dup repo → one item
 		{Repo: "beta", RepoPath: "/b"},

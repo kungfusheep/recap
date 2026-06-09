@@ -41,12 +41,15 @@ Ordered low-risk → high-risk so the reviewer can stop/redirect at any boundary
       via `todoPrep` — exactly the inbox's `tasks`→`vmRows` pattern. NO deep data/UI
       crossover was needed; the VM projection cleans it up. `todo_edit.go` deleted; its data
       tests moved to `todo/item_test.go`.
-- [ ] **Slice 2 — `store` → `db` package.** The canonical "db package". `store.go` is
-      already a zero-coupling leaf and `store_test.go` is already pure-store. The cost is
-      blast radius: every `Task`/`Comment`/`Review`/`State*`/`Verdict*`/`Status*` and
-      `st.Method()` reference across the tree gets a `db.` qualifier. Big but mechanical
-      and compiler-driven. **Open question for review: package name `db` vs `store`?**
-      (article example uses `db`; current type is `Store`.)
+- [x] **Slice 2 — data layer → `db` package** (name chosen: `db`, #170 c263). `store.go`
+      → `db/store.go` (`package db`); every `db.Task`/`db.Comment`/`db.Review`/`db.Store`/
+      `db.State*`/`db.Verdict*`/`db.Status*` + `db.Open`/`db.OpenAt`/`db.Path`/`db.NowStamp`
+      qualified across the tree (compiler-driven). Exported the 3 internals used outside:
+      `dbPath`→`Path`, `nowStamp`→`NowStamp`, `resolveOpenRequestChanges`→
+      `ResolveOpenRequestChanges`. The file-beside-db helpers (snooze/cursor/pins/identity/
+      settings) now call `db.Path()`. Tests stay in `package main` (qualified) for now —
+      `testStore` returns `*db.Store`; relocating the pure-store tests into `db/` is optional
+      polish. Build + full suite green.
 - [ ] **Slice 3 — remaining pure leaves.** `diff` (parse/model: `DiffFile`, `DiffHunk`,
       `DiffLine`, `parseUnifiedDiff`), `snooze`, and the per-repo `cursor` (current.go).
       Each has a tiny caller set and no UI-global coupling.

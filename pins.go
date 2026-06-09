@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"github.com/kungfusheep/recap/db"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -21,11 +22,11 @@ func ensurePins() {
 }
 
 func pinsPath() (string, error) {
-	db, err := dbPath()
+	dbp, err := db.Path()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(filepath.Dir(db), "pins"), nil
+	return filepath.Join(filepath.Dir(dbp), "pins"), nil
 }
 
 func loadPins() map[int64]bool {

@@ -3,9 +3,9 @@ package main
 import (
 	"strings"
 
+	. "github.com/kungfusheep/glyph"
 	"github.com/kungfusheep/recap/config"
 	"github.com/kungfusheep/recap/todo"
-	. "github.com/kungfusheep/glyph"
 )
 
 // The TODO editor: a modal view over the selected task's repo TODO file. Toggle

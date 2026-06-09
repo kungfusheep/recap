@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/kungfusheep/recap/db"
 	"strings"
 	"testing"
 
@@ -24,7 +25,7 @@ func TestPromptIsOverlay(t *testing.T) {
 		vmRows = nil
 		commentField = InputState{}
 	})
-	st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "a task", Status: StatusPending})
+	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "a task", Status: db.StatusPending})
 	reloadTasks()
 	sel = 0
 

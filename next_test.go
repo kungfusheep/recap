@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/kungfusheep/recap/db"
 	"os"
 	"strings"
 	"testing"
@@ -98,13 +99,13 @@ func TestBuildQueuePriority(t *testing.T) {
 	defer st.Close()
 
 	// amends task (this repo) — a submitted request_changes review → rework
-	amend, _ := st.Add(Task{Repo: "wed", RepoPath: "/tmp/wed", Title: "amends one", Status: StatusPending})
-	if _, err := st.SubmitReview(amend, VerdictRequestChanges, "fix it"); err != nil {
+	amend, _ := st.Add(db.Task{Repo: "wed", RepoPath: "/tmp/wed", Title: "amends one", Status: db.StatusPending})
+	if _, err := st.SubmitReview(amend, db.VerdictRequestChanges, "fix it"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
 
 	// a separate task with an unread reviewer reply (this repo)
-	chat, _ := st.Add(Task{Repo: "wed", RepoPath: "/tmp/wed", Title: "chat task", Status: StatusPending})
+	chat, _ := st.Add(db.Task{Repo: "wed", RepoPath: "/tmp/wed", Title: "chat task", Status: db.StatusPending})
 	parent, _ := st.AddComment(chat, "agent", "here's what I did")
 	if _, err := st.AddReply(parent, "you", "but did you check X?"); err != nil {
 		t.Fatalf("reply: %v", err)
@@ -115,8 +116,8 @@ func TestBuildQueuePriority(t *testing.T) {
 	st.AddReply(ap, "you", "this is on the amends task")
 
 	// another repo's amends — must NOT appear (scoping)
-	other, _ := st.Add(Task{Repo: "tui", RepoPath: "/tmp/tui", Title: "other repo", Status: StatusPending})
-	st.SubmitReview(other, VerdictRequestChanges, "nope")
+	other, _ := st.Add(db.Task{Repo: "tui", RepoPath: "/tmp/tui", Title: "other repo", Status: db.StatusPending})
+	st.SubmitReview(other, db.VerdictRequestChanges, "nope")
 
 	q := buildQueue(st, "wed", "") // repoPath "" → skip the todo tier
 

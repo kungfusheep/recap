@@ -1,13 +1,14 @@
 package main
 
 import (
+	"github.com/kungfusheep/recap/db"
 	"path/filepath"
 	"testing"
 )
 
-func testStore(t *testing.T) *Store {
+func testStore(t *testing.T) *db.Store {
 	t.Helper()
-	st, err := OpenAt(filepath.Join(t.TempDir(), "recap.db"))
+	st, err := db.OpenAt(filepath.Join(t.TempDir(), "recap.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -17,7 +18,7 @@ func testStore(t *testing.T) *Store {
 
 func TestAddAndGetRoundTrip(t *testing.T) {
 	st := testStore(t)
-	in := Task{
+	in := db.Task{
 		Repo: "wed", RepoPath: "/x/wed", SHA: "abc123", Title: "save-as",
 		Criterion: `parseOpenTarget("f:12:5")=={f,12,5}`, CheckCmd: "go test -run OpenTarget", Result: "PASS",
 	}
@@ -33,7 +34,7 @@ func TestAddAndGetRoundTrip(t *testing.T) {
 		got.Criterion != in.Criterion || got.CheckCmd != in.CheckCmd || got.Result != in.Result {
 		t.Fatalf("round-trip mismatch: %+v", got)
 	}
-	if got.Status != StatusPending {
+	if got.Status != db.StatusPending {
 		t.Errorf("default status = %q, want pending", got.Status)
 	}
 	if got.CreatedAt == "" {
@@ -43,30 +44,30 @@ func TestAddAndGetRoundTrip(t *testing.T) {
 
 func TestStatusFiltering(t *testing.T) {
 	st := testStore(t)
-	id, _ := st.Add(Task{Repo: "wed", Title: "t1"})
+	id, _ := st.Add(db.Task{Repo: "wed", Title: "t1"})
 
-	if got := mustList(t, st, StatusPending, ""); len(got) != 1 {
+	if got := mustList(t, st, db.StatusPending, ""); len(got) != 1 {
 		t.Fatalf("pending list = %d, want 1", len(got))
 	}
-	if got := mustList(t, st, StatusRedo, ""); len(got) != 0 {
+	if got := mustList(t, st, db.StatusRedo, ""); len(got) != 0 {
 		t.Fatalf("redo list = %d, want 0", len(got))
 	}
 
-	if err := st.SetStatus(id, StatusRedo); err != nil {
+	if err := st.SetStatus(id, db.StatusRedo); err != nil {
 		t.Fatalf("set: %v", err)
 	}
-	if got := mustList(t, st, StatusRedo, ""); len(got) != 1 {
+	if got := mustList(t, st, db.StatusRedo, ""); len(got) != 1 {
 		t.Fatalf("after set, redo list = %d, want 1", len(got))
 	}
-	if got := mustList(t, st, StatusPending, ""); len(got) != 0 {
+	if got := mustList(t, st, db.StatusPending, ""); len(got) != 0 {
 		t.Fatalf("after set, pending list = %d, want 0", len(got))
 	}
 }
 
 func TestRepoFilter(t *testing.T) {
 	st := testStore(t)
-	st.Add(Task{Repo: "wed", Title: "a"})
-	st.Add(Task{Repo: "mail", Title: "b"})
+	st.Add(db.Task{Repo: "wed", Title: "a"})
+	st.Add(db.Task{Repo: "mail", Title: "b"})
 	if got := mustList(t, st, "", "wed"); len(got) != 1 || got[0].Title != "a" {
 		t.Fatalf("repo filter wed = %+v", got)
 	}
@@ -74,7 +75,7 @@ func TestRepoFilter(t *testing.T) {
 
 func TestCommentThread(t *testing.T) {
 	st := testStore(t)
-	id, _ := st.Add(Task{Repo: "wed", Title: "t"})
+	id, _ := st.Add(db.Task{Repo: "wed", Title: "t"})
 	if _, err := st.AddComment(id, "you", "pre-fill cwd?"); err != nil {
 		t.Fatalf("comment: %v", err)
 	}
@@ -92,14 +93,14 @@ func TestCommentThread(t *testing.T) {
 
 func TestValidation(t *testing.T) {
 	st := testStore(t)
-	if _, err := st.Add(Task{Repo: "wed"}); err == nil {
+	if _, err := st.Add(db.Task{Repo: "wed"}); err == nil {
 		t.Error("expected error adding task with no title")
 	}
-	id, _ := st.Add(Task{Repo: "wed", Title: "t"})
+	id, _ := st.Add(db.Task{Repo: "wed", Title: "t"})
 	if err := st.SetStatus(id, "bogus"); err == nil {
 		t.Error("expected error setting invalid status")
 	}
-	if err := st.SetStatus(99999, StatusApproved); err == nil {
+	if err := st.SetStatus(99999, db.StatusApproved); err == nil {
 		t.Error("expected error setting status on missing task")
 	}
 	if _, err := st.AddComment(99999, "you", "hi"); err == nil {
@@ -107,7 +108,7 @@ func TestValidation(t *testing.T) {
 	}
 }
 
-func mustList(t *testing.T, st *Store, status, repo string) []Task {
+func mustList(t *testing.T, st *db.Store, status, repo string) []db.Task {
 	t.Helper()
 	got, err := st.List(status, repo)
 	if err != nil {
@@ -124,12 +125,12 @@ func TestDoneOrderLastCompletedFirst(t *testing.T) {
 	uiStore = st
 	t.Cleanup(func() { uiStore = prev })
 
-	a, _ := st.Add(Task{Repo: "wed", Title: "a"}) // id 1
-	b, _ := st.Add(Task{Repo: "wed", Title: "b"}) // id 2
-	c, _ := st.Add(Task{Repo: "wed", Title: "c"}) // id 3
+	a, _ := st.Add(db.Task{Repo: "wed", Title: "a"}) // id 1
+	b, _ := st.Add(db.Task{Repo: "wed", Title: "b"}) // id 2
+	c, _ := st.Add(db.Task{Repo: "wed", Title: "c"}) // id 3
 	// approve in the order c, a, b → b is the last completed, then a, then c
 	for _, id := range []int64{c, a, b} {
-		if _, err := st.SubmitReview(id, VerdictApprove, ""); err != nil {
+		if _, err := st.SubmitReview(id, db.VerdictApprove, ""); err != nil {
 			t.Fatalf("approve %d: %v", id, err)
 		}
 	}
@@ -137,7 +138,7 @@ func TestDoneOrderLastCompletedFirst(t *testing.T) {
 	reloadTasks()
 	var done []int64
 	for _, tk := range tasks {
-		if uiStore.ReviewState(tk.ID) == StateDone {
+		if uiStore.ReviewState(tk.ID) == db.StateDone {
 			done = append(done, tk.ID)
 		}
 	}
@@ -152,7 +153,7 @@ func TestDoneOrderLastCompletedFirst(t *testing.T) {
 // same whether the parent is a line comment (review-scoped) or a loose message.
 func TestAddReplyThreads(t *testing.T) {
 	st := testStore(t)
-	tid, _ := st.Add(Task{Repo: "wed", Title: "t"})
+	tid, _ := st.Add(db.Task{Repo: "wed", Title: "t"})
 
 	// reply to a review (line) comment → inherits its review_id
 	pid, err := st.AddReviewComment(tid, "you", "fix this", "main.go", 10, "@@", "x := 1")
@@ -164,7 +165,7 @@ func TestAddReplyThreads(t *testing.T) {
 		t.Fatalf("AddReply: %v", err)
 	}
 	cs, _ := st.Comments(tid)
-	var reply *Comment
+	var reply *db.Comment
 	for i := range cs {
 		if cs[i].ID == rid {
 			reply = &cs[i]
@@ -208,7 +209,7 @@ func TestAddReplyThreads(t *testing.T) {
 // splitThread separates top-level comments from replies and indexes replies by
 // parent; an orphan reply (parent absent) is surfaced as top-level, never hidden.
 func TestSplitThread(t *testing.T) {
-	cs := []Comment{
+	cs := []db.Comment{
 		{ID: 1, ParentID: 0, Body: "top a"},
 		{ID: 2, ParentID: 1, Body: "reply to a"},
 		{ID: 3, ParentID: 0, Body: "top b"},
@@ -236,8 +237,8 @@ func TestUndoCategorise(t *testing.T) {
 	undoStack = nil
 	t.Cleanup(func() { uiStore = prev; undoStack = nil })
 
-	a, _ := st.Add(Task{Repo: "wed", Title: "a"})
-	b, _ := st.Add(Task{Repo: "wed", Title: "b"})
+	a, _ := st.Add(db.Task{Repo: "wed", Title: "a"})
+	b, _ := st.Add(db.Task{Repo: "wed", Title: "b"})
 	reloadTasks()
 
 	// approve both (via the real handler path so the undo stack is populated)
@@ -245,21 +246,21 @@ func TestUndoCategorise(t *testing.T) {
 	approveSelected()
 	sel = indexOfTask(b)
 	approveSelected()
-	if uiStore.ReviewState(a) != StateDone || uiStore.ReviewState(b) != StateDone {
+	if uiStore.ReviewState(a) != db.StateDone || uiStore.ReviewState(b) != db.StateDone {
 		t.Fatalf("setup: both should be done (a=%s b=%s)", uiStore.ReviewState(a), uiStore.ReviewState(b))
 	}
 
 	// undo → reverses b (last in), not a
 	undoLast()
-	if uiStore.ReviewState(b) != StatePending {
+	if uiStore.ReviewState(b) != db.StatePending {
 		t.Fatalf("after undo, b should be back in inbox, got %s", uiStore.ReviewState(b))
 	}
-	if uiStore.ReviewState(a) != StateDone {
+	if uiStore.ReviewState(a) != db.StateDone {
 		t.Fatalf("a should still be done after undoing b, got %s", uiStore.ReviewState(a))
 	}
 	// undo again → reverses a; a third undo is a no-op (nothing to undo)
 	undoLast()
-	if uiStore.ReviewState(a) != StatePending {
+	if uiStore.ReviewState(a) != db.StatePending {
 		t.Fatalf("after second undo, a should be back in inbox, got %s", uiStore.ReviewState(a))
 	}
 	if len(undoStack) != 0 {
@@ -282,7 +283,7 @@ func indexOfTask(id int64) int {
 // missing comment (so an emote can never silently vanish).
 func TestSetEmote(t *testing.T) {
 	st := testStore(t)
-	tid, _ := st.Add(Task{Repo: "wed", Title: "t"})
+	tid, _ := st.Add(db.Task{Repo: "wed", Title: "t"})
 	cid, _ := st.AddReviewComment(tid, "you", "please fix", "", 0, "", "")
 
 	if err := st.SetEmote(cid, "👍"); err != nil {
@@ -318,7 +319,7 @@ func TestSetEmote(t *testing.T) {
 // marking read clears them; agent comments are never in the agent's unread inbox.
 func TestReadReceipts(t *testing.T) {
 	st := testStore(t)
-	tid, _ := st.Add(Task{Repo: "wed", Title: "t"})
+	tid, _ := st.Add(db.Task{Repo: "wed", Title: "t"})
 	c1, _ := st.AddReviewComment(tid, "you", "fix this", "", 0, "", "")
 	c2, _ := st.AddComment(tid, "you", "a loose note")
 	st.AddComment(tid, "agent", "my own note") // agent's own — never 'unread by agent'
@@ -358,8 +359,8 @@ func TestReadReceipts(t *testing.T) {
 // feedback). Empty repo = all (explicit --all).
 func TestUnreadScopedByRepo(t *testing.T) {
 	st := testStore(t)
-	a, _ := st.Add(Task{Repo: "alpha", Title: "a"})
-	b, _ := st.Add(Task{Repo: "beta", Title: "b"})
+	a, _ := st.Add(db.Task{Repo: "alpha", Title: "a"})
+	b, _ := st.Add(db.Task{Repo: "beta", Title: "b"})
 	st.AddComment(a, "you", "alpha feedback")
 	st.AddComment(b, "you", "beta feedback")
 

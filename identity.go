@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/kungfusheep/recap/db"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -30,7 +31,7 @@ var (
 // project it's working — otherwise a loop in another repo reads this repo's identity
 // and "keeps" it (the "everyone names themselves Kestrel" bug). "" repo → shared file.
 func identityPath(repo string) (string, error) {
-	db, err := dbPath()
+	dbp, err := db.Path()
 	if err != nil {
 		return "", err
 	}
@@ -38,7 +39,7 @@ func identityPath(repo string) (string, error) {
 	if repo != "" {
 		name = "identity-" + strings.ReplaceAll(repo, string(os.PathSeparator), "_")
 	}
-	return filepath.Join(filepath.Dir(db), name), nil
+	return filepath.Join(filepath.Dir(dbp), name), nil
 }
 
 // loadIdentity reads the repo's stored name + colour ("" / default if unset). Tiny

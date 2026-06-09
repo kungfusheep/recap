@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/kungfusheep/recap/db"
+)
 
 // A user mark (approve/submit) holds the cursor at its index so the marked item leaves
 // and the NEXT item slides up under it — a clean path down the list. An external/async
@@ -19,10 +23,10 @@ func TestMarkHoldsSelectionIndex(t *testing.T) {
 		undoStack = nil
 	})
 
-	st.Add(Task{Repo: "z", Title: "a"}) // id 1, stays in inbox above the rest
-	b, _ := st.Add(Task{Repo: "z", Title: "b"})
-	c, _ := st.Add(Task{Repo: "z", Title: "c"})
-	d, _ := st.Add(Task{Repo: "z", Title: "d"})
+	st.Add(db.Task{Repo: "z", Title: "a"}) // id 1, stays in inbox above the rest
+	b, _ := st.Add(db.Task{Repo: "z", Title: "b"})
+	c, _ := st.Add(db.Task{Repo: "z", Title: "c"})
+	d, _ := st.Add(db.Task{Repo: "z", Title: "d"})
 	reloadTasks() // inbox oldest-first: [a, b, c, d]
 
 	// --- external reload tracks the task by id (no yank) ---
@@ -31,7 +35,7 @@ func TestMarkHoldsSelectionIndex(t *testing.T) {
 	if vmRows[sel].ID != c {
 		t.Fatalf("setup: index 2 should be c (%d), got %d", c, vmRows[sel].ID)
 	}
-	if _, err := submitReview(uiStore, b, VerdictApprove, ""); err != nil {
+	if _, err := submitReview(uiStore, b, db.VerdictApprove, ""); err != nil {
 		t.Fatalf("approve b: %v", err)
 	}
 	reloadTasks() // no keepSelOnReload → must follow c by id as it shifts up

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/kungfusheep/recap/db"
 	"strings"
 	"testing"
 
@@ -61,7 +62,7 @@ func TestLoadDraftPane(t *testing.T) {
 	uiStore = st
 	t.Cleanup(func() { uiStore = nil })
 
-	id, err := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	id, err := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	if err != nil {
 		t.Fatalf("add: %v", err)
 	}
@@ -109,7 +110,7 @@ func TestLoadDraftPane(t *testing.T) {
 
 	// after submit the comments PERSIST (read-only) — the pane stays, feedback
 	// remains visible, but rows are no longer Draft.
-	if _, err := st.SubmitReview(id, VerdictComment, "fyi"); err != nil {
+	if _, err := st.SubmitReview(id, db.VerdictComment, "fyi"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
 	loadDraftPane(id)
@@ -133,7 +134,7 @@ func TestCommentedLinesCue(t *testing.T) {
 	uiStore = st
 	t.Cleanup(func() { uiStore = nil; clear(commentedLines); draftComments = nil })
 
-	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	cid, _ := st.AddReviewComment(id, "you", "note", "main.go", 12, "@@", "x := 1")
 	st.AddReviewComment(id, "you", "general note", "", 0, "", "")
 
@@ -164,7 +165,7 @@ func TestDraftPaneOrdering(t *testing.T) {
 	uiStore = st
 	t.Cleanup(func() { uiStore = nil; clear(commentedLines); draftComments = nil; draftSel = 0 })
 
-	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	// add deliberately out of order
 	st.AddReviewComment(id, "you", "general", "", 0, "", "")
 	st.AddReviewComment(id, "you", "b high", "b.go", 40, "@@", "x")
@@ -191,9 +192,9 @@ func TestReReviewFlag(t *testing.T) {
 	uiStore = st
 	t.Cleanup(func() { uiStore = nil; vmRows = nil; sel = 0 })
 
-	orig, _ := st.Add(Task{Repo: "recap", RepoPath: "/tmp/r", Title: "orig", Status: StatusRedo})
-	fix, _ := st.Add(Task{Repo: "recap", RepoPath: "/tmp/r", Title: "fix", Status: StatusPending, ParentID: orig})
-	st.Add(Task{Repo: "recap", RepoPath: "/tmp/r", Title: "fresh", Status: StatusPending}) // net-new, no parent
+	orig, _ := st.Add(db.Task{Repo: "recap", RepoPath: "/tmp/r", Title: "orig", Status: db.StatusRedo})
+	fix, _ := st.Add(db.Task{Repo: "recap", RepoPath: "/tmp/r", Title: "fix", Status: db.StatusPending, ParentID: orig})
+	st.Add(db.Task{Repo: "recap", RepoPath: "/tmp/r", Title: "fresh", Status: db.StatusPending}) // net-new, no parent
 
 	repoFltr = "recap"
 	t.Cleanup(func() { repoFltr = "" })
@@ -214,7 +215,7 @@ func TestReReviewFlag(t *testing.T) {
 	}
 
 	// once the fix is approved, it leaves the inbox and the re-review flag clears.
-	st.SubmitReview(fix, VerdictApprove, "")
+	st.SubmitReview(fix, db.VerdictApprove, "")
 	reloadTasks()
 	for _, vm := range vmRows {
 		if vm.ID == fix && vm.ReReview {
@@ -230,9 +231,9 @@ func TestBuildBanner(t *testing.T) {
 	uiStore = st
 	t.Cleanup(func() { uiStore = nil })
 
-	orig, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "orig", Status: StatusPending})
+	orig, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "orig", Status: db.StatusPending})
 	st.AddReviewComment(orig, "you", "tighten this", "a.go", 5, "@@", "x")
-	rv, _ := st.SubmitReview(orig, VerdictRequestChanges, "needs work on a.go")
+	rv, _ := st.SubmitReview(orig, db.VerdictRequestChanges, "needs work on a.go")
 
 	// AMENDS task → banner leads with the review (summary + comment), withComments.
 	ot, _ := st.Get(orig)
@@ -245,7 +246,7 @@ func TestBuildBanner(t *testing.T) {
 	// fix-forward task → stacks BOTH the original review (header + summary +
 	// original comments, so you can recontextualise) AND "what changed" (my fix
 	// summary), above the new diff.
-	fix, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "fix", Status: StatusPending, ParentID: orig,
+	fix, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "fix", Status: db.StatusPending, ParentID: orig,
 		Summary: "rewrote a.go to use the slice form"})
 	ft, _ := st.Get(fix)
 	ff := flattenSpans(buildBanner(ft))
@@ -263,14 +264,14 @@ func TestBuildBanner(t *testing.T) {
 	}
 
 	// ordinary inbox item with no summary → no banner.
-	plain, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "plain", Status: StatusPending})
+	plain, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "plain", Status: db.StatusPending})
 	pt, _ := st.Get(plain)
 	if b := buildBanner(pt); b != nil {
 		t.Fatalf("plain task should have no banner, got %d rows", len(b))
 	}
 
 	// inbox item WITH a reviewer briefing → summary banner.
-	briefed, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "briefed", Status: StatusPending,
+	briefed, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "briefed", Status: db.StatusPending,
 		Summary: "swapped the parser to a streaming one; watch the EOF edge case"})
 	bt, _ := st.Get(briefed)
 	sb := flattenSpans(buildBanner(bt))
@@ -335,13 +336,13 @@ func TestInboxCount(t *testing.T) {
 	t.Cleanup(func() { uiStore = nil; vmRows = nil; sel = 0; repoFltr = prevFltr; inboxCount = 0 })
 
 	// 3 pending (inbox), 1 amends (request_changes), 1 done (approved)
-	st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "p1", Status: StatusPending})
-	st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "p2", Status: StatusPending})
-	st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "p3", Status: StatusPending})
-	amends, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "a", Status: StatusPending})
-	st.SubmitReview(amends, VerdictRequestChanges, "fix")
-	done, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "d", Status: StatusPending})
-	st.SubmitReview(done, VerdictApprove, "")
+	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "p1", Status: db.StatusPending})
+	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "p2", Status: db.StatusPending})
+	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "p3", Status: db.StatusPending})
+	amends, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "a", Status: db.StatusPending})
+	st.SubmitReview(amends, db.VerdictRequestChanges, "fix")
+	done, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "d", Status: db.StatusPending})
+	st.SubmitReview(done, db.VerdictApprove, "")
 
 	reloadTasks()
 	if inboxCount != 3 {
@@ -449,7 +450,7 @@ func TestRevisionExpand(t *testing.T) {
 		repoFltr = prevFltr
 	})
 
-	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", SHA: "base000", Title: "fix me", Status: StatusPending})
+	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", SHA: "base000", Title: "fix me", Status: db.StatusPending})
 	st.AddRevision(id, "fix111", "first fix")
 
 	// collapsed: a single header row showing the latest diff + a ▸ 2 cue
@@ -513,7 +514,7 @@ func TestRevisionExpand(t *testing.T) {
 	}
 
 	// a single-diff task is not expandable
-	id2, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", SHA: "solo", Title: "solo", Status: StatusPending})
+	id2, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", SHA: "solo", Title: "solo", Status: db.StatusPending})
 	reloadTasks()
 	for _, vm := range vmRows {
 		if vm.ID == id2 && vm.RevIdx < 0 && vm.ExpandPill != "" {
@@ -591,9 +592,9 @@ func TestStatusIconColorByRender(t *testing.T) {
 	t.Cleanup(func() { vmRows = prevRows; sel = prevSel })
 
 	vmRows = []taskVM{
-		{ID: 1, Title: "pending", Repo: "recap", Glyph: stateGlyph(StatePending), GlyphColor: stateColor(StatePending), Pending: true, Selected: true, Header: true},
-		{ID: 2, Title: "rework", Repo: "recap", Glyph: stateGlyph(StateRework), GlyphColor: stateColor(StateRework), Header: true},
-		{ID: 3, Title: "done", Repo: "recap", Glyph: stateGlyph(StateDone), GlyphColor: stateColor(StateDone), Header: true},
+		{ID: 1, Title: "pending", Repo: "recap", Glyph: stateGlyph(db.StatePending), GlyphColor: stateColor(db.StatePending), Pending: true, Selected: true, Header: true},
+		{ID: 2, Title: "rework", Repo: "recap", Glyph: stateGlyph(db.StateRework), GlyphColor: stateColor(db.StateRework), Header: true},
+		{ID: 3, Title: "done", Repo: "recap", Glyph: stateGlyph(db.StateDone), GlyphColor: stateColor(db.StateDone), Header: true},
 	}
 	sel = 0
 	node := List(&vmRows).Selection(&sel).Style(&listBaseStyle).
@@ -604,9 +605,9 @@ func TestStatusIconColorByRender(t *testing.T) {
 
 	cyan := repoPalette[0] // 0x6f8fa8, the wrong tint the icon used to fall back to
 	want := map[rune]Color{
-		'●': stateColor(StatePending),
-		'↻': stateColor(StateRework),
-		'✓': stateColor(StateDone),
+		'●': stateColor(db.StatePending),
+		'↻': stateColor(db.StateRework),
+		'✓': stateColor(db.StateDone),
 	}
 	seen := map[rune]bool{}
 	for y := 0; y < 18; y++ {
@@ -744,7 +745,7 @@ func TestGeneralCommentAppearsAfterSave(t *testing.T) {
 		draftComments = nil
 		detailDirty = false
 	})
-	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	_ = id
 	reloadTasks()
 	sel = 0
@@ -789,7 +790,7 @@ func TestSummaryFollowsSelectedRevision(t *testing.T) {
 		clear(expandedTasks)
 		detailDirty = false
 	})
-	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending, Summary: "original briefing"})
+	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending, Summary: "original briefing"})
 	if _, err := st.AddRevision(id, "deadbeef", "revised briefing"); err != nil {
 		t.Fatalf("AddRevision: %v", err)
 	}
@@ -833,9 +834,9 @@ func TestInboxOrderLatestAtBottom(t *testing.T) {
 	uiStore = st
 	t.Cleanup(func() { uiStore = nil; vmRows = nil; sel = 0 })
 
-	a, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "oldest", Status: StatusPending})
-	b, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "middle", Status: StatusPending})
-	c, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "newest", Status: StatusPending})
+	a, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "oldest", Status: db.StatusPending})
+	b, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "middle", Status: db.StatusPending})
+	c, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "newest", Status: db.StatusPending})
 
 	reloadTasks()
 	var ids []int64
@@ -865,7 +866,7 @@ func TestReplyToCommentFromPane(t *testing.T) {
 		replyingToID = 0
 	})
 
-	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	parent, _ := st.AddReviewComment(id, "you", "the original", "", 0, "", "")
 	loadDraftPane(id)
 	draftSel = 0
@@ -881,7 +882,7 @@ func TestReplyToCommentFromPane(t *testing.T) {
 	saveReply()
 
 	cs, _ := st.Comments(id)
-	var found *Comment
+	var found *db.Comment
 	for i := range cs {
 		if cs[i].ParentID == parent && cs[i].Body == "my reply" {
 			found = &cs[i]
@@ -908,8 +909,8 @@ func TestReloadKeepsSelectionByTask(t *testing.T) {
 	// elders... simpler: select a task, then add an OLDER-sorting item. Inbox sorts
 	// by id asc, so a new id is always below. Instead, select the last (newest) and
 	// confirm a new newer one pushes in below but selection stays on our task.
-	a, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "a", Status: StatusPending})
-	b, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "b", Status: StatusPending})
+	a, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "a", Status: db.StatusPending})
+	b, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "b", Status: db.StatusPending})
 	reloadTasks()
 	// select task b
 	for i, r := range vmRows {
@@ -920,7 +921,7 @@ func TestReloadKeepsSelectionByTask(t *testing.T) {
 	selectedBefore := vmRows[sel].ID
 
 	// a SIGUSR1-style reload after another task arrives must keep us on b
-	st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "c", Status: StatusPending})
+	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "c", Status: db.StatusPending})
 	reloadTasks()
 	if vmRows[sel].ID != selectedBefore {
 		t.Fatalf("selection jumped: was on task %d, now on %d", selectedBefore, vmRows[sel].ID)

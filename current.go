@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/kungfusheep/recap/db"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +18,7 @@ import (
 // never share or clobber each other's in-flight item — the same namespacing the
 // queue (amends/replies/todos) already uses. "" repo falls back to a shared file.
 func currentPath(repo string) (string, error) {
-	db, err := dbPath()
+	dbp, err := db.Path()
 	if err != nil {
 		return "", err
 	}
@@ -25,7 +26,7 @@ func currentPath(repo string) (string, error) {
 	if repo != "" {
 		name = "current-" + strings.ReplaceAll(repo, string(os.PathSeparator), "_")
 	}
-	return filepath.Join(filepath.Dir(db), name), nil
+	return filepath.Join(filepath.Dir(dbp), name), nil
 }
 
 // loadCurrent returns the repo's current item ref + display title ("","" if none).

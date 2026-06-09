@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/kungfusheep/recap/db"
 	"strings"
 	"testing"
 
@@ -99,7 +100,7 @@ func TestUpcomingSectionFixedHeight(t *testing.T) {
 		hasUpcoming = false
 		upcomingBlob = ""
 	})
-	st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "INBOXMARKER", Status: StatusPending})
+	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "INBOXMARKER", Status: db.StatusPending})
 	reloadTasks()
 	hasUpcoming = true
 	upcomingWidth = 30
@@ -130,7 +131,7 @@ func TestUpcomingSectionFixedHeight(t *testing.T) {
 }
 
 // the inbox flare follows the cursor ref (re-marked when the async ref lands), and
-// never sticks where a prior reload left it — the "spinner stuck on #73" bug. Revision
+// never sticks where a prior reload left it — the "spinner stuck on #73" bug. db.Revision
 // child rows (RevIdx >= 0) never flare.
 func TestMarkInFlight(t *testing.T) {
 	defer func() { vmRows = nil; currentRef = "" }()

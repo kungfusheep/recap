@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/kungfusheep/recap/db"
 	"os"
 	"path/filepath"
 
@@ -18,11 +19,11 @@ type recapSettings struct {
 // settingsPath sits beside the review db ($RECAP_DB's dir or ~/.config/recap), so
 // an isolated db gets isolated settings.
 func settingsPath() (string, error) {
-	db, err := dbPath()
+	dbp, err := db.Path()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(filepath.Dir(db), "settings.json"), nil
+	return filepath.Join(filepath.Dir(dbp), "settings.json"), nil
 }
 
 func loadSettings() recapSettings {

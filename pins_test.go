@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/kungfusheep/recap/db"
 	"path/filepath"
 	"testing"
 )
@@ -11,7 +12,7 @@ func TestTogglePinPersists(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("RECAP_DB", filepath.Join(dir, "recap.db"))
 	prev := uiStore
-	st, err := OpenAt(filepath.Join(dir, "recap.db"))
+	st, err := db.OpenAt(filepath.Join(dir, "recap.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -19,7 +20,7 @@ func TestTogglePinPersists(t *testing.T) {
 	pinned = nil
 	t.Cleanup(func() { uiStore = prev; pinned = nil; vmRows = nil; sel = 0; st.Close() })
 
-	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t"})
+	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t"})
 	reloadTasks()
 	sel = indexOfTask(id)
 
@@ -48,16 +49,23 @@ func TestUndoPin(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("RECAP_DB", filepath.Join(dir, "recap.db"))
 	prev := uiStore
-	st, err := OpenAt(filepath.Join(dir, "recap.db"))
+	st, err := db.OpenAt(filepath.Join(dir, "recap.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	uiStore = st
 	pinned = nil
 	undoStack = nil
-	t.Cleanup(func() { uiStore = prev; pinned = nil; undoStack = nil; vmRows = nil; sel = 0; st.Close() })
+	t.Cleanup(func() {
+		uiStore = prev
+		pinned = nil
+		undoStack = nil
+		vmRows = nil
+		sel = 0
+		st.Close()
+	})
 
-	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t"})
+	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t"})
 	reloadTasks()
 	sel = indexOfTask(id)
 
@@ -95,7 +103,7 @@ func TestReloadPinnedSectionOnTop(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("RECAP_DB", filepath.Join(dir, "recap.db"))
 	prev := uiStore
-	st, err := OpenAt(filepath.Join(dir, "recap.db"))
+	st, err := db.OpenAt(filepath.Join(dir, "recap.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -103,9 +111,9 @@ func TestReloadPinnedSectionOnTop(t *testing.T) {
 	pinned = nil
 	t.Cleanup(func() { uiStore = prev; pinned = nil; vmRows = nil; sel = 0 })
 
-	a, _ := st.Add(Task{Repo: "r", Title: "a"}) // oldest → leads the inbox normally
-	b, _ := st.Add(Task{Repo: "r", Title: "b"})
-	c, _ := st.Add(Task{Repo: "r", Title: "c"})
+	a, _ := st.Add(db.Task{Repo: "r", Title: "a"}) // oldest → leads the inbox normally
+	b, _ := st.Add(db.Task{Repo: "r", Title: "b"})
+	c, _ := st.Add(db.Task{Repo: "r", Title: "c"})
 
 	// pin the LAST one — without pinning it would sort to the bottom of the inbox.
 	ensurePins()

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/kungfusheep/recap/db"
 	"strings"
 	"testing"
 	"time"
@@ -58,11 +59,11 @@ func TestReloadPaginatesOldDone(t *testing.T) {
 
 	old := time.Now().Add(-72 * time.Hour).Format("2006-01-02 15:04:05")
 	for i := 0; i < 5; i++ {
-		id, _ := st.Add(Task{Repo: "r", Title: fmt.Sprintf("old%d", i), CreatedAt: old})
-		st.SubmitReview(id, VerdictApprove, "")
+		id, _ := st.Add(db.Task{Repo: "r", Title: fmt.Sprintf("old%d", i), CreatedAt: old})
+		st.SubmitReview(id, db.VerdictApprove, "")
 	}
-	rid, _ := st.Add(Task{Repo: "r", Title: "recent"}) // CreatedAt = now → recent
-	st.SubmitReview(rid, VerdictApprove, "")
+	rid, _ := st.Add(db.Task{Repo: "r", Title: "recent"}) // CreatedAt = now → recent
+	st.SubmitReview(rid, db.VerdictApprove, "")
 
 	reloadTasks()
 	loadMore, lmTitle := 0, ""

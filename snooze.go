@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"github.com/kungfusheep/recap/db"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -24,7 +25,7 @@ var snoozeTTL = 6 * time.Hour
 var snoozeNow = func() int64 { return time.Now().Unix() }
 
 func snoozePath(repo string) (string, error) {
-	db, err := dbPath()
+	dbp, err := db.Path()
 	if err != nil {
 		return "", err
 	}
@@ -32,7 +33,7 @@ func snoozePath(repo string) (string, error) {
 	if repo != "" {
 		name = "skipped-" + strings.ReplaceAll(repo, string(os.PathSeparator), "_")
 	}
-	return filepath.Join(filepath.Dir(db), name), nil
+	return filepath.Join(filepath.Dir(dbp), name), nil
 }
 
 // loadSnoozed returns the repo's still-active snoozed todo refs (expired ones ignored).

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/kungfusheep/recap/db"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -138,11 +139,11 @@ type draftCommentVM struct {
 }
 
 var (
-	uiStore *Store
+	uiStore *db.Store
 	uiApp   *App
 	omni    *OmniBox
 
-	tasks  []Task
+	tasks  []db.Task
 	vmRows []taskVM // flattened: task headers + (when expanded) their revision children
 	sel    int      // index into vmRows, NOT tasks (a row may be a revision child)
 	// keepSelOnReload makes the next reloadTasks hold the cursor at its current index
@@ -158,8 +159,8 @@ var (
 	// (mail's thread-expand). Keyed by task id so it survives vmRows rebuilds.
 	expandedTasks = map[int64]bool{}
 	// taskByID resolves the selected row's task without re-querying (rebuilt each
-	// reloadTasks). Rows carry only a task ID; this maps back to the full Task.
-	taskByID = map[int64]Task{}
+	// reloadTasks). Rows carry only a task ID; this maps back to the full db.Task.
+	taskByID = map[int64]db.Task{}
 
 	// diff pane: a native-scroll Layer. renderDiffLayer builds a component tree from
 	// diffFiles/diffBanner into the buffer on content/size change (see buildDiffView),
@@ -252,7 +253,7 @@ var (
 )
 
 func runUI() error {
-	st, err := Open()
+	st, err := db.Open()
 	if err != nil {
 		return err
 	}
@@ -321,9 +322,9 @@ func runUI() error {
 // derived-state ordering + labels (pending → rework → approved).
 func statePriority(s string) int {
 	switch s {
-	case StatePending:
+	case db.StatePending:
 		return 0
-	case StateRework:
+	case db.StateRework:
 		return 1
 	default:
 		return 2
@@ -332,9 +333,9 @@ func statePriority(s string) int {
 
 func stateLabel(s string) string {
 	switch s {
-	case StatePending:
+	case db.StatePending:
 		return "INBOX"
-	case StateRework:
+	case db.StateRework:
 		return "AMENDS"
 	default:
 		return "DONE"
@@ -343,9 +344,9 @@ func stateLabel(s string) string {
 
 func stateGlyph(s string) string {
 	switch s {
-	case StateRework:
+	case db.StateRework:
 		return "↻"
-	case StateDone:
+	case db.StateDone:
 		return "✓"
 	default:
 		return "●"
@@ -354,9 +355,9 @@ func stateGlyph(s string) string {
 
 func stateColor(s string) Color {
 	switch s {
-	case StateDone:
+	case db.StateDone:
 		return cSubtle
-	case StateRework:
+	case db.StateRework:
 		return cDel
 	default:
 		return cBright
@@ -378,7 +379,7 @@ func reloadTasks() {
 	inboxCount = 0
 	for _, t := range tasks {
 		state[t.ID] = uiStore.ReviewState(t.ID)
-		if state[t.ID] == StatePending {
+		if state[t.ID] == db.StatePending {
 			inboxCount++ // the header count is the inbox, not the whole task set
 		}
 	}
@@ -392,7 +393,7 @@ func reloadTasks() {
 		if pi != pj {
 			return pi < pj
 		}
-		if si == StatePending {
+		if si == db.StatePending {
 			return tasks[i].ID < tasks[j].ID // oldest first in the inbox
 		}
 		// non-pending (amends/done): newest review activity first, then id as a
@@ -408,7 +409,7 @@ func reloadTasks() {
 	sort.SliceStable(tasks, func(i, j int) bool {
 		return pinned[tasks[i].ID] && !pinned[tasks[j].ID]
 	})
-	taskByID = make(map[int64]Task, len(tasks))
+	taskByID = make(map[int64]db.Task, len(tasks))
 	for _, t := range tasks {
 		taskByID[t.ID] = t
 	}
@@ -440,7 +441,7 @@ func reloadTasks() {
 		// paginate completed items older than a day: show recent (<24h) done always, but
 		// only doneOldLimit of the older ones — the rest hide behind a "load more" row.
 		// pinned items are never paginated away — they always stay visible up top.
-		if st == StateDone && !isRecent(t.CreatedAt) && !pinned[t.ID] {
+		if st == db.StateDone && !isRecent(t.CreatedAt) && !pinned[t.ID] {
 			if oldDoneShown >= doneOldLimit {
 				oldDoneSkipped++
 				continue
@@ -455,7 +456,7 @@ func reloadTasks() {
 			Glyph:      stateGlyph(st),
 			GlyphColor: stateColor(st),
 			RepoColor:  repoColors[t.Repo],
-			Pending:    st == StatePending,
+			Pending:    st == db.StatePending,
 			InFlight:   currentRef == fmt.Sprintf("amends:%d", t.ID),
 			RevIdx:     -1, // task header row
 			Header:     true,
@@ -468,7 +469,7 @@ func reloadTasks() {
 		}
 		// a fix-forward task still awaiting review is a re-review: flag it so
 		// resubmissions stand out from net-new inbox items.
-		if t.ParentID != 0 && st == StatePending {
+		if t.ParentID != 0 && st == db.StatePending {
 			vm.ReReview = true
 			vm.ReReviewPill = fmt.Sprintf("↩ #%d", t.ParentID)
 		}
@@ -563,7 +564,7 @@ func reloadTasks() {
 // revLabel is a revision child row's caption: "original" for the base diff (the
 // task's own commit), "rev N" for each fix-forward, plus the short sha and the
 // revision summary when present.
-func revLabel(idx int, r Revision) string {
+func revLabel(idx int, r db.Revision) string {
 	head := fmt.Sprintf("rev %d", idx)
 	if r.Base {
 		head = "original"
@@ -592,10 +593,10 @@ func selectedRow() *taskVM {
 
 // selectedTask resolves the task behind the selected row — the same task whether a
 // header or one of its revision children is selected. Actions operate on this.
-func selectedTask() (Task, bool) {
+func selectedTask() (db.Task, bool) {
 	r := selectedRow()
 	if r == nil {
-		return Task{}, false
+		return db.Task{}, false
 	}
 	t, ok := taskByID[r.ID]
 	return t, ok
@@ -757,8 +758,8 @@ func refreshDetail() {
 //     the contextual "what I did + why + what to watch" — richer than the commit.
 //
 // Returns nil when there's no context to show.
-func buildBanner(t Task) [][]Span {
-	if uiStore.ReviewState(t.ID) == StateRework {
+func buildBanner(t db.Task) [][]Span {
+	if uiStore.ReviewState(t.ID) == db.StateRework {
 		// the active request_changes review on this task.
 		for _, rv := range latestSubmitted(t.ID) {
 			return reviewBanner("changes requested", rv, true)
@@ -802,10 +803,10 @@ func summaryBanner(title, summary string) [][]Span {
 
 // latestSubmitted returns the newest submitted/resolved review for a task as a
 // 0-or-1 slice (so callers can range without a nil check).
-func latestSubmitted(taskID int64) []Review {
+func latestSubmitted(taskID int64) []db.Review {
 	revs, _ := uiStore.Reviews(taskID)
 	for i := len(revs) - 1; i >= 0; i-- {
-		if revs[i].State == ReviewSubmitted || revs[i].State == ReviewResolved {
+		if revs[i].State == db.ReviewSubmitted || revs[i].State == db.ReviewResolved {
 			return revs[i : i+1]
 		}
 	}
@@ -814,7 +815,7 @@ func latestSubmitted(taskID int64) []Review {
 
 // reviewBanner renders a review's summary (+ optional anchored comments) as
 // banner rows. withComments lists the line comments (used for the AMENDS view).
-func reviewBanner(title string, rv Review, withComments bool) [][]Span {
+func reviewBanner(title string, rv db.Review, withComments bool) [][]Span {
 	var rows [][]Span
 	add := func(s ...Span) { rows = append(rows, s) }
 	add(span(title, cHunk, true))
@@ -1993,7 +1994,7 @@ func approveSelected() {
 	if !ok {
 		return
 	}
-	if _, err := submitReview(uiStore, t.ID, VerdictApprove, ""); err != nil {
+	if _, err := submitReview(uiStore, t.ID, db.VerdictApprove, ""); err != nil {
 		statusMsg = "error: " + err.Error()
 		return
 	}
@@ -2256,7 +2257,7 @@ func submitSelected() {
 	if !ok {
 		return
 	}
-	_, err := submitReview(uiStore, t.ID, VerdictRequestChanges, "")
+	_, err := submitReview(uiStore, t.ID, db.VerdictRequestChanges, "")
 	if err != nil {
 		statusMsg = "error: " + err.Error()
 		return

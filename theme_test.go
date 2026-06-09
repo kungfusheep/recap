@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/kungfusheep/recap/db"
 	"os"
 	"testing"
 
@@ -36,7 +37,7 @@ func TestThemeRepaintsDiffLayer(t *testing.T) {
 		vmRows = nil
 		setThemeVars(themeDark)
 	})
-	st.Add(Task{Repo: "r", RepoPath: dir, SHA: sha, Title: "t", Status: StatusPending})
+	st.Add(db.Task{Repo: "r", RepoPath: dir, SHA: sha, Title: "t", Status: db.StatusPending})
 	setThemeVars(themeDark)
 	reloadTasks()
 	sel = 0
@@ -230,7 +231,7 @@ func TestApplyThemeRepaintsWithoutRebuild(t *testing.T) {
 		currentThemeName = prevName
 		setThemeVars(themeDark) // restore the default palette for other tests
 	})
-	st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	reloadTasks()
 
 	// compile ONCE
@@ -270,7 +271,7 @@ func TestThemeChangeNoOrphanedModalRouter(t *testing.T) {
 	uiApp = NewApp()
 	omni = newOmniBox(uiApp, omniCommands())
 	t.Cleanup(func() { uiStore = prevStore; uiApp = nil; omni = nil })
-	st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	reloadTasks()
 	// mirror runUI: named views, started on main (applyTheme rebuilds via UpdateView)
 	uiApp.View("main", buildMain()).NoCounts()

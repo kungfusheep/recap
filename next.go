@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/kungfusheep/recap/db"
 	"hash/fnv"
 	"os"
 	"os/signal"
@@ -12,9 +13,9 @@ import (
 	"time"
 
 	"github.com/kungfusheep/recap/config"
-	"github.com/kungfusheep/recap/todo"
 	"github.com/kungfusheep/recap/notify"
 	"github.com/kungfusheep/recap/poll"
+	"github.com/kungfusheep/recap/todo"
 )
 
 const (
@@ -47,7 +48,7 @@ type WorkItem struct {
 // (tasks with an open request_changes review), then unread reviewer replies (on
 // tasks not already in amends), then the next incomplete todos. repoPath is the
 // repo's filesystem path (for the TODO file); pass "" to skip the todo tier.
-func buildQueue(st *Store, repo, repoPath string) []WorkItem {
+func buildQueue(st *db.Store, repo, repoPath string) []WorkItem {
 	var q []WorkItem
 	amendsTasks := map[int64]bool{}
 
@@ -55,7 +56,7 @@ func buildQueue(st *Store, repo, repoPath string) []WorkItem {
 	if tasks, err := st.List("", repo); err == nil {
 		for i := len(tasks) - 1; i >= 0; i-- { // List is id DESC; oldest first
 			t := tasks[i]
-			if st.ReviewState(t.ID) == StateRework {
+			if st.ReviewState(t.ID) == db.StateRework {
 				amendsTasks[t.ID] = true
 				q = append(q, WorkItem{Kind: "amends", Repo: t.Repo, TaskID: t.ID,
 					ReviewID: st.ReworkReviewID(t.ID),
@@ -145,7 +146,7 @@ func cmdNext(args []string) error {
 	wait := fs.Bool("wait", false, "long-poll: when nothing is queued, block until work appears instead of exiting the loop")
 	fs.Parse(args)
 
-	st, err := Open()
+	st, err := db.Open()
 	if err != nil {
 		return err
 	}
@@ -223,7 +224,7 @@ func cmdNext(args []string) error {
 // On timeout or Ctrl-C it prints why and returns ok=false. This is what keeps an idle
 // agent IN the loop (`recap next --wait`) instead of exiting it: the blocked call returns
 // the moment the reviewer's request_changes — or any new work — lands.
-func waitForWork(st *Store, repo string) (WorkItem, bool) {
+func waitForWork(st *db.Store, repo string) (WorkItem, bool) {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	fmt.Fprintf(os.Stderr, "waiting for work (--wait, up to %s; Ctrl-C to stop)…\n", waitTimeout)
@@ -262,7 +263,7 @@ func cmdDone(args []string) error {
 		return fmt.Errorf("usage: recap done <ref> --summary \"…\" --sha HEAD   (ref from recap next, e.g. todo:abc12345)")
 	}
 
-	st, err := Open()
+	st, err := db.Open()
 	if err != nil {
 		return err
 	}
@@ -288,10 +289,10 @@ func cmdDone(args []string) error {
 	if h, err := resolveSHA(repoPath, resolved); err == nil {
 		resolved = h
 	}
-	id, err := st.Add(Task{
+	id, err := st.Add(db.Task{
 		Repo: repo, RepoPath: repoPath, SHA: resolved, Title: item.Title,
 		Criterion: *criterion, CheckCmd: *check, Result: *result,
-		Status: StatusPending, Summary: *summary,
+		Status: db.StatusPending, Summary: *summary,
 	})
 	if err != nil {
 		return err

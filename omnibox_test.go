@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/kungfusheep/recap/db"
 	"os"
 	"testing"
 
@@ -53,7 +54,7 @@ func TestOmniActionNoOrphanedRouter(t *testing.T) {
 	uiApp = NewApp()
 	omni = newOmniBox(uiApp, omniCommands())
 	t.Cleanup(func() { uiStore = prev; uiApp = nil; omni = nil; vmRows = nil })
-	st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	reloadTasks()
 	uiApp.SetView(buildMain())
 	uiApp.RenderNow()
@@ -99,7 +100,7 @@ func TestOmniTodoItemSwitchesToTodoViewCleanly(t *testing.T) {
 	uiApp = NewApp()
 	omni = newOmniBox(uiApp, omniCommands())
 	t.Cleanup(func() { uiStore = prev; uiApp = nil; omni = nil; vmRows = nil })
-	st.Add(Task{Repo: "r", RepoPath: home + "/r", Title: "t", Status: StatusPending})
+	st.Add(db.Task{Repo: "r", RepoPath: home + "/r", Title: "t", Status: db.StatusPending})
 	reloadTasks()
 	// register the same named views runUI does, and start on main
 	uiApp.View("main", buildMain()).NoCounts()

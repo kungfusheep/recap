@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/kungfusheep/recap/db"
 	"os"
 	"strings"
 	"testing"
@@ -253,7 +254,7 @@ func TestDiffScrollPreservedOnReload(t *testing.T) {
 		vmRows, diffMeta, diffFiles = nil, nil, nil
 		sel, lastSel, lastLen, lastDiffKey, detailDirty = 0, 0, 0, "", false
 	})
-	st.Add(Task{Repo: "r", RepoPath: dir, SHA: sha, Title: "t1", Status: StatusPending})
+	st.Add(db.Task{Repo: "r", RepoPath: dir, SHA: sha, Title: "t1", Status: db.StatusPending})
 	reloadTasks()
 	sel = 0
 	uiApp.SetView(VBox.Width(80).Height(8)(
@@ -272,7 +273,7 @@ func TestDiffScrollPreservedOnReload(t *testing.T) {
 
 	// inbox reload: add a NEWER task (sorts after in the oldest-first inbox), so sel still
 	// points at t1 — the shown diff is unchanged, scroll must be kept.
-	st.Add(Task{Repo: "r", RepoPath: dir, SHA: sha, Title: "t2", Status: StatusPending})
+	st.Add(db.Task{Repo: "r", RepoPath: dir, SHA: sha, Title: "t2", Status: db.StatusPending})
 	reloadTasks()
 	detailDirty = true
 	refreshDetail()
