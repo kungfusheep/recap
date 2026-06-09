@@ -355,6 +355,7 @@ func stateColor(s string) Color {
 }
 
 func reloadTasks() {
+	ensurePins()
 	// remember which row is selected (by task id + revision) so a reload that
 	// inserts items above it doesn't shift the selection out from under the reader.
 	var prevID int64 = -1
@@ -393,6 +394,11 @@ func reloadTasks() {
 		}
 		return tasks[i].ID > tasks[j].ID
 	})
+	// pinned tasks float to the top in a "PINNED" section, preserving their relative
+	// order from the state sort above (stable). Everything else keeps its place.
+	sort.SliceStable(tasks, func(i, j int) bool {
+		return pinned[tasks[i].ID] && !pinned[tasks[j].ID]
+	})
 	taskByID = make(map[int64]Task, len(tasks))
 	for _, t := range tasks {
 		taskByID[t.ID] = t
@@ -418,13 +424,14 @@ func reloadTasks() {
 	}
 
 	vmRows = vmRows[:0]
-	prev := ""
+	prevSection := ""
 	oldDoneShown, oldDoneSkipped := 0, 0
 	for _, t := range tasks {
 		st := state[t.ID]
 		// paginate completed items older than a day: show recent (<24h) done always, but
 		// only doneOldLimit of the older ones — the rest hide behind a "load more" row.
-		if st == StateDone && !isRecent(t.CreatedAt) {
+		// pinned items are never paginated away — they always stay visible up top.
+		if st == StateDone && !isRecent(t.CreatedAt) && !pinned[t.ID] {
 			if oldDoneShown >= doneOldLimit {
 				oldDoneSkipped++
 				continue
@@ -473,10 +480,16 @@ func reloadTasks() {
 				vm.ExpandPill = fmt.Sprintf("▸ %d", len(revs))
 			}
 		}
-		if st != prev {
+		// section header: pinned items group under "PINNED" regardless of their state;
+		// everything else groups by state label. A header emits whenever the section changes.
+		section := stateLabel(st)
+		if pinned[t.ID] {
+			section = "PINNED"
+		}
+		if section != prevSection {
 			vm.HasGroup = true
-			vm.GroupLabel = stateLabel(st)
-			prev = st
+			vm.GroupLabel = section
+			prevSection = section
 		}
 		vmRows = append(vmRows, vm)
 
@@ -1270,6 +1283,7 @@ func buildMain() Component {
 						Key("c", openComment),
 						Key("v", rerun),
 						Key("o", toggleExpand), // expand a task into its revision diffs
+						Key("p", togglePin),    // pin/unpin → floats to the PINNED section
 					)),
 				),
 				// middle — detail + diff (no side padding; scrollbar flush right).
@@ -1378,6 +1392,7 @@ var helpNavRows = []helpRow{
 
 var helpActionRows = []helpRow{
 	{"o", "expand revisions"},
+	{"p", "pin / unpin"},
 	{"t", "edit TODO"},
 	{"e", "open in $EDITOR"},
 	{"c", "comment"},
