@@ -44,15 +44,17 @@ func TestDraftPaneScrollbarWired(t *testing.T) {
 	// the draft List published its window via ScrollState — this is the data the
 	// ScrollbarDyn beside it consumes (its rendering is covered by glyph's
 	// TestScrollbarDynTracksListWindow; here we prove recap wires the List end-to-end
-	// through buildMain). The scrollbar's own visibility fades with draftFocused, so a
-	// single render frame can't assert the thumb pixels — the window data is the hook.
-	if draftScrollTotal != len(draftComments) {
-		t.Fatalf("draftScrollTotal = %d, want %d (ScrollState not wired through the draft List)", draftScrollTotal, len(draftComments))
+	// through buildMain). The values are in SCREEN ROWS (not item counts), so the bar
+	// tracks the visual scroll even with variable-height comments — total must be at
+	// least one row per comment, the window a strict subset, and the offset > 0 once the
+	// last comment is selected.
+	if draftScrollTotal < len(draftComments) {
+		t.Fatalf("draftScrollTotal = %d rows, want >= %d (one row per comment min — ScrollState not wired)", draftScrollTotal, len(draftComments))
 	}
 	if draftScrollVisible <= 0 || draftScrollVisible >= draftScrollTotal {
-		t.Fatalf("draftScrollVisible = %d, want a window 0 < v < %d (list not windowed)", draftScrollVisible, draftScrollTotal)
+		t.Fatalf("draftScrollVisible = %d rows, want a window 0 < v < %d (list not windowed)", draftScrollVisible, draftScrollTotal)
 	}
 	if draftScrollOffset <= 0 {
-		t.Fatalf("draftScrollOffset = %d, want > 0 (selecting the last comment scrolls the window down)", draftScrollOffset)
+		t.Fatalf("draftScrollOffset = %d rows, want > 0 (selecting the last comment scrolls the window down)", draftScrollOffset)
 	}
 }
