@@ -851,6 +851,16 @@ func (s *Store) ResolveReview(id int64) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("no review #%d", id)
 	}
+	// resolving a review means the agent has addressed its feedback, so mark all of the
+	// review's still-unread reviewer comments read. Without this, line comments that ride
+	// with an amends (they're excluded from the reply tier — the amends work order covers
+	// them) would never get a read-receipt, so they'd resurface as unread next time even
+	// though they were dealt with. (The fix for: "multiple comments aren't all marked read".)
+	if _, err := s.db.Exec(
+		`UPDATE comments SET read_agent = ? WHERE review_id = ? AND who = 'you' AND COALESCE(read_agent,'') = ''`,
+		nowStamp(), id); err != nil {
+		return err
+	}
 	return nil
 }
 

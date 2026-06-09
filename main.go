@@ -671,6 +671,7 @@ func cmdReply(args []string) error {
 	if *who != "you" && *who != "agent" {
 		return fmt.Errorf("--who must be 'you' or 'agent'")
 	}
+	agentReply := *who != "you" // captured before identityWho renames it
 	if *who == "agent" {
 		*who = identityWho() // use the agent's session name if it has named itself
 	}
@@ -684,6 +685,13 @@ func cmdReply(args []string) error {
 	defer st.Close()
 	if _, err := st.AddReply(commentID, *who, *body); err != nil {
 		return err
+	}
+	// replying to a comment means the agent has read it — clear its receipt so it doesn't
+	// linger as unread (part of the "not all marked read" fix: answering counts as reading).
+	if agentReply {
+		if err := st.MarkReadAgent(commentID); err != nil {
+			return err
+		}
 	}
 	notify.Reload() // push: the reply threads into any open TUI without a refresh
 	fmt.Printf("replied to comment #%d\n", commentID)

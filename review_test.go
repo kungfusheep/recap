@@ -495,6 +495,34 @@ func TestDiscardReview(t *testing.T) {
 	}
 }
 
+// resolving a review marks its reviewer comments read — so line comments that ride with
+// an amends (excluded from the reply tier) don't resurface as unread after they've been
+// addressed (todo:1a115ddb: "multiple comments aren't all marked read").
+func TestResolveReviewMarksCommentsRead(t *testing.T) {
+	st := testStore(t)
+	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	if _, err := st.AddReviewComment(id, "you", "fix A", "f.go", 1, "@@", "x"); err != nil {
+		t.Fatalf("comment A: %v", err)
+	}
+	if _, err := st.AddReviewComment(id, "you", "fix B", "f.go", 2, "@@", "y"); err != nil {
+		t.Fatalf("comment B: %v", err)
+	}
+	rv, err := st.SubmitReview(id, VerdictRequestChanges, "changes")
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+
+	if un, _ := st.UnreadByAgent(""); len(un) != 2 {
+		t.Fatalf("both reviewer comments should start unread by the agent, got %d", len(un))
+	}
+	if err := st.ResolveReview(rv.ID); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if un, _ := st.UnreadByAgent(""); len(un) != 0 {
+		t.Fatalf("resolving the review should mark its reviewer comments read; %d still unread", len(un))
+	}
+}
+
 // TODO-template + AppendTODO behaviour moved to the config package
 // (config/config_test.go) when config was extracted to its own package.
 
