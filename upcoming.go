@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/kungfusheep/recap/cursor"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -94,7 +95,7 @@ func updateUpcoming() {
 	upcomingLoading = t.RepoPath
 	repo := t.RepoPath
 	go func() {
-		ref, _ := loadCurrent(filepath.Base(repo)) // the displayed repo's in-flight item ref
+		ref, _ := cursor.Load(filepath.Base(repo)) // the displayed repo's in-flight item ref
 		items, hasPath := loadUpcoming(repo)       // TODO tasks — file read + parse, off the render thread
 		upcomingMu.Lock()
 		upcomingStaged = &upcomingResult{repo: repo, ref: ref, items: items, hasPath: hasPath}

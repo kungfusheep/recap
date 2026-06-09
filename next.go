@@ -4,7 +4,9 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/kungfusheep/recap/cursor"
 	"github.com/kungfusheep/recap/db"
+	"github.com/kungfusheep/recap/snooze"
 	"hash/fnv"
 	"os"
 	"os/signal"
@@ -83,7 +85,7 @@ func buildQueue(st *db.Store, repo, repoPath string) []WorkItem {
 	// snoozed by a recent --skip (so a blocked todo doesn't keep the queue hot and
 	// defeat `recap next --wait`'s park; snoozes expire, so it'll re-surface later).
 	if repoPath != "" {
-		snoozed := loadSnoozed(repo)
+		snoozed := snooze.Load(repo)
 		if cfg, err := config.LoadConfig(); err == nil {
 			if path, err := todo.PathFor(cfg.TODOTemplate, repoPath); err == nil && path != "" {
 				if items, err := todo.Read(path); err == nil {
@@ -154,7 +156,7 @@ func cmdNext(args []string) error {
 
 	repo := currentRepo()
 	q := buildQueue(st, repo, currentRepoPath())
-	curRef, _ := loadCurrent(repo)
+	curRef, _ := cursor.Load(repo)
 	cur := findRef(q, curRef) // the in-flight item, if its cursor still points at live work
 	next, skipped, ok := advance(q, curRef)
 
@@ -192,7 +194,7 @@ func cmdNext(args []string) error {
 			}
 			skipped = false
 		} else {
-			saveCurrent(repo, "", "")
+			cursor.Save(repo, "", "")
 			notify.Reload()
 			fmt.Println("(nothing to work on — inbox + todos are clear)")
 			return nil
@@ -207,12 +209,12 @@ func cmdNext(args []string) error {
 		} else if strings.HasPrefix(cur.Ref, "todo:") {
 			// a todo has no task to comment on — snooze it so it leaves the queue and
 			// `recap next --wait` can park instead of re-handing it forever.
-			snoozeTodo(repo, cur.Ref)
+			snooze.Record(repo, cur.Ref)
 		}
 		fmt.Printf("skipped %s — %s\n", cur.Title, *skipReason)
 	}
 
-	if err := saveCurrent(repo, next.Ref, next.Title); err != nil {
+	if err := cursor.Save(repo, next.Ref, next.Title); err != nil {
 		return err
 	}
 	notify.Reload()
@@ -240,7 +242,7 @@ func waitForWork(st *db.Store, repo string) (WorkItem, bool) {
 	}
 	// Ready: recompute against the fresh queue + cursor and hand out the head.
 	q := buildQueue(st, repo, currentRepoPath())
-	curRef, _ := loadCurrent(repo)
+	curRef, _ := cursor.Load(repo)
 	next, _, ok := advance(q, curRef)
 	return next, ok
 }
@@ -306,8 +308,8 @@ func cmdDone(args []string) error {
 			}
 		}
 	}
-	if cur, _ := loadCurrent(repo); cur == ref {
-		saveCurrent(repo, "", "") // drop the flare immediately; next recap next advances
+	if cur, _ := cursor.Load(repo); cur == ref {
+		cursor.Save(repo, "", "") // drop the flare immediately; next recap next advances
 	}
 	notify.Reload()
 	fmt.Printf("done #%d → inbox: %s\n", id, item.Title)

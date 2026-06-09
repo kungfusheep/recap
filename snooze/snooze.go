@@ -1,4 +1,4 @@
-package main
+package snooze
 
 import (
 	"bufio"
@@ -19,12 +19,12 @@ import (
 // The snooze has a TTL so a cleared blocker re-surfaces for another look. A todo whose
 // TEXT changes gets a new ref (its hash), so edits re-surface for free. Per-repo, beside
 // the db — same namespacing as the cursor.
-var snoozeTTL = 6 * time.Hour
+var TTL = 6 * time.Hour
 
-// snoozeNow is the clock, overridable in tests.
-var snoozeNow = func() int64 { return time.Now().Unix() }
+// Now is the clock, overridable in tests.
+var Now = func() int64 { return time.Now().Unix() }
 
-func snoozePath(repo string) (string, error) {
+func path(repo string) (string, error) {
 	dbp, err := db.Path()
 	if err != nil {
 		return "", err
@@ -36,10 +36,10 @@ func snoozePath(repo string) (string, error) {
 	return filepath.Join(filepath.Dir(dbp), name), nil
 }
 
-// loadSnoozed returns the repo's still-active snoozed todo refs (expired ones ignored).
-func loadSnoozed(repo string) map[string]bool {
+// Load returns the repo's still-active snoozed todo refs (expired ones ignored).
+func Load(repo string) map[string]bool {
 	out := map[string]bool{}
-	p, err := snoozePath(repo)
+	p, err := path(repo)
 	if err != nil {
 		return out
 	}
@@ -48,7 +48,7 @@ func loadSnoozed(repo string) map[string]bool {
 		return out
 	}
 	defer f.Close()
-	cutoff := snoozeNow() - int64(snoozeTTL.Seconds())
+	cutoff := Now() - int64(TTL.Seconds())
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		ref, ts, ok := strings.Cut(strings.TrimSpace(sc.Text()), "\t")
@@ -62,15 +62,15 @@ func loadSnoozed(repo string) map[string]bool {
 	return out
 }
 
-// snoozeTodo records (or refreshes) a todo ref's snooze timestamp, dropping expired
+// Record records (or refreshes) a todo ref's snooze timestamp, dropping expired
 // entries so the file doesn't grow without bound.
-func snoozeTodo(repo, ref string) error {
-	p, err := snoozePath(repo)
+func Record(repo, ref string) error {
+	p, err := path(repo)
 	if err != nil {
 		return err
 	}
-	now := snoozeNow()
-	cutoff := now - int64(snoozeTTL.Seconds())
+	now := Now()
+	cutoff := now - int64(TTL.Seconds())
 	keep := map[string]int64{}
 	if f, err := os.Open(p); err == nil {
 		sc := bufio.NewScanner(f)

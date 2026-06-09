@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/kungfusheep/recap/cursor"
 	"github.com/kungfusheep/recap/db"
 	"strings"
 	"testing"
@@ -159,15 +160,15 @@ func TestCurrentTitleFlare(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("RECAP_DB", dir+"/recap.db")
 
-	if currentTitle("wed") != "" {
-		t.Fatalf("idle → empty flare, got %q", currentTitle("wed"))
+	if cursor.Title("wed") != "" {
+		t.Fatalf("idle → empty flare, got %q", cursor.Title("wed"))
 	}
-	saveCurrent("wed", "todo:abcd1234", "fix the width issue on the right")
-	if got := currentTitle("wed"); got != "fix the width issue on the right" {
+	cursor.Save("wed", "todo:abcd1234", "fix the width issue on the right")
+	if got := cursor.Title("wed"); got != "fix the width issue on the right" {
 		t.Fatalf("flare = %q", got)
 	}
-	saveCurrent("wed", "", "")
-	if currentTitle("wed") != "" {
-		t.Fatalf("cleared → empty flare, got %q", currentTitle("wed"))
+	cursor.Save("wed", "", "")
+	if cursor.Title("wed") != "" {
+		t.Fatalf("cleared → empty flare, got %q", cursor.Title("wed"))
 	}
 }

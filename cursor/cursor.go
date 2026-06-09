@@ -1,4 +1,4 @@
-package main
+package cursor
 
 import (
 	"github.com/kungfusheep/recap/db"
@@ -17,7 +17,7 @@ import (
 // The cursor is PER-REPO (one file per repo name) so two loops in different repos
 // never share or clobber each other's in-flight item — the same namespacing the
 // queue (amends/replies/todos) already uses. "" repo falls back to a shared file.
-func currentPath(repo string) (string, error) {
+func path(repo string) (string, error) {
 	dbp, err := db.Path()
 	if err != nil {
 		return "", err
@@ -29,9 +29,9 @@ func currentPath(repo string) (string, error) {
 	return filepath.Join(filepath.Dir(dbp), name), nil
 }
 
-// loadCurrent returns the repo's current item ref + display title ("","" if none).
-func loadCurrent(repo string) (ref, title string) {
-	p, err := currentPath(repo)
+// Load returns the repo's current item ref + display title ("","" if none).
+func Load(repo string) (ref, title string) {
+	p, err := path(repo)
 	if err != nil {
 		return "", ""
 	}
@@ -46,15 +46,15 @@ func loadCurrent(repo string) (ref, title string) {
 	return strings.TrimSpace(parts[0]), ""
 }
 
-// currentTitle is the flare text — the repo's current item title, "" when idle.
-func currentTitle(repo string) string {
-	_, title := loadCurrent(repo)
+// Title is the flare text — the repo's current item title, "" when idle.
+func Title(repo string) string {
+	_, title := Load(repo)
 	return title
 }
 
-// saveCurrent sets the repo's cursor to ref/title, or clears it when ref is empty.
-func saveCurrent(repo, ref, title string) error {
-	p, err := currentPath(repo)
+// Save sets the repo's cursor to ref/title, or clears it when ref is empty.
+func Save(repo, ref, title string) error {
+	p, err := path(repo)
 	if err != nil {
 		return err
 	}

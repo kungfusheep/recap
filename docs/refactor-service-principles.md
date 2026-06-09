@@ -56,9 +56,10 @@ Ordered low-risk → high-risk so the reviewer can stop/redirect at any boundary
       diff-type users (ui.go, the diff/editor tests) — NOT the theme files, whose
       `Theme.DiffHunk`/`DiffAdd`/`DiffDel` *fields* collide in name with the old types
       (the rename to `Hunk` sidesteps the collision). Build + suite green.
-- [ ] **Slice 3b — remaining leaves.** `snooze` (snooze.go) and per-repo `cursor`
-      (current.go) — both tiny file-beside-db helpers (now calling `db.Path()`), used
-      mainly by next.go/upcoming.go. No UI coupling.
+- [x] **Slice 3b — `snooze` + `cursor` packages.** snooze.go → `snooze` (`snooze.Load`/
+      `snooze.Record`/`snooze.TTL`/`snooze.Now`); current.go → `cursor` (`cursor.Load`/
+      `cursor.Save`/`cursor.Title`). Both import `db` for `db.Path()` (one-way), callers
+      (next.go/upcoming.go/main.go) qualified. Build + suite green.
 - [ ] **Slice 4 — render/theme utilities.** `theme` (`Theme`, palettes, `applyTheme`),
       `contrast`, `highlight`, `links`, `focus_shade` — stateless helpers the TUI calls.
       Group into a small number of flat packages (likely `theme` + `render`).

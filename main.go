@@ -8,6 +8,7 @@ import (
 	_ "embed"
 	"flag"
 	"fmt"
+	"github.com/kungfusheep/recap/cursor"
 	"github.com/kungfusheep/recap/db"
 	"os"
 	"os/exec"
@@ -593,7 +594,7 @@ func cmdWhoami(args []string) error {
 // handed out (and hasn't been completed). "(idle)" when there's nothing.
 func cmdCurrent(args []string) error {
 	repo := currentRepo()
-	ref, title := loadCurrent(repo)
+	ref, title := cursor.Load(repo)
 	if ref == "" {
 		fmt.Println("(idle — recap next to take work)")
 		return nil

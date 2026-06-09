@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/kungfusheep/recap/cursor"
 	"path/filepath"
 	"testing"
 )
@@ -11,32 +12,32 @@ func TestCurrentMarker(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("RECAP_DB", filepath.Join(dir, "recap.db"))
 
-	if ref, _ := loadCurrent("wed"); ref != "" {
+	if ref, _ := cursor.Load("wed"); ref != "" {
 		t.Fatalf("fresh cursor should be empty")
 	}
-	if err := saveCurrent("wed", "amends:50", "in-progress flare on the upcoming section"); err != nil {
+	if err := cursor.Save("wed", "amends:50", "in-progress flare on the upcoming section"); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	ref, title := loadCurrent("wed")
+	ref, title := cursor.Load("wed")
 	if ref != "amends:50" || title != "in-progress flare on the upcoming section" {
-		t.Fatalf("loadCurrent = %q / %q", ref, title)
+		t.Fatalf("cursor.Load = %q / %q", ref, title)
 	}
-	if currentTitle("wed") != "in-progress flare on the upcoming section" {
-		t.Fatalf("currentTitle = %q", currentTitle("wed"))
+	if cursor.Title("wed") != "in-progress flare on the upcoming section" {
+		t.Fatalf("cursor.Title = %q", cursor.Title("wed"))
 	}
 	// per-repo isolation: a different repo's cursor is independent
-	if currentTitle("tui") != "" {
-		t.Fatalf("another repo's cursor should be empty, got %q", currentTitle("tui"))
+	if cursor.Title("tui") != "" {
+		t.Fatalf("another repo's cursor should be empty, got %q", cursor.Title("tui"))
 	}
 	// clear
-	if err := saveCurrent("wed", "", ""); err != nil {
+	if err := cursor.Save("wed", "", ""); err != nil {
 		t.Fatalf("clear: %v", err)
 	}
-	if ref, _ := loadCurrent("wed"); ref != "" {
+	if ref, _ := cursor.Load("wed"); ref != "" {
 		t.Fatalf("cursor should be cleared")
 	}
 	// clearing again is a no-op (no error on missing file)
-	if err := saveCurrent("wed", "", ""); err != nil {
+	if err := cursor.Save("wed", "", ""); err != nil {
 		t.Fatalf("double clear should be a no-op: %v", err)
 	}
 }
