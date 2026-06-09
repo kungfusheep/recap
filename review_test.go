@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"strings"
 	"testing"
 )
 
@@ -496,43 +495,6 @@ func TestDiscardReview(t *testing.T) {
 	}
 }
 
-// the TODO template resolves {relpath} relative to home, and appendTODO writes a
-// line (used by the in-TUI todo editor; recap no longer drops review breadcrumbs —
-// the agent reads amends straight from the db via recap next / recap redo).
-func TestTODOTemplate(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	cfg := Config{TODOTemplate: "~/notes/{relpath}/TODO.md"}
-	repo := home + "/code/wed"
-	path, err := cfg.todoPathFor(repo)
-	if err != nil {
-		t.Fatalf("todoPathFor: %v", err)
-	}
-	want := home + "/notes/code/wed/TODO.md"
-	if path != want {
-		t.Fatalf("want %q, got %q", want, path)
-	}
-
-	if err := appendTODO(path, "- [ ] one"); err != nil {
-		t.Fatalf("append: %v", err)
-	}
-	data := readFile(t, path)
-	if !strings.Contains(data, "- [ ] one\n") {
-		t.Fatalf("first line missing:\n%s", data)
-	}
-
-	// empty template disables writing
-	if p, _ := (Config{}).todoPathFor(repo); p != "" {
-		t.Fatalf("want empty path with no template, got %q", p)
-	}
-}
-
-func readFile(t *testing.T, path string) string {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	return string(b)
-}
+// TODO-template + AppendTODO behaviour moved to the config package
+// (config/config_test.go) when config was extracted to its own package.
 

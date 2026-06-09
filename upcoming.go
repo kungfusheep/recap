@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/kungfusheep/recap/config"
 	. "github.com/kungfusheep/glyph"
 )
 
@@ -103,11 +104,11 @@ func updateUpcoming() {
 // tasks. Runs on a goroutine only. Any failure (no template, unreadable) yields
 // an empty list, which simply hides the section.
 func loadUpcoming(repoPath string) []string {
-	cfg, err := LoadConfig()
+	cfg, err := config.LoadConfig()
 	if err != nil {
 		return nil
 	}
-	path, err := cfg.todoPathFor(repoPath)
+	path, err := cfg.TODOPathFor(repoPath)
 	if err != nil || path == "" {
 		return nil
 	}

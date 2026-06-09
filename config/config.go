@@ -1,4 +1,5 @@
-package main
+// Package config loads recap's small on-disk config and resolves a repo's TODO path.
+package config
 
 import (
 	"bufio"
@@ -87,9 +88,9 @@ func expandHome(p string) string {
 	return p
 }
 
-// todoPathFor resolves the TODO template for a repo path, substituting
+// TODOPathFor resolves the TODO template for a repo path, substituting
 // {relpath} (repo path relative to $HOME). Returns "" if no template is set.
-func (c Config) todoPathFor(repoPath string) (string, error) {
+func (c Config) TODOPathFor(repoPath string) (string, error) {
 	if c.TODOTemplate == "" {
 		return "", nil
 	}
@@ -102,9 +103,9 @@ func (c Config) todoPathFor(repoPath string) (string, error) {
 	return expandHome(strings.ReplaceAll(c.TODOTemplate, "{relpath}", rel)), nil
 }
 
-// appendTODO appends a single line to the file, creating it (and parent dirs) if
+// AppendTODO appends a single line to the file, creating it (and parent dirs) if
 // needed. Appending a plain line to a plain file is safe and reversible.
-func appendTODO(path, line string) error {
+func AppendTODO(path, line string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}

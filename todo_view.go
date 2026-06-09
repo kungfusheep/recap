@@ -3,6 +3,7 @@ package main
 import (
 	"strings"
 
+	"github.com/kungfusheep/recap/config"
 	. "github.com/kungfusheep/glyph"
 )
 
@@ -43,8 +44,8 @@ func openTodoEditor() {
 // can launch any project's todo list, not just the selected task's. Reports why if it
 // can't resolve/read the file.
 func openTodoFor(repo, repoPath string) {
-	cfg, _ := LoadConfig()
-	path, err := cfg.todoPathFor(repoPath)
+	cfg, _ := config.LoadConfig()
+	path, err := cfg.TODOPathFor(repoPath)
 	if err != nil {
 		statusMsg = "todo path: " + err.Error()
 		return

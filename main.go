@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kungfusheep/recap/config"
 	"github.com/kungfusheep/recap/notify"
 )
 
@@ -574,7 +575,7 @@ func cmdWhoami(args []string) error {
 		} else {
 			fmt.Printf("agent: %s  (colour %02X%02X%02X)\n", cur, c.R, c.G, c.B)
 		}
-		if cfg, _ := LoadConfig(); cfg.NameTheme != "" {
+		if cfg, _ := config.LoadConfig(); cfg.NameTheme != "" {
 			fmt.Printf("name theme: %s\n", cfg.NameTheme)
 		}
 		return nil
