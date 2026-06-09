@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/kungfusheep/recap/db"
+	"github.com/kungfusheep/recap/diff"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -232,7 +233,7 @@ var (
 	metaResult            string
 	metaResultColor       = cSubtle
 	filesText             string
-	diffFiles             []DiffFile
+	diffFiles             []diff.File
 	statusMsg             string
 
 	lastSel, lastLen int
@@ -744,7 +745,7 @@ func refreshDetail() {
 	if err != nil {
 		diffFiles = nil
 	} else {
-		diffFiles = parseUnifiedDiff(full)
+		diffFiles = diff.Parse(full)
 	}
 	setDiff(resetScroll)
 }
@@ -1055,7 +1056,7 @@ func span(text string, fg Color, bold bool) Span {
 // works by buffer row. Text is clipped to w so each row is exactly one line, preserving
 // the row==Y mapping the jump registration relies on (no wrap). Built alongside the
 // existing renderer; the swap happens once it's render-verified.
-func buildDiffView(files []DiffFile, w int) (Component, []diffLineMeta) {
+func buildDiffView(files []diff.File, w int) (Component, []diffLineMeta) {
 	var meta []diffLineMeta
 	clipN := func(s string, max int) string {
 		if r := []rune(s); max > 0 && len(r) > max {
@@ -1107,7 +1108,7 @@ func buildDiffView(files []DiffFile, w int) (Component, []diffLineMeta) {
 				m := diffLineMeta{File: f.Path, Anchor: hk.Header, Text: txt, Commentable: true}
 				var row Component
 				switch l.Kind {
-				case LineAdd:
+				case diff.LineAdd:
 					m.Line = cur
 					cur++
 					// ONLY added code is syntax-highlighted. The "+ " gutter (green) and the
@@ -1117,7 +1118,7 @@ func buildDiffView(files []DiffFile, w int) (Component, []diffLineMeta) {
 					indent := code[:len(code)-len(strings.TrimLeft(code, " "))]
 					rest := code[len(indent):]
 					row = HBox(Text("+ "+indent).FG(&cAdd), Textf(highlightParts(rest, lexer, cFG)...))
-				case LineDel:
+				case diff.LineDel:
 					row = Text(clip("- " + txt)).FG(&cDel) // removed: stays red, not highlighted
 				default:
 					m.Line = cur

@@ -50,9 +50,15 @@ Ordered low-risk → high-risk so the reviewer can stop/redirect at any boundary
       settings) now call `db.Path()`. Tests stay in `package main` (qualified) for now —
       `testStore` returns `*db.Store`; relocating the pure-store tests into `db/` is optional
       polish. Build + full suite green.
-- [ ] **Slice 3 — remaining pure leaves.** `diff` (parse/model: `DiffFile`, `DiffHunk`,
-      `DiffLine`, `parseUnifiedDiff`), `snooze`, and the per-repo `cursor` (current.go).
-      Each has a tiny caller set and no UI-global coupling.
+- [x] **Slice 3a — `diff` package.** `diff.go` → `diff/diff.go` (`package diff`), clean
+      API: `diff.File`/`diff.Hunk`/`diff.Line`/`diff.LineKind`, `diff.Parse`,
+      `diff.LineAdd`/`LineDel`/`LineContext`, `diff.TotalLines`. Qualified only the
+      diff-type users (ui.go, the diff/editor tests) — NOT the theme files, whose
+      `Theme.DiffHunk`/`DiffAdd`/`DiffDel` *fields* collide in name with the old types
+      (the rename to `Hunk` sidesteps the collision). Build + suite green.
+- [ ] **Slice 3b — remaining leaves.** `snooze` (snooze.go) and per-repo `cursor`
+      (current.go) — both tiny file-beside-db helpers (now calling `db.Path()`), used
+      mainly by next.go/upcoming.go. No UI coupling.
 - [ ] **Slice 4 — render/theme utilities.** `theme` (`Theme`, palettes, `applyTheme`),
       `contrast`, `highlight`, `links`, `focus_shade` — stateless helpers the TUI calls.
       Group into a small number of flat packages (likely `theme` + `render`).

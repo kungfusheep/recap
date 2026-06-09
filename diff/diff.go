@@ -1,46 +1,46 @@
-package main
+package diff
 
 import "strings"
 
 // A small unified-diff model so we render a friendly view instead of
 // prefix-matching raw `git show` output (which leaks plumbing + miscolours).
 
-type DiffLineKind byte
+type LineKind byte
 
 const (
-	LineContext DiffLineKind = ' '
-	LineAdd     DiffLineKind = '+'
-	LineDel     DiffLineKind = '-'
+	LineContext LineKind = ' '
+	LineAdd     LineKind = '+'
+	LineDel     LineKind = '-'
 )
 
-type DiffLine struct {
-	Kind DiffLineKind
+type Line struct {
+	Kind LineKind
 	Text string
 }
 
-type DiffHunk struct {
+type Hunk struct {
 	Header string // the @@ … @@ context line
-	Lines  []DiffLine
+	Lines  []Line
 }
 
-type DiffFile struct {
+type File struct {
 	Path   string
 	Status string // "new file" | "deleted" | "renamed" | "modified"
-	Hunks  []DiffHunk
+	Hunks  []Hunk
 }
 
-// parseUnifiedDiff turns a `git show`/`git diff` patch into a model. It starts
+// Parse turns a `git show`/`git diff` patch into a model. It starts
 // at the first "diff --git", so a leading commit/author/message preamble is
 // ignored naturally.
-func parseUnifiedDiff(patch string) []DiffFile {
-	var files []DiffFile
-	var cur *DiffFile
-	var hunk *DiffHunk
+func Parse(patch string) []File {
+	var files []File
+	var cur *File
+	var hunk *Hunk
 
 	for _, ln := range strings.Split(patch, "\n") {
 		switch {
 		case strings.HasPrefix(ln, "diff --git "):
-			files = append(files, DiffFile{Status: "modified", Path: pathFromDiffGit(ln)})
+			files = append(files, File{Status: "modified", Path: pathFromDiffGit(ln)})
 			cur = &files[len(files)-1]
 			hunk = nil
 		case cur == nil:
@@ -61,22 +61,22 @@ func parseUnifiedDiff(patch string) []DiffFile {
 			strings.HasPrefix(ln, "Binary files"):
 			// plumbing header noise — skip
 		case strings.HasPrefix(ln, "@@"):
-			cur.Hunks = append(cur.Hunks, DiffHunk{Header: ln})
+			cur.Hunks = append(cur.Hunks, Hunk{Header: ln})
 			hunk = &cur.Hunks[len(cur.Hunks)-1]
 		case strings.HasPrefix(ln, `\ No newline`):
 			// ignore
 		case hunk != nil && len(ln) > 0:
 			switch ln[0] {
 			case '+':
-				hunk.Lines = append(hunk.Lines, DiffLine{Kind: LineAdd, Text: ln[1:]})
+				hunk.Lines = append(hunk.Lines, Line{Kind: LineAdd, Text: ln[1:]})
 			case '-':
-				hunk.Lines = append(hunk.Lines, DiffLine{Kind: LineDel, Text: ln[1:]})
+				hunk.Lines = append(hunk.Lines, Line{Kind: LineDel, Text: ln[1:]})
 			case ' ':
-				hunk.Lines = append(hunk.Lines, DiffLine{Kind: LineContext, Text: ln[1:]})
+				hunk.Lines = append(hunk.Lines, Line{Kind: LineContext, Text: ln[1:]})
 			}
 		case hunk != nil && ln == "":
 			// blank context line within a hunk
-			hunk.Lines = append(hunk.Lines, DiffLine{Kind: LineContext, Text: ""})
+			hunk.Lines = append(hunk.Lines, Line{Kind: LineContext, Text: ""})
 		}
 	}
 	return files
@@ -95,8 +95,8 @@ func pathFromDiffGit(ln string) string {
 	return rest
 }
 
-// totalLines counts rendered lines across files (for truncation guards).
-func totalLines(files []DiffFile) int {
+// TotalLines counts rendered lines across files (for truncation guards).
+func TotalLines(files []File) int {
 	n := 0
 	for _, f := range files {
 		n += 1 + len(f.Hunks)

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/kungfusheep/recap/db"
+	"github.com/kungfusheep/recap/diff"
 	"os"
 	"strings"
 	"testing"
@@ -15,14 +16,14 @@ import (
 // on a commented line. Asserted on the rendered buffer. (diff-renderer-as-components)
 func TestBuildDiffViewRenders(t *testing.T) {
 	defer func() { clear(commentedLines) }()
-	files := []DiffFile{{
+	files := []diff.File{{
 		Path:   "main.go",
 		Status: "modified",
-		Hunks: []DiffHunk{{
+		Hunks: []diff.Hunk{{
 			Header: "@@ -1,3 +1,3 @@",
-			Lines: []DiffLine{
-				{Kind: LineAdd, Text: "added line"},
-				{Kind: LineDel, Text: "removed line"},
+			Lines: []diff.Line{
+				{Kind: diff.LineAdd, Text: "added line"},
+				{Kind: diff.LineDel, Text: "removed line"},
 				{Text: "context line"}, // zero Kind → context
 			},
 		}},
@@ -96,10 +97,10 @@ func TestBuildDiffViewRenders(t *testing.T) {
 // its body. (per-file fold)
 func TestBuildDiffViewFold(t *testing.T) {
 	defer func() { clear(fileFolded) }()
-	files := []DiffFile{{
+	files := []diff.File{{
 		Path:   "main.go",
 		Status: "modified",
-		Hunks:  []DiffHunk{{Header: "@@ -1,2 +1,2 @@", Lines: []DiffLine{{Kind: LineAdd, Text: "x"}, {Kind: LineDel, Text: "y"}}}},
+		Hunks:  []diff.Hunk{{Header: "@@ -1,2 +1,2 @@", Lines: []diff.Line{{Kind: diff.LineAdd, Text: "x"}, {Kind: diff.LineDel, Text: "y"}}}},
 	}}
 	_, openMeta := buildDiffView(files, 40)
 	openBody := 0
@@ -151,10 +152,10 @@ func TestToggleFileFold(t *testing.T) {
 // regression (c179): the diff body must PRESERVE leading whitespace/indentation. The
 // Rich Textf path trims it; plain Text keeps it. Asserted on the rendered buffer.
 func TestBuildDiffViewPreservesIndent(t *testing.T) {
-	files := []DiffFile{{
+	files := []diff.File{{
 		Path:   "main.go",
 		Status: "modified",
-		Hunks:  []DiffHunk{{Header: "@@ -1,1 +1,1 @@", Lines: []DiffLine{{Kind: LineAdd, Text: "        deeplyIndented()"}}}},
+		Hunks:  []diff.Hunk{{Header: "@@ -1,1 +1,1 @@", Lines: []diff.Line{{Kind: diff.LineAdd, Text: "        deeplyIndented()"}}}},
 	}}
 	tree, meta := buildDiffView(files, 60)
 	buf := NewBuffer(60, len(meta)+2)
@@ -180,12 +181,12 @@ func TestBuildDiffViewPreservesIndent(t *testing.T) {
 // the '+' gutter stays cAdd, an added keyword gets a syntax colour (≠ cAdd, ≠ cFG), and a
 // removed line stays cDel (not highlighted). (chroma highlighting)
 func TestDiffAddedLineHighlighted(t *testing.T) {
-	files := []DiffFile{{
+	files := []diff.File{{
 		Path:   "main.go",
 		Status: "modified",
-		Hunks: []DiffHunk{{Header: "@@ -1,2 +1,2 @@", Lines: []DiffLine{
-			{Kind: LineAdd, Text: "func main() {"},
-			{Kind: LineDel, Text: "func old() {"},
+		Hunks: []diff.Hunk{{Header: "@@ -1,2 +1,2 @@", Lines: []diff.Line{
+			{Kind: diff.LineAdd, Text: "func main() {"},
+			{Kind: diff.LineDel, Text: "func old() {"},
 		}}},
 	}}
 	tree, meta := buildDiffView(files, 60)
@@ -295,7 +296,7 @@ func TestDiffScrollPreservedOnReload(t *testing.T) {
 // foldAllFiles toggles every file between folded and open. (close all files)
 func TestFoldAllFiles(t *testing.T) {
 	defer func() { clear(fileFolded); diffFiles = nil }()
-	diffFiles = []DiffFile{{Path: "a.go"}, {Path: "b.go"}}
+	diffFiles = []diff.File{{Path: "a.go"}, {Path: "b.go"}}
 	foldAllFiles() // none folded → fold all
 	if !fileFolded["a.go"] || !fileFolded["b.go"] {
 		t.Fatal("foldAllFiles should fold every file")
