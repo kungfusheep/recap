@@ -78,8 +78,18 @@ func TestDraftScrollbarThumbPartialAndPositioned(t *testing.T) {
 
 	draftComments = make([]draftCommentVM, 20)
 	for i := range draftComments {
+		// mix flat comments and NESTED replies (indented) with wrapping bodies — the real
+		// thread shape. Indent narrows the body's wrap width, so item-height measurement
+		// and render must agree on that width or totalRows drifts and the thumb is wrong.
+		indent := ""
+		if i%3 == 1 {
+			indent = "  ↳ "
+		} else if i%3 == 2 {
+			indent = "    ↳ "
+		}
 		draftComments[i] = draftCommentVM{
 			Location: "general",
+			Indent:   indent,
 			Body:     fmt.Sprintf("comment %02d with a body long enough to wrap across more than one row in a narrow column", i),
 		}
 	}
