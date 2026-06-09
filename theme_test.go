@@ -211,10 +211,13 @@ func TestThemeCommandsInPalette(t *testing.T) {
 	}
 }
 
-// applying a theme must actually repaint: recap bakes colours at build time, so
-// this verifies by RENDER that rebuilding buildMain after setThemeVars changes a
-// background cell's colour to the new palette's BG (a re-render alone wouldn't).
-func TestApplyThemeRepaints(t *testing.T) {
+// the whole point of the dynamic-theme rework (#165 c211): colours are pointer-bound,
+// so a template compiled ONCE repaints when setThemeVars mutates the palette vars — NO
+// view rebuild. This compiles buildMain a single time, renders it, switches the palette,
+// renders the SAME template again, and asserts a background cell changed to the new
+// palette's BG. If colours were still baked at build time this would FAIL (the second
+// render would keep the dark BG).
+func TestApplyThemeRepaintsWithoutRebuild(t *testing.T) {
 	st := testStore(t)
 	prevStore, prevApp, prevOmni, prevName := uiStore, uiApp, omni, currentThemeName
 	uiStore = st
@@ -230,28 +233,30 @@ func TestApplyThemeRepaints(t *testing.T) {
 	st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
 	reloadTasks()
 
-	bgCell := func() Color {
-		tmpl := Build(buildMain())
+	// compile ONCE
+	setThemeVars(themeDark)
+	tmpl := Build(buildMain())
+	render := func() Color {
 		buf := NewBuffer(100, 30)
 		tmpl.Execute(buf, 100, 30)
 		// the middle column sits on the app bg (cBG); sample a cell there
 		return buf.Get(60, 5).Style.BG
 	}
 
-	setThemeVars(themeDark)
-	darkBG := bgCell()
+	darkBG := render()
 	if darkBG != themeDark.BG {
 		t.Fatalf("dark: bg cell = %v, want %v", darkBG, themeDark.BG)
 	}
 
+	// switch palette WITHOUT recompiling — only mutate the vars the template points at
 	amber, _ := themeByName("mfd-amber")
 	setThemeVars(amber)
-	amberBG := bgCell()
+	amberBG := render() // same tmpl, second Execute
 	if amberBG != amber.BG {
-		t.Fatalf("after theme switch: bg cell = %v, want amber %v", amberBG, amber.BG)
+		t.Fatalf("same compiled template after theme switch: bg cell = %v, want amber %v (colours not dynamic — still baked?)", amberBG, amber.BG)
 	}
 	if amberBG == darkBG {
-		t.Fatal("background colour did not change on theme switch")
+		t.Fatal("background colour did not change on theme switch without rebuild")
 	}
 }
 
@@ -281,11 +286,14 @@ func TestThemeChangeNoOrphanedModalRouter(t *testing.T) {
 	}
 
 	// simulate selecting a theme command: exec() closes the palette, then the action
-	// runs applyTheme (which rebuilds the views via UpdateView — deactivating main first,
-	// which pops the palette's modal, then reactivating). No manual drain.
+	// runs applyTheme. applyTheme no longer rebuilds the views (colours are pointer-bound
+	// and repaint on render), so the palette's modal releases the same way any closed
+	// overlay does — on the next render (glyph's exiting-overlay router release), not via
+	// a view rebuild. Render once to let that happen.
 	omni.Close()
 	th := allThemes()[1]
 	applyTheme(th.Name, th.Palette)
+	uiApp.RenderNow()
 
 	if d := uiApp.Input().Depth(); d != base {
 		t.Fatalf("after theme change the input stack should be back to base %d, got %d (orphaned modal router → keys dead)", base, d)

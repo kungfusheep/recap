@@ -1053,7 +1053,7 @@ func buildDiffView(files []DiffFile, w int) (Component, []diffLineMeta) {
 	clip := func(s string) string { return clipN(s, w) }
 	if len(files) == 0 {
 		meta = append(meta, diffLineMeta{})
-		return VBox.Fill(cBG)(Text("no changes").FG(cSubtle)), meta
+		return VBox.Fill(&cBG)(Text("no changes").FG(&cSubtle)), meta
 	}
 	var fileBoxes []Component
 	for fi, f := range files {
@@ -1078,7 +1078,7 @@ func buildDiffView(files []DiffFile, w int) (Component, []diffLineMeta) {
 		if folded {
 			caret = "▸ "
 		}
-		rows = append(rows, HBox.Fill(cFileHdrBG)(Text(clip(caret+sym+" "+cleanLine(f.Path))).FG(c).Bold()))
+		rows = append(rows, HBox.Fill(&cFileHdrBG)(Text(clip(caret+sym+" "+cleanLine(f.Path))).FG(c).Bold()))
 		meta = append(meta, diffLineMeta{FileHeader: true, File: f.Path})
 		if folded {
 			fileBoxes = append(fileBoxes, VBox.Gap(0)(rows...))
@@ -1086,7 +1086,7 @@ func buildDiffView(files []DiffFile, w int) (Component, []diffLineMeta) {
 		}
 		lexer := lexerFor(f.Path) // nil for unknown languages → added lines render unhighlighted
 		for _, hk := range f.Hunks {
-			rows = append(rows, Text(clip("  "+cleanLine(hk.Header))).FG(cMuted))
+			rows = append(rows, Text(clip("  "+cleanLine(hk.Header))).FG(&cMuted))
 			meta = append(meta, diffLineMeta{})
 			cur := hunkNewStart(hk.Header)
 			for _, l := range hk.Lines {
@@ -1103,17 +1103,17 @@ func buildDiffView(files []DiffFile, w int) (Component, []diffLineMeta) {
 					code := clipN(txt, w-2) // leave room for the 2-char gutter
 					indent := code[:len(code)-len(strings.TrimLeft(code, " "))]
 					rest := code[len(indent):]
-					row = HBox(Text("+ "+indent).FG(cAdd), Textf(highlightParts(rest, lexer, cFG)...))
+					row = HBox(Text("+ "+indent).FG(&cAdd), Textf(highlightParts(rest, lexer, cFG)...))
 				case LineDel:
-					row = Text(clip("- "+txt)).FG(cDel) // removed: stays red, not highlighted
+					row = Text(clip("- "+txt)).FG(&cDel) // removed: stays red, not highlighted
 				default:
 					m.Line = cur
 					cur++
-					row = Text(clip("  "+txt)).FG(cSubtle) // context: unchanged, subtle
+					row = Text(clip("  "+txt)).FG(&cSubtle) // context: unchanged, subtle
 				}
 				// a commented line gets a full-width wash via row .Fill.
 				if commentedLines[lineKey(m.File, m.Line)] {
-					row = HBox.Fill(cCommentBG)(row)
+					row = HBox.Fill(&cCommentBG)(row)
 				}
 				rows = append(rows, row)
 				meta = append(meta, m)
@@ -1121,7 +1121,7 @@ func buildDiffView(files []DiffFile, w int) (Component, []diffLineMeta) {
 		}
 		fileBoxes = append(fileBoxes, VBox.Gap(0)(rows...))
 	}
-	return VBox.Fill(cBG).Gap(0)(fileBoxes...), meta
+	return VBox.Fill(&cBG).Gap(0)(fileBoxes...), meta
 }
 
 // renderDiffLayer (re)builds the layer buffer from diffFiles via buildDiffView. Called by the
@@ -1156,7 +1156,7 @@ func renderDiffLayer() {
 		h = vh // pad to viewport so the themed fill covers the whole pane
 	}
 	buf := NewBuffer(w, h)
-	Build(VBox.Fill(cBG).Gap(0)(children...)).Execute(buf, int16(w), int16(h))
+	Build(VBox.Fill(&cBG).Gap(0)(children...)).Execute(buf, int16(w), int16(h))
 
 	// while glyph's jump mode is active, register one jump target per visible commentable
 	// row at its screen position (screenY = diffViewRef.Y + row − scroll) — same manual
@@ -1215,7 +1215,7 @@ func hhmm(stamp string) string {
 // --- view ------------------------------------------------------------------
 
 func buildMain() Component {
-	return VBox.Fill(cBG).CascadeStyle(&Style{Fill: cBG, BG: cBG, FG: cFG})(
+	return VBox.Fill(&cBG).CascadeStyle(&bgStyle)(
 		// global keys. While picking a diff line glyph's jump router is pushed on top
 		// of the input stack and intercepts every keystroke (labels + Esc + cancel),
 		// so these are shadowed automatically — no manual suppression needed.
@@ -1237,14 +1237,14 @@ func buildMain() Component {
 		// deactivates this view (and pops any modal it had open, e.g. the omnibox).
 		HBox.Grow(1).Gap(4)(
 				// left — review inbox (darker column fill claims the area)
-				VBox.Grow(2).Fill(cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0).NodeRef(&listPaneRef)(
+				VBox.Grow(2).Fill(&cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0).NodeRef(&listPaneRef)(
 					HBox(
 						SpaceW(3),
-						Text("recap").FG(cBright).Bold(),
+						Text("recap").FG(&cBright).Bold(),
 						SpaceW(1),
-						Text(&countText).FG(cSubtle),
+						Text(&countText).FG(&cSubtle),
 						Space(),
-						Text(&filterText).FG(cSubtle),
+						Text(&filterText).FG(&cSubtle),
 						SpaceW(2),
 					),
 					SpaceH(2),
@@ -1257,12 +1257,12 @@ func buildMain() Component {
 							// plain VBox/ForEach content-sizes to the short "UPCOMING" label
 							// and truncates the rows; the removed divider HRule used to force
 							// the width. This restores it without the bleed.
-							Text("UPCOMING").FG(cSubtle).Bold(),
+							Text("UPCOMING").FG(&cSubtle).Bold(),
 							// the whole list is ONE multi-line TextBlock — it reads its
 							// pointer and wraps to the width-set VBox, unlike a ForEach of
 							// pointer-Text rows (which measure empty at build → truncate). The
 							// in-flight row's spinner glyph is built into the blob each frame.
-							TextBlock(&upcomingBlob).FG(cSubtle),
+							TextBlock(&upcomingBlob).FG(&cSubtle),
 						),
 					),
 					List(&vmRows).
@@ -1295,15 +1295,15 @@ func buildMain() Component {
 				VBox.Grow(3).PaddingTRBL(1, 0, 0, 0).NodeRef(&diffPaneRef)(
 					SpaceH(1),
 					HBox(
-						Text(&detailTitle).FG(cBright).Bold(),
+						Text(&detailTitle).FG(&cBright).Bold(),
 						SpaceW(2),
 					),
 					SpaceH(1),
 					HBox(
-						Text(&metaRepo).FG(cSubtle),
-						Text("  ·  ").FG(cMuted),
-						Text(&metaWhen).FG(cSubtle),
-						Text("  ·  ").FG(cMuted),
+						Text(&metaRepo).FG(&cSubtle),
+						Text("  ·  ").FG(&cMuted),
+						Text(&metaWhen).FG(&cSubtle),
+						Text("  ·  ").FG(&cMuted),
 						Text(&metaResult).FG(&metaResultColor),
 					),
 					SpaceH(2),
@@ -1317,8 +1317,8 @@ func buildMain() Component {
 					HBox.Grow(1).NodeRef(&diffViewRef)(
 						LayerView(diffLayer).Grow(1),
 						ScrollbarForLayer(diffLayer).
-							TrackStyle(Style{FG: cMuted, BG: cBG}).
-							ThumbStyle(Style{FG: cSubtle, BG: cBG}).
+							TrackStyle(&scrollTrackStyle).
+							ThumbStyle(&scrollThumbStyle).
 							Opacity(Animate(&diffFocused)),
 					),
 					// diff-focused keys. During a line-pick glyph's jump router is
@@ -1343,8 +1343,8 @@ func buildMain() Component {
 				),
 				// right — comments overview (shown whenever the task has any comments)
 				If(&hasDraft).Then(
-					VBox.Grow(2).Fill(cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0).NodeRef(&draftPaneRef)(
-						HBox(SpaceW(3), Text("comments").FG(cBright).Bold(), Space(), Text(&draftNote).FG(cSubtle), SpaceW(2)),
+					VBox.Grow(2).Fill(&cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0).NodeRef(&draftPaneRef)(
+						HBox(SpaceW(3), Text("comments").FG(&cBright).Bold(), Space(), Text(&draftNote).FG(&cSubtle), SpaceW(2)),
 						SpaceH(2),
 						List(&draftComments).
 							Selection(&draftSel).
@@ -1366,7 +1366,7 @@ func buildMain() Component {
 				),
 			),
 		// transient status (errors/confirmations) only — no permanent keybar
-		If(&statusMsg).Then(HBox(SpaceW(3), Text(&statusMsg).FG(cSubtle))),
+		If(&statusMsg).Then(HBox(SpaceW(3), Text(&statusMsg).FG(&cSubtle))),
 		// per-column focus fade: unfocused columns dim (mail's FocusShade)
 		columnShades(),
 		// floating comment prompts (add/edit + read), over the inbox/diff
@@ -1449,7 +1449,7 @@ func columnShades() Component {
 // screen-effect treatment (animated dodged vignette + focused drop shadow).
 func helpOverlay() Component {
 	return Overlay.Centered()(
-		VBox.Width(80).Fill(cFloat).CascadeStyle(&Style{Fill: cFloat, BG: cFloat, FG: cFG}).
+		VBox.Width(80).Fill(&cFloat).CascadeStyle(&floatStyle).
 			PaddingVH(1, 2).NodeRef(&helpRef).
 			Opacity(In(Animate(1.0)).Out(Animate(0))).
 			Gap(1)(
@@ -1458,7 +1458,7 @@ func helpOverlay() Component {
 				Key("<Esc>", toggleHelp),
 				Key("q", toggleHelp),
 			),
-			Text("keyboard").FG(cBright).Bold(),
+			Text("keyboard").FG(&cBright).Bold(),
 			HBox(
 				helpSection("navigate", 3, 12, &helpNavRows),
 				helpSection("actions", 2, 8, &helpActionRows),
@@ -1474,11 +1474,11 @@ func helpOverlay() Component {
 
 func helpSection(title string, grow, keyWidth int, rows *[]helpRow) Component {
 	return VBox.Grow(grow)(
-		Text(title).FG(cSubtle),
+		Text(title).FG(&cSubtle),
 		ForEach(rows, func(r *helpRow) Component {
 			return HBox.Gap(2)(
-				Text(&r.Key).FG(cFG).Width(int16(keyWidth)),
-				Text(&r.Desc).FG(cSubtle),
+				Text(&r.Key).FG(&cFG).Width(int16(keyWidth)),
+				Text(&r.Desc).FG(&cSubtle),
 			)
 		}),
 	)
@@ -1494,12 +1494,12 @@ func draftRow(c *draftCommentVM) Component {
 	// Indent (precomputed per row) nests replies; empty for top-level comments.
 	return VBox.Fill(itemBG).PaddingVH(1, 1)(
 		// one read-receipt dot: has the OTHER party read this? (● read / ○ unread)
-		HBox(Text(&c.Indent), Text(&c.ReadDot).FG(cHunk), SpaceW(1), Text(&c.Location).FG(&c.LocColor), Space(), Text(&c.When).FG(cMuted)),
-		If(&c.Snippet).Then(Text(&c.Snippet).FG(cMuted)),
+		HBox(Text(&c.Indent), Text(&c.ReadDot).FG(&cHunk), SpaceW(1), Text(&c.Location).FG(&c.LocColor), Space(), Text(&c.When).FG(&cMuted)),
+		If(&c.Snippet).Then(Text(&c.Snippet).FG(&cMuted)),
 		// TextBlock must be bounded to the width LEFT after the indent, else it wraps to
 		// the full column and the indent shoves it off the right edge (worse the deeper a
 		// reply nests). Grow(1) gives it exactly the remaining column width to wrap into.
-		HBox(Text(&c.Indent), VBox.Grow(1)(TextBlock(&c.Body).FG(cFG))),
+		HBox(Text(&c.Indent), VBox.Grow(1)(TextBlock(&c.Body).FG(&cFG))),
 		// the agent's reaction sits below the body, attributed to the agent's name in
 		// its personal colour (Text, not TextBlock, so the emoji renders cleanly).
 		If(&c.HasEmote).Then(HBox(Text(&c.Indent), Text(&c.Emote), SpaceW(1), Text(&agentLabel).FG(&agentColor))),
@@ -1542,22 +1542,22 @@ func taskRow(r *taskVM) Component {
 			HBox.Grow(1)(
 				// FG must live inside Style: .Style() replaces the whole style, so a
 				// separate .FG() would be wiped — which left the title untinted/cyan.
-				Text(&r.Title).Style(If(&r.Pending).Then(Style{FG: cBright, Attr: AttrBold}).Else(Style{FG: cBright})),
+				Text(&r.Title).Style(If(&r.Pending).Then(&titleBoldStyle).Else(&titlePlainStyle)),
 			),
 			SpaceW(2),
 			// revision-count cue (▸ collapsed / ▾ expanded), only when >1 diff.
-			If(&r.ExpandPill).Eq("").Then(Text("")).Else(HBox(Text(&r.ExpandPill).FG(cSubtle), SpaceW(2))),
+			If(&r.ExpandPill).Eq("").Then(Text("")).Else(HBox(Text(&r.ExpandPill).FG(&cSubtle), SpaceW(2))),
 			// re-review pill: this is a resubmitted fix for a kicked-back task.
-			If(&r.ReReview).Then(HBox(Text(&r.ReReviewPill).FG(cAdd), SpaceW(2))),
+			If(&r.ReReview).Then(HBox(Text(&r.ReReviewPill).FG(&cAdd), SpaceW(2))),
 			// draft-feedback pill: unsubmitted comments in progress on this task.
-			If(&r.HasDraft).Then(HBox(Text(&r.DraftPill).FG(cHunk), SpaceW(2))),
-			Text(&r.When).FG(cSubtle),
+			If(&r.HasDraft).Then(HBox(Text(&r.DraftPill).FG(&cHunk), SpaceW(2))),
+			Text(&r.When).FG(&cSubtle),
 		),
 		HBox(
 			SpaceW(2),
 			Text(&r.Repo).FG(&r.RepoColor), // repo tinted with its identity colour
 			Space(),
-			Text(&r.IDText).FG(cMuted), // dim id for cross-referencing
+			Text(&r.IDText).FG(&cMuted), // dim id for cross-referencing
 			SpaceW(1),
 		),
 	)
@@ -1566,16 +1566,16 @@ func taskRow(r *taskVM) Component {
 	childBody := VBox.Fill(childBG).PaddingVH(0, 1)(
 		HBox(
 			SpaceW(3),
-			Text("·").FG(cMuted),
+			Text("·").FG(&cMuted),
 			SpaceW(1),
-			Text(&r.RevLabel).FG(cSubtle),
+			Text(&r.RevLabel).FG(&cSubtle),
 			Space(), // fill width intrinsically (so independent Ifs don't collapse the row)
 		),
 	)
 	// the "load more" pseudo-row: a plain, focus-aware line at the bottom of the done list.
 	loadMoreBG := If(&r.Selected).Then(&curSelBG).Else(&cPaneBG)
 	loadMoreBody := VBox.Fill(loadMoreBG).PaddingVH(0, 2)(
-		HBox(SpaceW(1), Text(&r.Title).FG(cHunk), Space()), // Space() fills width so the row
+		HBox(SpaceW(1), Text(&r.Title).FG(&cHunk), Space()), // Space() fills width so the row
 		// keeps full width (a narrow branch would collapse the compiled row's measured width).
 	)
 	// Grouped/LoadMore are pointer-bound, so each row picks its branch per frame (a Go
@@ -1583,7 +1583,7 @@ func taskRow(r *taskVM) Component {
 	return VBox(
 		If(&r.HasGroup).Then(
 			VBox.PaddingTRBL(1, 0, 0, 0)(
-				Text(&r.GroupLabel).FG(cMuted).Bold(),
+				Text(&r.GroupLabel).FG(&cMuted).Bold(),
 			),
 		),
 		// exactly one of these is set per row. Independent Ifs (NOT nested If/Else): the nested
@@ -1624,6 +1624,23 @@ var (
 	// app bg) — without it, text renders on cBG while the fill is cPaneBG, giving
 	// the headers a slightly different background to the rest of the column.
 	paneStyle = Style{Fill: cPaneBG, BG: cPaneBG, FG: cFG}
+
+	// the app-background cascade (inbox + todo views) and the float-overlay cascade
+	// (omnibox / prompt / help). Package vars (not inline &Style{...} literals) so
+	// setThemeVars can mutate them in place — the views cascade them by pointer and
+	// repaint on the next render, no view rebuild. (mail's pattern.)
+	bgStyle    = Style{Fill: cBG, BG: cBG, FG: cFG}
+	floatStyle = Style{Fill: cFloat, BG: cFloat, FG: cFG}
+
+	// the omnibox list (base + selected row), the diff scrollbar (track + thumb), and
+	// the task-row title (bold for pending, plain otherwise). All package vars so a
+	// theme change repaints them via setThemeVars + render — no rebuild.
+	omniListStyle    = Style{BG: cFloat}
+	omniSelStyle     = Style{FG: cBright, BG: cSelBG}
+	scrollTrackStyle = Style{FG: cMuted, BG: cBG}
+	scrollThumbStyle = Style{FG: cSubtle, BG: cBG}
+	titleBoldStyle   = Style{FG: cBright, Attr: AttrBold}
+	titlePlainStyle  = Style{FG: cBright}
 )
 
 // syncDiffToDraft scrolls the diff pane to the line the selected draft comment

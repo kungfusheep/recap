@@ -62,7 +62,7 @@ func submitPrompt() {
 func inputPromptOverlay() Component {
 	return If(&promptOpen).Then(
 		Overlay.Centered()(
-			VBox.Width(72).Fill(cFloat).CascadeStyle(&Style{Fill: cFloat, BG: cFloat, FG: cFG}).
+			VBox.Width(72).Fill(&cFloat).CascadeStyle(&floatStyle).
 				PaddingVH(1, 2).NodeRef(&promptRef).Opacity(In(1).Out(Animate(0)))(
 				On.Modal(
 					Key("<CR>", submitPrompt),
@@ -76,13 +76,13 @@ func inputPromptOverlay() Component {
 					SEDropShadow().Strength(0.3).Focus(&promptRef),
 					SEVignette().Smooth().Strength(In(Animate(0.3)).Out(Animate(0))).Dodge(&promptRef),
 				),
-				HBox(Text(&promptTitle).FG(cBright).Bold(), Space(), Text("esc cancel · enter save").FG(cMuted)),
+				HBox(Text(&promptTitle).FG(&cBright).Bold(), Space(), Text("esc cancel · enter save").FG(&cMuted)),
 				SpaceH(1),
 				// line-comment context (location + snippet); empty strings render blank
 				// for non-line prompts. Kept flat (no nested If) — a conditional inside a
 				// modal scope confuses glyph's route-modal pop.
-				Text(&promptLoc).FG(cSubtle),
-				Text(&promptSnip).FG(cMuted),
+				Text(&promptLoc).FG(&cSubtle),
+				Text(&promptSnip).FG(&cMuted),
 				Input().Field(&commentField).Bind().Placeholder("…").Width(66).MultiLine(),
 			),
 		),
@@ -124,7 +124,7 @@ func openReadComment() {
 func readCommentOverlay() Component {
 	return If(&commentViewOpen).Then(
 		Overlay.Centered()(
-			VBox.Width(72).Fill(cFloat).CascadeStyle(&Style{Fill: cFloat, BG: cFloat, FG: cFG}).
+			VBox.Width(72).Fill(&cFloat).CascadeStyle(&floatStyle).
 				PaddingVH(1, 2).NodeRef(&readRef).Opacity(In(1).Out(Animate(0)))(
 				On.Modal(
 					Key("e", func() { commentViewOpen = false; editDraftComment() }),
@@ -136,12 +136,12 @@ func readCommentOverlay() Component {
 					SEDropShadow().Strength(0.3).Focus(&readRef),
 					SEVignette().Smooth().Strength(In(Animate(0.3)).Out(Animate(0))).Dodge(&readRef),
 				),
-				HBox(Text("comment").FG(cBright).Bold(), Space(), Text("e edit · d delete · esc back").FG(cMuted)),
+				HBox(Text("comment").FG(&cBright).Bold(), Space(), Text("e edit · d delete · esc back").FG(&cMuted)),
 				SpaceH(1),
-				Text(&cvLocation).FG(cSubtle),
-				If(&cvSnippet).Then(Text(&cvSnippet).FG(cMuted)),
+				Text(&cvLocation).FG(&cSubtle),
+				If(&cvSnippet).Then(Text(&cvSnippet).FG(&cMuted)),
 				SpaceH(1),
-				ForEach(&cvBodyLines, func(s *string) Component { return Text(s).FG(cBright) }),
+				ForEach(&cvBodyLines, func(s *string) Component { return Text(s).FG(&cBright) }),
 			),
 		),
 	)

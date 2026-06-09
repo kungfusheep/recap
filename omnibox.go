@@ -160,22 +160,22 @@ func (b *OmniBox) View() Component {
 		// FilterList windows + scrolls (C-n/C-p, C-d/C-u) past this. Kept low because
 		// the items are roomy (keep the original spacing, fewer fit).
 		MaxVisible(7).
-		Style(Style{BG: cFloat}).
-		SelectedStyle(Style{FG: cBright, BG: cSelBG}).
+		Style(&omniListStyle).
+		SelectedStyle(&omniSelStyle).
 		Render(func(it *omniItem) Component {
 			return VBox.PaddingVH(1, 2)(
 				HBox(
-					Text(&it.Label).FG(cBright),
+					Text(&it.Label).FG(&cBright),
 					Space(),
-					Text(&it.Section).FG(cSubtle),
+					Text(&it.Section).FG(&cSubtle),
 				),
-				Text(&it.Description).FG(cSubtle),
+				Text(&it.Description).FG(&cSubtle),
 			)
 		})
 
 	return If(&b.open).Then(
 		Overlay.Centered()(
-			VBox.Width(72).Fill(cFloat).CascadeStyle(&Style{Fill: cFloat, BG: cFloat, FG: cFG}).
+			VBox.Width(72).Fill(&cFloat).CascadeStyle(&floatStyle).
 				PaddingTRBL(1, 2, 1, 2).NodeRef(&b.ref).Opacity(In(1).Out(Animate(0)))(
 				On.Modal(
 					Key("<CR>", b.exec),
@@ -192,13 +192,13 @@ func (b *OmniBox) View() Component {
 					SEVignette().Smooth().Strength(In(Animate(0.3)).Out(Animate(0))).Dodge(&b.ref),
 				),
 				HBox(
-					Text("recap").FG(cBright).Bold(),
+					Text("recap").FG(&cBright).Bold(),
 					SpaceW(1),
-					Text("commands").FG(cSubtle),
+					Text("commands").FG(&cSubtle),
 					Space(),
-					Text("↵ run").FG(cMuted),
+					Text("↵ run").FG(&cMuted),
 					SpaceW(2),
-					Text("esc").FG(cMuted),
+					Text("esc").FG(&cMuted),
 				),
 				SpaceH(1),
 				b.list,

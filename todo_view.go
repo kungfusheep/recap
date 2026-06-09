@@ -204,7 +204,7 @@ func todoRow(it *todoItem) Component {
 // rendered here too (inputPromptOverlay), so it floats over the editor in this view
 // and pushes/pops its own modal exactly as it does in the inbox.
 func buildTodoView() Component {
-	return VBox.Fill(cBG).CascadeStyle(&Style{Fill: cBG, BG: cBG, FG: cFG}).Grow(1).PaddingTRBL(1, 2, 1, 2)(
+	return VBox.Fill(&cBG).CascadeStyle(&bgStyle).Grow(1).PaddingTRBL(1, 2, 1, 2)(
 		On(
 			Key("j", func() { todoMove(1) }),
 			Key("k", func() { todoMove(-1) }),
@@ -220,9 +220,9 @@ func buildTodoView() Component {
 			Key("q", closeTodoEditor),
 		),
 		HBox(
-			Text(&todoTitle).FG(cBright).Bold(),
+			Text(&todoTitle).FG(&cBright).Bold(),
 			Space(),
-			Text("space toggle · a add · e edit · esc close").FG(cMuted),
+			Text("space toggle · a add · e edit · esc close").FG(&cMuted),
 		),
 		SpaceH(1),
 		List(&todoItems).
@@ -231,7 +231,7 @@ func buildTodoView() Component {
 			SelectedStyle(Style{}). // band painted per-row (todoRow Fill)
 			Render(todoRow),
 		// transient status (write errors etc.), mirroring the inbox view
-		If(&statusMsg).Then(HBox(Text(&statusMsg).FG(cSubtle))),
+		If(&statusMsg).Then(HBox(Text(&statusMsg).FG(&cSubtle))),
 		// the add/edit prompt floats over the editor in THIS view (same pattern as
 		// the inbox), so typing works and its modal pops cleanly on close.
 		inputPromptOverlay(),

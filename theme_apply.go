@@ -89,6 +89,14 @@ func setThemeVars(t Theme) {
 	cCommentBG = Lerp(t.BG, t.Info, 0.18) // faint wash of the accent over the bg
 	listBaseStyle = Style{BG: cPaneBG}
 	paneStyle = Style{Fill: cPaneBG, BG: cPaneBG, FG: cFG}
+	bgStyle = Style{Fill: cBG, BG: cBG, FG: cFG}
+	floatStyle = Style{Fill: cFloat, BG: cFloat, FG: cFG}
+	omniListStyle = Style{BG: cFloat}
+	omniSelStyle = Style{FG: cBright, BG: cSelBG}
+	scrollTrackStyle = Style{FG: cMuted, BG: cBG}
+	scrollThumbStyle = Style{FG: cSubtle, BG: cBG}
+	titleBoldStyle = Style{FG: cBright, Attr: AttrBold}
+	titlePlainStyle = Style{FG: cBright}
 }
 
 // initTheme loads the persisted theme (falling back to dark) and sets the colour
@@ -106,29 +114,18 @@ func initTheme() {
 	setThemeVars(t)
 }
 
-// applyTheme switches the palette at runtime. recap bakes most colours into the
-// compiled templates at build time, so a re-render alone won't repaint them — the
-// view trees must be rebuilt. This re-runs the modal view setups and buildMain so
-// every tree picks up the new colours, then requests a render.
+// applyTheme switches the palette at runtime. The views bind every colour by pointer
+// (&cFG, CascadeStyle(&paneStyle), …) and setThemeVars mutates those package vars in
+// place, so the build-once templates repaint on the next render — NO view rebuild
+// (mail's pattern). Only the diff Layer, which bakes its spans into a pre-rendered
+// buffer, needs an explicit Invalidate to re-render with the new palette.
 func applyTheme(name string, t Theme) {
 	currentThemeName = name
 	setThemeVars(t)
 	if uiApp != nil {
-		// A modal launched this (the command palette). Closing it flips its If false;
-		// UpdateView then recompiles each named view, and because it deactivates the
-		// active view first (detachRouteScopes pops the palette's pushed modal) and
-		// reactivates after, the input stack stays balanced — no manual drain, and no
-		// orphaned router swallowing keys. (This is why the todo editor moved to a
-		// named view too: glyph's router owns the push/pop, not hand-rolled draining.)
-		if omni != nil {
-			omni.Close()
-		}
-		uiApp.UpdateView("main", buildMain())
-		uiApp.UpdateView("todo", buildTodoView())
-		// the diff pane is a native-scroll Layer whose spans bake their colours at
-		// build time; forcing a detail refresh rebuilds those spans with the new
-		// palette and re-invalidates the layer (otherwise it keeps the old colours,
-		// even while scrolling).
+		// the default style backs cells the templates don't paint (e.g. the screen
+		// margins) — keep it in step with the palette.
+		uiApp.SetDefaultStyle(Style{FG: cFG, BG: cBG})
 		detailDirty = true
 		if diffLayer != nil {
 			diffLayer.Invalidate()
