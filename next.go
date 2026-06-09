@@ -85,7 +85,7 @@ func buildQueue(st *Store, repo, repoPath string) []WorkItem {
 		snoozed := loadSnoozed(repo)
 		if cfg, err := config.LoadConfig(); err == nil {
 			if path, err := todo.PathFor(cfg.TODOTemplate, repoPath); err == nil && path != "" {
-				if items, err := readTodo(path); err == nil {
+				if items, err := todo.Read(path); err == nil {
 					for _, it := range items {
 						if !it.IsTask || it.Done {
 							continue
@@ -323,7 +323,7 @@ func markTodoLineDone(path, text string) error {
 	lines := strings.Split(string(data), "\n")
 	ts := time.Now().Format("2006-01-02 15:04:05 MST")
 	for i, ln := range lines {
-		it, ok := parseTodoLine(ln)
+		it, ok := todo.ParseLine(ln)
 		if ok && it.IsTask && !it.Done && strings.TrimSpace(it.Text) == text {
 			indent := ln[:len(ln)-len(strings.TrimLeft(ln, " \t"))]
 			lines[i] = indent + "- [x] " + it.Text + "  done " + ts

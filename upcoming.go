@@ -6,9 +6,9 @@ import (
 	"strings"
 	"sync"
 
+	. "github.com/kungfusheep/glyph"
 	"github.com/kungfusheep/recap/config"
 	"github.com/kungfusheep/recap/todo"
-	. "github.com/kungfusheep/glyph"
 )
 
 // The "upcoming" section is a compact, read-only peek at the next few incomplete
@@ -49,7 +49,7 @@ type upcomingResult struct {
 	hasPath bool // the repo resolved a TODO path (template configured) — gates the section
 }
 
-const upcomingMax = 5 // how many upcoming tasks to surface
+const upcomingMax = 4 // how many upcoming tasks to surface
 
 // invalidateUpcoming forces the next updateUpcoming to reload from disk: clears the
 // shown-repo + in-flight guard and discards any stale staged result. Call it after
@@ -118,7 +118,7 @@ func loadUpcoming(repoPath string) (items []string, hasPath bool) {
 	if err != nil || path == "" {
 		return nil, false
 	}
-	parsed, err := readTodo(path)
+	parsed, err := todo.Read(path)
 	if err != nil {
 		return nil, true // path is configured (just unreadable/missing) — still reserve the block
 	}
@@ -164,7 +164,7 @@ func buildUpcomingBlob(rows []upcomingRow, frame int) string {
 // Full text — the row Text clips to the inbox column width at render time, so the
 // list uses whatever width the display gives it (no hard-coded truncation). Pure —
 // the testable core of loadUpcoming.
-func upcomingFromItems(items []todoItem) []string {
+func upcomingFromItems(items []todo.Item) []string {
 	var out []string
 	for _, it := range items {
 		if !it.IsTask || it.Done {

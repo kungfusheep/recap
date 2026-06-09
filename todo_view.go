@@ -13,7 +13,8 @@ import (
 // (creating the file if it doesn't exist). The file is the human-owned queue the
 // autonomous loop reads, so editing it here closes the loop from inside recap.
 var (
-	todoItems []todoItem
+	todoData  []todo.Item // the source of truth (pure data, from the todo package)
+	todoItems []todoVM    // the render view-models, rebuilt from todoData by todoPrep
 	todoSel   int
 	todoPath  string
 	todoTitle string
@@ -22,6 +23,18 @@ var (
 	// or the index of the line being edited.
 	editingTodoIdx = -1
 )
+
+// todoVM is the UI view-model for one TODO line: a render-only projection of a
+// todo.Item (data) with the per-row UI state the List binds by pointer. Data and UI
+// are kept separate (like the inbox's tasks → vmRows) — the todo package owns no
+// glyph/UI fields, this struct owns no file format.
+type todoVM struct {
+	IsTask   bool   // for the checkbox conditional (mirrors todo.Item.IsTask)
+	Done     bool   // for the checkbox conditional (mirrors todo.Item.Done)
+	Selected bool   // drives the per-row selection band
+	Display  string // precomputed row text (Text for tasks, Raw otherwise) — see todoPrep
+	FGColor  Color  // precomputed row colour
+}
 
 // openTodoEditor resolves the selected task's repo TODO path (via the config
 // template), loads it, and opens the editor. Reports why if it can't.
@@ -48,13 +61,13 @@ func openTodoFor(repo, repoPath string) {
 		statusMsg = "no todo_template configured (~/.config/recap/config.toml)"
 		return
 	}
-	items, err := readTodo(path)
+	items, err := todo.Read(path)
 	if err != nil {
 		statusMsg = "todo read: " + err.Error()
 		return
 	}
 	todoPath = path
-	todoItems = items
+	todoData = items
 	todoSel = len(items) - 1 // open scrolled to the bottom (newest items / where adds land)
 	if todoSel < 0 {
 		todoSel = 0
@@ -79,15 +92,17 @@ func closeTodoEditor() {
 // measures the empty placeholder branch at build time and clips every row (the
 // truncation bug). Called after any change to todoSel/todoItems.
 func todoPrep() {
-	for i := range todoItems {
-		todoItems[i].Selected = i == todoSel
-		if todoItems[i].IsTask {
-			todoItems[i].Display = todoItems[i].Text
-			todoItems[i].FGColor = cFG
+	todoItems = make([]todoVM, len(todoData))
+	for i, d := range todoData {
+		vm := todoVM{IsTask: d.IsTask, Done: d.Done, Selected: i == todoSel}
+		if d.IsTask {
+			vm.Display = d.Text
+			vm.FGColor = cFG
 		} else {
-			todoItems[i].Display = todoItems[i].Raw
-			todoItems[i].FGColor = cMuted
+			vm.Display = d.Raw
+			vm.FGColor = cMuted
 		}
+		todoItems[i] = vm
 	}
 }
 
@@ -111,7 +126,7 @@ func todoHalfDown() { todoMove(todoHalfPage) }
 func todoHalfUp()   { todoMove(-todoHalfPage) }
 
 func todoSave() {
-	if err := writeTodo(todoPath, todoItems); err != nil {
+	if err := todo.Write(todoPath, todoData); err != nil {
 		statusMsg = "todo write: " + err.Error()
 		return
 	}
@@ -125,7 +140,7 @@ func todoSave() {
 }
 
 func todoToggle() {
-	toggleTodo(todoItems, todoSel)
+	todo.Toggle(todoData, todoSel)
 	todoPrep()
 	todoSave()
 }
@@ -143,15 +158,15 @@ func applyTodoPromptText(text string) {
 	if text == "" {
 		return
 	}
-	if editingTodoIdx >= 0 && editingTodoIdx < len(todoItems) {
-		if todoItems[editingTodoIdx].IsTask {
-			todoItems[editingTodoIdx].Text = text
+	if editingTodoIdx >= 0 && editingTodoIdx < len(todoData) {
+		if todoData[editingTodoIdx].IsTask {
+			todoData[editingTodoIdx].Text = text
 		} else {
-			todoItems[editingTodoIdx].Raw = text
+			todoData[editingTodoIdx].Raw = text
 		}
 	} else {
-		todoItems = addTodoItem(todoItems, text)
-		todoSel = len(todoItems) - 1
+		todoData = todo.Add(todoData, text)
+		todoSel = len(todoData) - 1
 	}
 	todoPrep()
 	todoSave()
@@ -160,10 +175,10 @@ func applyTodoPromptText(text string) {
 // todoEditLine opens the prompt pre-filled with the selected line's text; saving
 // rewrites that line (its task body, or the raw text for a non-task line).
 func todoEditLine() {
-	if todoSel < 0 || todoSel >= len(todoItems) {
+	if todoSel < 0 || todoSel >= len(todoData) {
 		return
 	}
-	it := todoItems[todoSel]
+	it := todoData[todoSel]
 	editingTodoIdx = todoSel
 	prefill := it.Raw
 	if it.IsTask {
@@ -175,7 +190,7 @@ func todoEditLine() {
 // todoRow renders one TODO line. The checkbox/branch is pointer-bound (If(&...))
 // so each row reflects its own item — a Go if would bake the placeholder element's
 // branch into the single compiled row template (the List-builds-once trap).
-func todoRow(it *todoItem) Component {
+func todoRow(it *todoVM) Component {
 	// per-row Fill claims the FULL row width — without it the List measures the row
 	// from the empty placeholder element and clips every line to that tiny width
 	// (the truncation bug). The Fill also paints the selection band. Grow(1) lets

@@ -4,17 +4,19 @@ import (
 	"testing"
 
 	. "github.com/kungfusheep/glyph"
+	"github.com/kungfusheep/recap/todo"
 )
 
 // vim nav for the TODO list: g/G jump to top/bottom, C-d/C-u half-page, all
 // clamped to the list bounds.
 func TestTodoVimNav(t *testing.T) {
-	prev := todoItems
-	t.Cleanup(func() { todoItems = prev; todoSel = 0 })
-	todoItems = make([]todoItem, 20)
-	for i := range todoItems {
-		todoItems[i] = todoItem{IsTask: true, Text: "x"}
+	prevData, prevItems := todoData, todoItems
+	t.Cleanup(func() { todoData = prevData; todoItems = prevItems; todoSel = 0 })
+	todoData = make([]todo.Item, 20)
+	for i := range todoData {
+		todoData[i] = todo.Item{IsTask: true, Text: "x"}
 	}
+	todoPrep() // build the render VMs from the data
 
 	todoSel = 5
 	todoBottom()
@@ -50,11 +52,11 @@ func TestTodoVimNav(t *testing.T) {
 // invisible until the selected repo changed).
 func TestTodoEditRefreshesUpcoming(t *testing.T) {
 	dir := t.TempDir()
-	prevPath, prevItems := todoPath, todoItems
+	prevPath, prevData := todoPath, todoData
 	uiApp = NewApp()
-	t.Cleanup(func() { todoPath = prevPath; todoItems = prevItems; uiApp = nil; upcomingRepo = "" })
+	t.Cleanup(func() { todoPath = prevPath; todoData = prevData; uiApp = nil; upcomingRepo = "" })
 	todoPath = dir + "/TODO.md"
-	todoItems = []todoItem{{IsTask: true, Text: "a", Raw: "- [ ] a"}}
+	todoData = []todo.Item{{IsTask: true, Text: "a", Raw: "- [ ] a"}}
 	upcomingRepo = "/some/repo" // pretend the upcoming list is loaded for a repo
 	todoSave()
 	if upcomingRepo != "" {

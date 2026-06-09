@@ -32,10 +32,15 @@ Ordered low-risk → high-risk so the reviewer can stop/redirect at any boundary
       owns the TODO data ops: `todo.PathFor(template, repoPath)` (was `Config.TODOPathFor`)
       and `todo.Append` (was `AppendTODO`). `config` is now pure app config
       (`Config{TODOTemplate, NameTheme}`, `LoadConfig`). `todo` takes the template as a
-      param so the data package doesn't depend on config. **Deferred:** the rest of the
-      TODO data layer (`todo_edit.go`: `todoItem` + parse/read/write/toggle) carries
-      glyph-coupled UI fields on its struct, so it moves into `todo` as part of slice 5
-      (UI-globals decoupling), where those UI fields get separated from the data.
+      param so the data package doesn't depend on config.
+- [x] **Slice 1c — TODO data/UI split** (reviewer steer, #170 c219: prefer data and UI
+      separate — glyph makes it easy). The whole TODO data layer now lives in `todo`:
+      `todo.Item` (pure data: IsTask/Done/Text/Raw) + `ParseLine`/`Line`/`Read`/`Write`/
+      `Toggle`/`Add`, glyph-free. recap keeps `todoData []todo.Item` (source of truth) and
+      builds `todoVM` (UI-only: Selected/Display/FGColor + the two bools the checkbox binds)
+      via `todoPrep` — exactly the inbox's `tasks`→`vmRows` pattern. NO deep data/UI
+      crossover was needed; the VM projection cleans it up. `todo_edit.go` deleted; its data
+      tests moved to `todo/item_test.go`.
 - [ ] **Slice 2 — `store` → `db` package.** The canonical "db package". `store.go` is
       already a zero-coupling leaf and `store_test.go` is already pure-store. The cost is
       blast radius: every `Task`/`Comment`/`Review`/`State*`/`Verdict*`/`Status*` and

@@ -6,13 +6,14 @@ import (
 	"testing"
 
 	. "github.com/kungfusheep/glyph"
+	"github.com/kungfusheep/recap/todo"
 )
 
 // upcomingFromItems surfaces the next incomplete tasks in file order, skips done
 // + non-task lines, caps at upcomingMax, and keeps the full text (the row clips to
 // the column width at render time — no hard-coded truncation).
 func TestUpcomingFromItems(t *testing.T) {
-	items := []todoItem{
+	items := []todo.Item{
 		{Raw: "# heading"},                          // non-task: skipped
 		{IsTask: true, Done: true, Text: "shipped"}, // done: skipped
 		{IsTask: true, Text: "first"},
@@ -20,11 +21,10 @@ func TestUpcomingFromItems(t *testing.T) {
 		{IsTask: true, Done: true, Text: "also done"},
 		{IsTask: true, Text: "third"},
 		{IsTask: true, Text: "fourth"},
-		{IsTask: true, Text: "fifth"},
-		{IsTask: true, Text: "sixth — should be cut by the cap"}, // beyond upcomingMax
+		{IsTask: true, Text: "fifth — should be cut by the cap"}, // beyond upcomingMax (4)
 	}
 	got := upcomingFromItems(items)
-	want := []string{"first", "second", "third", "fourth", "fifth"}
+	want := []string{"first", "second", "third", "fourth"}
 	if len(got) != len(want) {
 		t.Fatalf("got %d items, want %d: %v", len(got), len(want), got)
 	}
@@ -37,7 +37,7 @@ func TestUpcomingFromItems(t *testing.T) {
 	// long text is kept in full (not hard-truncated) — the Text clips to the column
 	// width at render time, so a wider display shows more.
 	full := "this task text is definitely longer than the column allows for sure"
-	g := upcomingFromItems([]todoItem{{IsTask: true, Text: full}})
+	g := upcomingFromItems([]todo.Item{{IsTask: true, Text: full}})
 	if g[0] != full {
 		t.Fatalf("text should be kept in full (no truncation), got %q", g[0])
 	}

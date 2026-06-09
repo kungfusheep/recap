@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	. "github.com/kungfusheep/glyph"
+	"github.com/kungfusheep/recap/todo"
 	"github.com/kungfusheep/riffkey"
 )
 
@@ -126,12 +127,12 @@ func TestTodoEditorInTodoView(t *testing.T) {
 	t.Cleanup(func() {
 		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
 		promptOpen = false
-		vmRows, todoItems = nil, nil
+		vmRows, todoItems, todoData = nil, nil, nil
 		commentField = InputState{}
 	})
 
 	todoTitle = "TODO · r"
-	todoItems = []todoItem{{IsTask: true, Text: "buy milk"}}
+	todoData = []todo.Item{{IsTask: true, Text: "buy milk"}}
 	todoPrep()
 
 	render := func() string {
