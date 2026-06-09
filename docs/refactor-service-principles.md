@@ -53,15 +53,18 @@ Ordered low-risk → high-risk so the reviewer can stop/redirect at any boundary
 - [ ] **Slice 4 — render/theme utilities.** `theme` (`Theme`, palettes, `applyTheme`),
       `contrast`, `highlight`, `links`, `focus_shade` — stateless helpers the TUI calls.
       Group into a small number of flat packages (likely `theme` + `render`).
-- [ ] **Slice 5 — the hard one: decouple the TUI globals.** *Design decision needed.*
-      ui.go's ~50 globals must become non-global before the TUI can be a package. Two
-      candidate shapes:
-      1. a single `ui.Model` struct holding all state, methods on it, passed explicitly;
-      2. dependency-injected sub-structs per concern (inbox, diff pane, modals).
-      Recommendation: **(1)** first — least invasive, mechanical (globals → fields), then
-      split ui.go into per-concern files (`inbox.go`, `diffpane.go`, `modals.go`,
-      `keybindings.go`) inside the `ui` package. (2) only if a second consumer appears
-      (no one-way doors).
+- [ ] **Slice 5 — decouple the TUI globals into cohesive concrete structs.** *Shape agreed
+      (#170 c257/c260): NO dependency injection, NO interfaces — concrete types only; and
+      NOT one big `ui.Model` (a god-struct only grows). Instead group ui.go's ~50 globals
+      into SEVERAL cohesive concrete structs by concern, each owned by the right place:
+      - diff pane (layer/meta/fold/scroll/focus) · comments-draft (list/sel/scroll/focus)
+      - omnibox · todo view (already half-done: `todoData` is `todo.Item`) · theme/palette
+      - inbox model (tasks/vmRows/sel/filter)
+      Where a group is really data it lives in / comes from its own package. Success
+      criterion is "no loose package globals; state lives in cohesive concrete structs owned
+      by the right place" — not "one struct". Lands as smaller sub-slices (one struct group
+      at a time), each its own review cycle, matching how we've been going. The grouping
+      (deciding the seams) is the actual work.
 - [ ] **Slice 6 — root cleanup.** Rename `main.go` → `recap.go` (service-named entry),
       keep `func main` + command dispatch composing the pipeline; command bodies can move
       to a flat `cli` package if dispatch grows. Per-struct file naming pass.
