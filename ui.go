@@ -142,9 +142,9 @@ var (
 	uiApp   *App
 	omni    *OmniBox
 
-	tasks    []Task
-	vmRows   []taskVM // flattened: task headers + (when expanded) their revision children
-	sel      int      // index into vmRows, NOT tasks (a row may be a revision child)
+	tasks  []Task
+	vmRows []taskVM // flattened: task headers + (when expanded) their revision children
+	sel    int      // index into vmRows, NOT tasks (a row may be a revision child)
 	// keepSelOnReload makes the next reloadTasks hold the cursor at its current index
 	// instead of chasing the selected task by id. Set by user marks (approve/submit) so
 	// the marked item leaves and the NEXT item slides up under the cursor — a clean path
@@ -191,6 +191,12 @@ var (
 	// diffFocused mirrors pane=="diff" as a 0/1 opacity target so the diff
 	// scrollbar fades in only when the diff column has focus (mail's cue).
 	diffFocused = 0.0
+
+	// draftFocused does the same for the comments (draft) column's scrollbar; the
+	// scroll ints are the live window the List publishes via ScrollState (read by the
+	// ScrollbarDyn beside it).
+	draftFocused                                            = 0.0
+	draftScrollOffset, draftScrollVisible, draftScrollTotal int
 
 	helpOpen bool // ? cheatsheet overlay
 
@@ -669,6 +675,12 @@ func refreshDetail() {
 	} else {
 		diffFocused = 0.0
 	}
+	// …and the comments scrollbar only while the draft column has focus
+	if pane == paneDraft {
+		draftFocused = 1.0
+	} else {
+		draftFocused = 0.0
+	}
 	if draftSel != lastDraftSel {
 		lastDraftSel = draftSel
 		syncDiffToDraft()
@@ -1105,11 +1117,11 @@ func buildDiffView(files []DiffFile, w int) (Component, []diffLineMeta) {
 					rest := code[len(indent):]
 					row = HBox(Text("+ "+indent).FG(&cAdd), Textf(highlightParts(rest, lexer, cFG)...))
 				case LineDel:
-					row = Text(clip("- "+txt)).FG(&cDel) // removed: stays red, not highlighted
+					row = Text(clip("- " + txt)).FG(&cDel) // removed: stays red, not highlighted
 				default:
 					m.Line = cur
 					cur++
-					row = Text(clip("  "+txt)).FG(&cSubtle) // context: unchanged, subtle
+					row = Text(clip("  " + txt)).FG(&cSubtle) // context: unchanged, subtle
 				}
 				// a commented line gets a full-width wash via row .Fill.
 				if commentedLines[lineKey(m.File, m.Line)] {
@@ -1236,139 +1248,151 @@ func buildMain() Component {
 		// separate named view (buildTodoView) reached via app.Go, so opening it cleanly
 		// deactivates this view (and pops any modal it had open, e.g. the omnibox).
 		HBox.Grow(1).Gap(4)(
-				// left — review inbox (darker column fill claims the area)
-				VBox.Grow(2).Fill(&cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0).NodeRef(&listPaneRef)(
-					HBox(
-						SpaceW(3),
-						Text("recap").FG(&cBright).Bold(),
-						SpaceW(1),
-						Text(&countText).FG(&cSubtle),
-						Space(),
-						Text(&filterText).FG(&cSubtle),
-						SpaceW(2),
-					),
-					SpaceH(2),
-					If(&hasUpcoming).Then(
-						// no divider rule: an auto-stretch HRule in a left-padded box
-						// overshoots its container and bleeds into the next column, so
-						// the section is separated from the inbox by whitespace instead.
-						VBox.Width(&upcomingWidth).PaddingTRBL(0, 2, 2, 3).Gap(1)(
-							// explicit width from the column's NodeRef (upcomingWidth) — a
-							// plain VBox/ForEach content-sizes to the short "UPCOMING" label
-							// and truncates the rows; the removed divider HRule used to force
-							// the width. This restores it without the bleed.
-							Text("UPCOMING").FG(&cSubtle).Bold(),
-							// the whole list is ONE multi-line TextBlock — it reads its
-							// pointer and wraps to the width-set VBox, unlike a ForEach of
-							// pointer-Text rows (which measure empty at build → truncate). The
-							// in-flight row's spinner glyph is built into the blob each frame.
-							// FIXED HEIGHT (upcomingMax): fewer tasks leave blanks, more/wrapping clip, so
-							// the inbox below never shifts between projects with different upcoming counts.
-							VBox.Height(upcomingMax)(
-								TextBlock(&upcomingBlob).FG(&cSubtle),
-							),
+			// left — review inbox (darker column fill claims the area)
+			VBox.Grow(2).Fill(&cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0).NodeRef(&listPaneRef)(
+				HBox(
+					SpaceW(3),
+					Text("recap").FG(&cBright).Bold(),
+					SpaceW(1),
+					Text(&countText).FG(&cSubtle),
+					Space(),
+					Text(&filterText).FG(&cSubtle),
+					SpaceW(2),
+				),
+				SpaceH(2),
+				If(&hasUpcoming).Then(
+					// no divider rule: an auto-stretch HRule in a left-padded box
+					// overshoots its container and bleeds into the next column, so
+					// the section is separated from the inbox by whitespace instead.
+					VBox.Width(&upcomingWidth).PaddingTRBL(0, 2, 2, 3).Gap(1)(
+						// explicit width from the column's NodeRef (upcomingWidth) — a
+						// plain VBox/ForEach content-sizes to the short "UPCOMING" label
+						// and truncates the rows; the removed divider HRule used to force
+						// the width. This restores it without the bleed.
+						Text("UPCOMING").FG(&cSubtle).Bold(),
+						// the whole list is ONE multi-line TextBlock — it reads its
+						// pointer and wraps to the width-set VBox, unlike a ForEach of
+						// pointer-Text rows (which measure empty at build → truncate). The
+						// in-flight row's spinner glyph is built into the blob each frame.
+						// FIXED HEIGHT (upcomingMax): fewer tasks leave blanks, more/wrapping clip, so
+						// the inbox below never shifts between projects with different upcoming counts.
+						VBox.Height(upcomingMax)(
+							TextBlock(&upcomingBlob).FG(&cSubtle),
 						),
 					),
-					List(&vmRows).
-						Selection(&sel).
-						Style(&listBaseStyle).
-						SelectedStyle(Style{}). // band painted per-row, excludes group headers
-						Marker("  ").           // blank gutter: Marker("") falls back to the default "> "
-						Render(taskRow),
-					// list-focused keys. status is review-derived, so there are no direct
-					// redo/pending flips — rework happens only via S → request_changes.
-					// a = quick-approve (submits an approve review).
-					If(&pane).Eq(paneList).Then(On(
-						Key("j", func() { moveSel(1) }),
-						Key("k", func() { moveSel(-1) }),
-						Key("gg", selectTop),    // vim: jump to the first task
-						Key("G", selectBottom),  // vim: jump to the last task
-						Key("<Enter>", openOrLoadMore),
-						Key("a", approveSelected),
-						Key("u", undoCategorise), // undo the last approve/submit
-						Key("c", openComment),
-						Key("v", rerun),
-						Key("o", toggleExpand), // expand a task into its revision diffs
-						Key("p", togglePin),    // pin/unpin → floats to the PINNED section
-					)),
 				),
-				// middle — detail + diff (no side padding; scrollbar flush right).
-				// SpaceH(1) drops the title to row 1 to line up with the left/right
-				// column headers: those get their top row from .Fill()+PaddingTRBL, but
-				// this unfilled column's top padding collapses, so the title rode at row 0.
-				VBox.Grow(3).PaddingTRBL(1, 0, 0, 0).NodeRef(&diffPaneRef)(
-					SpaceH(1),
-					HBox(
-						Text(&detailTitle).FG(&cBright).Bold(),
-						SpaceW(2),
-					),
-					SpaceH(1),
-					HBox(
-						Text(&metaRepo).FG(&cSubtle),
-						Text("  ·  ").FG(&cMuted),
-						Text(&metaWhen).FG(&cSubtle),
-						Text("  ·  ").FG(&cMuted),
-						Text(&metaResult).FG(&metaResultColor),
-					),
+				List(&vmRows).
+					Selection(&sel).
+					Style(&listBaseStyle).
+					SelectedStyle(Style{}). // band painted per-row, excludes group headers
+					Marker("  ").           // blank gutter: Marker("") falls back to the default "> "
+					Render(taskRow),
+				// list-focused keys. status is review-derived, so there are no direct
+				// redo/pending flips — rework happens only via S → request_changes.
+				// a = quick-approve (submits an approve review).
+				If(&pane).Eq(paneList).Then(On(
+					Key("j", func() { moveSel(1) }),
+					Key("k", func() { moveSel(-1) }),
+					Key("gg", selectTop),   // vim: jump to the first task
+					Key("G", selectBottom), // vim: jump to the last task
+					Key("<Enter>", openOrLoadMore),
+					Key("a", approveSelected),
+					Key("u", undoCategorise), // undo the last approve/submit
+					Key("c", openComment),
+					Key("v", rerun),
+					Key("o", toggleExpand), // expand a task into its revision diffs
+					Key("p", togglePin),    // pin/unpin → floats to the PINNED section
+				)),
+			),
+			// middle — detail + diff (no side padding; scrollbar flush right).
+			// SpaceH(1) drops the title to row 1 to line up with the left/right
+			// column headers: those get their top row from .Fill()+PaddingTRBL, but
+			// this unfilled column's top padding collapses, so the title rode at row 0.
+			VBox.Grow(3).PaddingTRBL(1, 0, 0, 0).NodeRef(&diffPaneRef)(
+				SpaceH(1),
+				HBox(
+					Text(&detailTitle).FG(&cBright).Bold(),
+					SpaceW(2),
+				),
+				SpaceH(1),
+				HBox(
+					Text(&metaRepo).FG(&cSubtle),
+					Text("  ·  ").FG(&cMuted),
+					Text(&metaWhen).FG(&cSubtle),
+					Text("  ·  ").FG(&cMuted),
+					Text(&metaResult).FG(&metaResultColor),
+				),
+				SpaceH(2),
+				// diff + a flush-right scrollbar. No Length: a vertical scrollbar
+				// with height 0 is auto-stretched to fill the row, so it tracks the
+				// full column height (same structure ScrollView builds internally).
+				// It fades in only while the diff column has focus (mail's cue).
+				// NodeRef on this HBox gives the diff LayerView's screen rect (it's
+				// the first child at x=0): renderDiffLayer maps commentable rows to
+				// screen coords from it when registering glyph jump targets.
+				HBox.Grow(1).NodeRef(&diffViewRef)(
+					LayerView(diffLayer).Grow(1),
+					ScrollbarForLayer(diffLayer).
+						TrackStyle(&scrollTrackStyle).
+						ThumbStyle(&scrollThumbStyle).
+						Opacity(Animate(&diffFocused)),
+				),
+				// diff-focused keys. During a line-pick glyph's jump router is
+				// pushed on top and intercepts the label keystrokes, so these stay
+				// active here without a manual pick-mode guard.
+				If(&pane).Eq(paneDiff).Then(On(
+					Key("j", diffDown),
+					Key("k", diffUp),
+					Key("d", diffHalfDown),
+					Key("u", diffHalfUp),
+					Key("g", diffTop),
+					Key("G", diffBottom),
+					Key("c", openDiffLineComment),
+					Key("e", openEditorPick), // jump-pick a line → open it in $EDITOR
+					Key("z", openFoldPick),   // jump-pick a file header → fold/unfold it
+					Key("Z", foldAllFiles),   // fold/unfold ALL files (overview ↔ detail)
+					Key("]", nextFile),       // jump to the next file header
+					Key("[", prevFile),       // jump to the previous file header
+					Key("<Enter>", func() { setPane(paneList) }),
+					Key("<Esc>", func() { setPane(paneList) }),
+				)),
+			),
+			// right — comments overview (shown whenever the task has any comments)
+			If(&hasDraft).Then(
+				VBox.Grow(2).Fill(&cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0).NodeRef(&draftPaneRef)(
+					HBox(SpaceW(3), Text("comments").FG(&cBright).Bold(), Space(), Text(&draftNote).FG(&cSubtle), SpaceW(2)),
 					SpaceH(2),
-					// diff + a flush-right scrollbar. No Length: a vertical scrollbar
-					// with height 0 is auto-stretched to fill the row, so it tracks the
-					// full column height (same structure ScrollView builds internally).
-					// It fades in only while the diff column has focus (mail's cue).
-					// NodeRef on this HBox gives the diff LayerView's screen rect (it's
-					// the first child at x=0): renderDiffLayer maps commentable rows to
-					// screen coords from it when registering glyph jump targets.
-					HBox.Grow(1).NodeRef(&diffViewRef)(
-						LayerView(diffLayer).Grow(1),
-						ScrollbarForLayer(diffLayer).
+					// list + a flush-right scrollbar that tracks the list's window
+					// (ScrollState → ScrollbarDyn), fading in only while this column
+					// has focus — the diff pane's treatment, for a List.
+					HBox.Grow(1)(
+						VBox.Grow(1)(
+							List(&draftComments).
+								Selection(&draftSel).
+								Style(&listBaseStyle).
+								SelectedStyle(Style{}). // band painted per-row
+								Marker("  ").           // blank gutter: Marker("") falls back to the default "> "
+								Render(draftRow).
+								ScrollState(&draftScrollOffset, &draftScrollVisible, &draftScrollTotal),
+						),
+						ScrollbarDyn(&draftScrollTotal, &draftScrollVisible, &draftScrollOffset).
 							TrackStyle(&scrollTrackStyle).
 							ThumbStyle(&scrollThumbStyle).
-							Opacity(Animate(&diffFocused)),
+							Opacity(Animate(&draftFocused)),
 					),
-					// diff-focused keys. During a line-pick glyph's jump router is
-					// pushed on top and intercepts the label keystrokes, so these stay
-					// active here without a manual pick-mode guard.
-					If(&pane).Eq(paneDiff).Then(On(
-						Key("j", diffDown),
-						Key("k", diffUp),
-						Key("d", diffHalfDown),
-						Key("u", diffHalfUp),
-						Key("g", diffTop),
-						Key("G", diffBottom),
-						Key("c", openDiffLineComment),
-						Key("e", openEditorPick), // jump-pick a line → open it in $EDITOR
-						Key("z", openFoldPick),   // jump-pick a file header → fold/unfold it
-						Key("Z", foldAllFiles),   // fold/unfold ALL files (overview ↔ detail)
-						Key("]", nextFile),       // jump to the next file header
-						Key("[", prevFile),       // jump to the previous file header
-						Key("<Enter>", func() { setPane(paneList) }),
+					If(&pane).Eq(paneDraft).Then(On(
+						Key("j", func() { moveDraft(1) }),
+						Key("k", func() { moveDraft(-1) }),
+						Key("<Enter>", openCommentView),
+						Key("r", replyToComment), // reply to the selected comment (threads under it)
+						Key("e", editDraftComment),
+						Key("d", deleteDraftComment),
+						Key("O", openDraftLinks), // open [[file]] refs (e.g. screenshots)
 						Key("<Esc>", func() { setPane(paneList) }),
 					)),
 				),
-				// right — comments overview (shown whenever the task has any comments)
-				If(&hasDraft).Then(
-					VBox.Grow(2).Fill(&cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0).NodeRef(&draftPaneRef)(
-						HBox(SpaceW(3), Text("comments").FG(&cBright).Bold(), Space(), Text(&draftNote).FG(&cSubtle), SpaceW(2)),
-						SpaceH(2),
-						List(&draftComments).
-							Selection(&draftSel).
-							Style(&listBaseStyle).
-							SelectedStyle(Style{}). // band painted per-row
-							Marker("  ").           // blank gutter: Marker("") falls back to the default "> "
-							Render(draftRow),
-						If(&pane).Eq(paneDraft).Then(On(
-							Key("j", func() { moveDraft(1) }),
-							Key("k", func() { moveDraft(-1) }),
-							Key("<Enter>", openCommentView),
-							Key("r", replyToComment), // reply to the selected comment (threads under it)
-							Key("e", editDraftComment),
-							Key("d", deleteDraftComment),
-							Key("O", openDraftLinks), // open [[file]] refs (e.g. screenshots)
-							Key("<Esc>", func() { setPane(paneList) }),
-						)),
-					),
-				),
 			),
+		),
 		// transient status (errors/confirmations) only — no permanent keybar
 		If(&statusMsg).Then(HBox(SpaceW(3), Text(&statusMsg).FG(&cSubtle))),
 		// per-column focus fade: unfocused columns dim (mail's FocusShade)
