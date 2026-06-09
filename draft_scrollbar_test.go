@@ -234,8 +234,11 @@ func TestDraftPaneScrollbarGeometry(t *testing.T) {
 // 2 lines high"): the scrollbar TRACK must span the full list column height, not collapse.
 // Renders the draft pane in the real Grow-based column layout (VBox.Grow column, the
 // HBox.Grow(1)(VBox.Grow(1)(List), Scrollbar) body) and asserts the track ≈ the column
-// height for BOTH overflowing and short content. (Current code passes in every case —
-// a 2-line track only happens on a stale binary / older glyph build.)
+// height for BOTH overflowing and short content. CRUCIALLY the pane is wrapped in
+// If(&hasDraft) exactly like buildMain — glyph lays an If branch out at CONTENT height
+// (layout(0)) and only stretches the branch ROOT afterwards, so without the glyph fix
+// the branch's internal flex never sees the real height and the scrollbar collapses to
+// ~0-2 rows (the "track is like 2 lines high" bug, #174 c267).
 func TestDraftScrollbarTrackFullHeight(t *testing.T) {
 	prevStore, prevApp, prevOmni := uiStore, uiApp, omni
 	st := testStore(t)
@@ -249,20 +252,24 @@ func TestDraftScrollbarTrackFullHeight(t *testing.T) {
 	})
 
 	const W, H = 90, 24
+	hasDraftLocal := true
 	trackRows := func() int {
 		view := VBox.Fill(&cBG).Height(H).Width(W)(
 			HBox.Grow(1).Gap(4)(
 				VBox.Grow(2).Fill(&cPaneBG)(Text("LEFT")),
-				VBox.Grow(2).Fill(&cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0)(
-					HBox(SpaceW(3), Text("comments").FG(&cBright).Bold(), Space(), SpaceW(2)),
-					SpaceH(2),
-					HBox.Grow(1)(
-						VBox.Grow(1)(
-							List(&draftComments).Selection(&draftSel).Marker("  ").
-								SelectedStyle(Style{}).Render(draftRow).
-								ScrollState(&draftScrollOffset, &draftScrollVisible, &draftScrollTotal),
+				// the If wrapper is the load-bearing part of this repro (see doc comment)
+				If(&hasDraftLocal).Then(
+					VBox.Grow(2).Fill(&cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0)(
+						HBox(SpaceW(3), Text("comments").FG(&cBright).Bold(), Space(), SpaceW(2)),
+						SpaceH(2),
+						HBox.Grow(1)(
+							VBox.Grow(1)(
+								List(&draftComments).Selection(&draftSel).Marker("  ").
+									SelectedStyle(Style{}).Render(draftRow).
+									ScrollState(&draftScrollOffset, &draftScrollVisible, &draftScrollTotal),
+							),
+							ScrollbarDyn(&draftScrollTotal, &draftScrollVisible, &draftScrollOffset),
 						),
-						ScrollbarDyn(&draftScrollTotal, &draftScrollVisible, &draftScrollOffset),
 					),
 				),
 			),

@@ -1307,11 +1307,9 @@ func buildMain() Component {
 				)),
 			),
 			// middle — detail + diff (no side padding; scrollbar flush right).
-			// SpaceH(1) drops the title to row 1 to line up with the left/right
-			// column headers: those get their top row from .Fill()+PaddingTRBL, but
-			// this unfilled column's top padding collapses, so the title rode at row 0.
+			// The top padding now lays out correctly (glyph's flex reposition used to
+			// drop it — the old SpaceH(1) workaround is gone with that fix).
 			VBox.Grow(3).PaddingTRBL(1, 0, 0, 0).NodeRef(&diffPaneRef)(
-				SpaceH(1),
 				HBox(
 					Text(&detailTitle).FG(&cBright).Bold(),
 					SpaceW(2),
