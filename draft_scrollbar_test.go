@@ -58,3 +58,76 @@ func TestDraftPaneScrollbarWired(t *testing.T) {
 		t.Fatalf("draftScrollOffset = %d rows, want > 0 (selecting the last comment scrolls the window down)", draftScrollOffset)
 	}
 }
+
+// end-to-end thumb check for the draft pane: real draftRow heights (variable, with a
+// wrapping TextBlock body) feed ScrollState, which feeds a bare ScrollbarDyn (no opacity,
+// so a single render shows the thumb). With the last of many tall comments selected the
+// thumb must be PARTIAL (content overflows) and sit toward the BOTTOM (scrolled down) —
+// catching any height-measurement bug between draftRow and the bar.
+func TestDraftScrollbarThumbPartialAndPositioned(t *testing.T) {
+	prevStore, prevApp, prevOmni := uiStore, uiApp, omni
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	t.Cleanup(func() {
+		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
+		draftComments = nil
+		draftScrollOffset, draftScrollVisible, draftScrollTotal = 0, 0, 0
+	})
+
+	draftComments = make([]draftCommentVM, 20)
+	for i := range draftComments {
+		draftComments[i] = draftCommentVM{
+			Location: "general",
+			Body:     fmt.Sprintf("comment %02d with a body long enough to wrap across more than one row in a narrow column", i),
+		}
+	}
+	draftSel = len(draftComments) - 1
+
+	const W, H = 40, 12
+	view := VBox.Height(H)(
+		HBox.Grow(1)(
+			VBox.Grow(1)(
+				List(&draftComments).Selection(&draftSel).Marker("  ").
+					SelectedStyle(Style{}).Render(draftRow).
+					ScrollState(&draftScrollOffset, &draftScrollVisible, &draftScrollTotal),
+			),
+			ScrollbarDyn(&draftScrollTotal, &draftScrollVisible, &draftScrollOffset),
+		),
+	)
+	tmpl := Build(view)
+	buf := NewBuffer(W, H)
+	tmpl.Execute(buf, W, H)
+
+	if draftScrollTotal <= H {
+		t.Fatalf("setup: content should overflow the %d-row viewport, got total=%d rows", H, draftScrollTotal)
+	}
+
+	// scan the rightmost column for the thumb
+	col := W - 1
+	firstThumb, lastThumb, thumbRows := -1, -1, 0
+	for y := 0; y < H; y++ {
+		r := buf.Get(col, y).Rune
+		if r != '│' && r != ' ' && r != 0 {
+			thumbRows++
+			if firstThumb < 0 {
+				firstThumb = y
+			}
+			lastThumb = y
+		}
+	}
+	if thumbRows == 0 {
+		t.Fatal("no scrollbar thumb rendered in the draft pane column")
+	}
+	if thumbRows >= H {
+		t.Fatalf("thumb fills the whole track (%d/%d) — should be partial since content overflows", thumbRows, H)
+	}
+	// last comment selected → scrolled to the bottom → thumb should reach the last row
+	if lastThumb != H-1 {
+		t.Fatalf("thumb bottom at row %d, want %d (scrolled to the end, thumb should touch the bottom)", lastThumb, H-1)
+	}
+	if firstThumb == 0 {
+		t.Fatalf("thumb starts at the top while scrolled to the bottom (rows %d..%d) — position not tracking", firstThumb, lastThumb)
+	}
+}
