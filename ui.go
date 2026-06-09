@@ -1297,7 +1297,7 @@ func buildMain() Component {
 					Key("G", selectBottom), // vim: jump to the last task
 					Key("<Enter>", openOrLoadMore),
 					Key("a", approveSelected),
-					Key("u", undoCategorise), // undo the last approve/submit
+					Key("u", undoLast), // undo the last approve/submit/pin
 					Key("c", openComment),
 					Key("v", rerun),
 					Key("o", toggleExpand), // expand a task into its revision diffs
@@ -1949,35 +1949,41 @@ func selectBottom() {
 	}
 }
 
-// categoriseUndo is a LIFO stack of task IDs recently categorised (approved with
-// `a` or submitted to amends with `S`). `u` in the inbox pops the last and
-// unsubmits it — a basic undo for an accidental keypress, returning the task to
-// the inbox. Capped so it can't grow without bound across a long session.
-var categoriseUndo []int64
+// undoStack is a LIFO of reversible actions; `u` in the inbox runs the most recent.
+// Each entry is a closure that reverses one action — approve/submit push an "unsubmit"
+// closure, pin/unpin push their inverse — so a single undo handles whatever you last
+// did, not just one kind of action. Capped so it can't grow without bound.
+var undoStack []func()
 
-func pushCategoriseUndo(taskID int64) {
-	categoriseUndo = append(categoriseUndo, taskID)
-	if len(categoriseUndo) > 50 {
-		categoriseUndo = categoriseUndo[len(categoriseUndo)-50:]
+func pushUndo(fn func()) {
+	undoStack = append(undoStack, fn)
+	if len(undoStack) > 50 {
+		undoStack = undoStack[len(undoStack)-50:]
 	}
 }
 
-// undoCategorise reverses the most recent approve/submit by unsubmitting that
-// task's review (back to the inbox). Independent of the current selection — it
-// undoes what you last did, not what's highlighted.
-func undoCategorise() {
-	if len(categoriseUndo) == 0 {
+// pushCategoriseUndo records an approve/submit so `u` unsubmits it back to the inbox.
+func pushCategoriseUndo(taskID int64) {
+	pushUndo(func() {
+		if err := uiStore.UnsubmitReview(taskID); err != nil {
+			statusMsg = fmt.Sprintf("undo #%d: %s", taskID, err.Error())
+			return
+		}
+		statusMsg = fmt.Sprintf("undid #%d → inbox", taskID)
+		reloadTasks()
+	})
+}
+
+// undoLast reverses the most recent undoable action (approve/submit/pin). Independent
+// of the current selection — it undoes what you last did, not what's highlighted.
+func undoLast() {
+	if len(undoStack) == 0 {
 		statusMsg = "(nothing to undo)"
 		return
 	}
-	id := categoriseUndo[len(categoriseUndo)-1]
-	categoriseUndo = categoriseUndo[:len(categoriseUndo)-1]
-	if err := uiStore.UnsubmitReview(id); err != nil {
-		statusMsg = fmt.Sprintf("undo #%d: %s", id, err.Error())
-		return
-	}
-	statusMsg = fmt.Sprintf("undid #%d → inbox", id)
-	reloadTasks()
+	fn := undoStack[len(undoStack)-1]
+	undoStack = undoStack[:len(undoStack)-1]
+	fn()
 }
 
 // approveSelected quick-approves the selected task by submitting an approve

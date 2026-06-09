@@ -16,7 +16,7 @@ func TestMarkHoldsSelectionIndex(t *testing.T) {
 		vmRows = nil
 		sel = 0
 		keepSelOnReload = false
-		categoriseUndo = nil
+		undoStack = nil
 	})
 
 	st.Add(Task{Repo: "z", Title: "a"}) // id 1, stays in inbox above the rest

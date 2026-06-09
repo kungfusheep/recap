@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -65,20 +66,44 @@ func savePins(pins map[int64]bool) error {
 	return os.WriteFile(p, []byte(b.String()), 0o644)
 }
 
+// setPin pins or unpins a task id and persists the change. The low-level mutation,
+// shared by togglePin and its undo.
+func setPin(id int64, on bool) {
+	ensurePins()
+	if on {
+		pinned[id] = true
+	} else {
+		delete(pinned, id)
+	}
+	savePins(pinned)
+}
+
 // togglePin pins/unpins the selected task and persists the change, then rebuilds so it
 // floats to (or drops from) the PINNED section. The cursor tracks the task by id, so it
-// follows the item as it moves.
+// follows the item as it moves. The toggle is pushed onto the undo stack so `u` reverses
+// it (restoring the previous pin state).
 func togglePin() {
 	t, ok := selectedTask()
 	if !ok {
 		return
 	}
 	ensurePins()
-	if pinned[t.ID] {
-		delete(pinned, t.ID)
+	was := pinned[t.ID]
+	id := t.ID
+	setPin(id, !was)
+	pushUndo(func() {
+		setPin(id, was)
+		if was {
+			statusMsg = fmt.Sprintf("re-pinned #%d", id)
+		} else {
+			statusMsg = fmt.Sprintf("unpinned #%d", id)
+		}
+		reloadTasks()
+	})
+	if was {
+		statusMsg = fmt.Sprintf("unpinned #%d  ·  u to undo", id)
 	} else {
-		pinned[t.ID] = true
+		statusMsg = fmt.Sprintf("pinned #%d  ·  u to undo", id)
 	}
-	savePins(pinned)
 	reloadTasks()
 }

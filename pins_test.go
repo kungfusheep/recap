@@ -42,6 +42,53 @@ func TestTogglePinPersists(t *testing.T) {
 	}
 }
 
+// `u` undoes a pin: pinning then undoLast leaves it unpinned; unpinning then undoLast
+// restores the pin. The toggle pushes its inverse onto the shared undo stack.
+func TestUndoPin(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RECAP_DB", filepath.Join(dir, "recap.db"))
+	prev := uiStore
+	st, err := OpenAt(filepath.Join(dir, "recap.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	uiStore = st
+	pinned = nil
+	undoStack = nil
+	t.Cleanup(func() { uiStore = prev; pinned = nil; undoStack = nil; vmRows = nil; sel = 0; st.Close() })
+
+	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t"})
+	reloadTasks()
+	sel = indexOfTask(id)
+
+	// pin → undo → unpinned
+	togglePin()
+	if !pinned[id] {
+		t.Fatal("setup: task should be pinned")
+	}
+	undoLast()
+	if pinned[id] {
+		t.Fatal("undo of a pin should unpin the task")
+	}
+	if len(undoStack) != 0 {
+		t.Fatalf("undo stack should be empty after the undo, got %d", len(undoStack))
+	}
+
+	// pin (so it's pinned), then unpin → undo → re-pinned (restores prior state)
+	sel = indexOfTask(id)
+	togglePin() // pin
+	undoStack = nil
+	sel = indexOfTask(id)
+	togglePin() // unpin
+	if pinned[id] {
+		t.Fatal("setup: task should be unpinned before the undo")
+	}
+	undoLast()
+	if !pinned[id] {
+		t.Fatal("undo of an unpin should restore the pin")
+	}
+}
+
 // a pinned task floats into a "PINNED" section at the top of the inbox, ahead of its
 // normal state group — even when it would otherwise sort lower (older inbox item).
 func TestReloadPinnedSectionOnTop(t *testing.T) {

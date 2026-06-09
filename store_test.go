@@ -227,14 +227,14 @@ func TestSplitThread(t *testing.T) {
 	}
 }
 
-// undoCategorise reverses the most recent approve/submit (LIFO), unsubmitting that
+// undoLast reverses the most recent approve/submit (LIFO), unsubmitting that
 // task back to the inbox, regardless of current selection.
 func TestUndoCategorise(t *testing.T) {
 	st := testStore(t)
 	prev := uiStore
 	uiStore = st
-	categoriseUndo = nil
-	t.Cleanup(func() { uiStore = prev; categoriseUndo = nil })
+	undoStack = nil
+	t.Cleanup(func() { uiStore = prev; undoStack = nil })
 
 	a, _ := st.Add(Task{Repo: "wed", Title: "a"})
 	b, _ := st.Add(Task{Repo: "wed", Title: "b"})
@@ -250,7 +250,7 @@ func TestUndoCategorise(t *testing.T) {
 	}
 
 	// undo → reverses b (last in), not a
-	undoCategorise()
+	undoLast()
 	if uiStore.ReviewState(b) != StatePending {
 		t.Fatalf("after undo, b should be back in inbox, got %s", uiStore.ReviewState(b))
 	}
@@ -258,12 +258,12 @@ func TestUndoCategorise(t *testing.T) {
 		t.Fatalf("a should still be done after undoing b, got %s", uiStore.ReviewState(a))
 	}
 	// undo again → reverses a; a third undo is a no-op (nothing to undo)
-	undoCategorise()
+	undoLast()
 	if uiStore.ReviewState(a) != StatePending {
 		t.Fatalf("after second undo, a should be back in inbox, got %s", uiStore.ReviewState(a))
 	}
-	if len(categoriseUndo) != 0 {
-		t.Fatalf("undo stack should be empty, got %d", len(categoriseUndo))
+	if len(undoStack) != 0 {
+		t.Fatalf("undo stack should be empty, got %d", len(undoStack))
 	}
 }
 
