@@ -267,7 +267,10 @@ func TestThemeChangeNoOrphanedModalRouter(t *testing.T) {
 	t.Cleanup(func() { uiStore = prevStore; uiApp = nil; omni = nil })
 	st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
 	reloadTasks()
-	uiApp.SetView(buildMain())
+	// mirror runUI: named views, started on main (applyTheme rebuilds via UpdateView)
+	uiApp.View("main", buildMain()).NoCounts()
+	uiApp.View("todo", buildTodoView()).NoCounts()
+	uiApp.Go("main")
 	uiApp.RenderNow()
 
 	base := uiApp.Input().Depth()
@@ -278,7 +281,8 @@ func TestThemeChangeNoOrphanedModalRouter(t *testing.T) {
 	}
 
 	// simulate selecting a theme command: exec() closes the palette, then the action
-	// runs applyTheme (which rebuilds the view via SetView).
+	// runs applyTheme (which rebuilds the views via UpdateView — deactivating main first,
+	// which pops the palette's modal, then reactivating). No manual drain.
 	omni.Close()
 	th := allThemes()[1]
 	applyTheme(th.Name, th.Palette)

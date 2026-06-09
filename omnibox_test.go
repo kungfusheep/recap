@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	. "github.com/kungfusheep/glyph"
+	"github.com/kungfusheep/riffkey"
 )
 
 // the command palette must expose every action (not just quit) so the keys are
@@ -71,12 +72,14 @@ func TestOmniActionNoOrphanedRouter(t *testing.T) {
 }
 
 // regression (#165): the EXACT reported path — selecting the `todo:<project>` omnibox
-// item opens the TODO panel, and its keys must be live. The omnibox closes (fades) while
-// the action opens the todo panel's On.Modal; if the fading omnibox's router were orphaned
-// it would shadow the panel (dead keys, kill-to-recover). With the glyph fix the omnibox
-// releases its router, so after the render the ONLY active modal is the todo panel —
-// depth is base+1 (the panel), never base+2 (orphan + panel).
-func TestOmniTodoItemLeavesTodoPanelLive(t *testing.T) {
+// item opens the TODO editor, and its keys must be live. Opening it switches to the
+// named "todo" view via app.Go, which deactivates the inbox view and POPS the omnibox
+// modal it had pushed (detachRouteScopes) — deterministically, not via a fade-out
+// animation. So afterwards the todo view is active with ONLY its base router (depth 1):
+// no orphaned omnibox router shadowing it (the dead-keys / kill-to-recover bug). The
+// old If(&todoOpen)-panel kept the inbox view active, leaving the omnibox to self-release
+// on a render that animation timing could defer — which is why it was still broken.
+func TestOmniTodoItemSwitchesToTodoViewCleanly(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("RECAP_CONFIG", home+"/config.toml")
@@ -95,27 +98,60 @@ func TestOmniTodoItemLeavesTodoPanelLive(t *testing.T) {
 	uiStore = st
 	uiApp = NewApp()
 	omni = newOmniBox(uiApp, omniCommands())
-	t.Cleanup(func() { uiStore = prev; uiApp = nil; omni = nil; vmRows = nil; todoOpen = false })
+	t.Cleanup(func() { uiStore = prev; uiApp = nil; omni = nil; vmRows = nil })
 	st.Add(Task{Repo: "r", RepoPath: home + "/r", Title: "t", Status: StatusPending})
 	reloadTasks()
-	uiApp.SetView(buildMain())
+	// register the same named views runUI does, and start on main
+	uiApp.View("main", buildMain()).NoCounts()
+	uiApp.View("todo", buildTodoView()).NoCounts()
+	uiApp.Go("main")
 	uiApp.RenderNow()
 
-	base := uiApp.Input().Depth()
+	// open the omnibox → it pushes its modal router over the inbox view
 	omni.Open()
 	uiApp.RenderNow()
+	if d := uiApp.Input().Depth(); d <= 1 {
+		t.Fatalf("omnibox should push a modal router over main (depth %d)", d)
+	}
 
 	// faithfully reproduce exec() for the todo item: Close() the omnibox, then run its
-	// Action (openTodoFor) — exactly what selecting `todo: r` does.
+	// Action (openTodoFor) — exactly what selecting `todo: r` does. openTodoFor calls
+	// app.Go("todo").
 	omni.Close()
 	openTodoFor("r", home+"/r")
 	uiApp.RenderNow()
 
-	if !todoOpen {
-		t.Fatal("todo panel should be open after selecting the todo: item")
+	if v := uiApp.CurrentView(); v != "todo" {
+		t.Fatalf("selecting the todo: item should switch to the todo view, got %q", v)
 	}
-	if d := uiApp.Input().Depth(); d != base+1 {
-		t.Fatalf("after omnibox→todo, want exactly the todo panel modal (depth base+1=%d), got %d "+
-			"(base+2 would mean the omnibox router orphaned and shadowed the panel — dead keys)", base+1, d)
+	if d := uiApp.Input().Depth(); d != 1 {
+		t.Fatalf("todo view should be active with ONLY its base router (depth 1), got %d "+
+			"(>1 means the omnibox modal was orphaned across the view switch — dead keys)", d)
+	}
+
+	// the heart of the bug was DEAD KEYS — prove a todo key actually fires now. openTodoFor
+	// opened scrolled to the bottom (todoSel = last); 'k' must move the selection up. If the
+	// omnibox router were orphaned it would swallow this and todoSel wouldn't budge.
+	if todoSel != len(todoItems)-1 {
+		t.Fatalf("setup: todo should open at the last item, got sel=%d of %d", todoSel, len(todoItems))
+	}
+	if !uiApp.Input().Dispatch(riffkey.Key{Rune: 'k'}) {
+		t.Fatal("'k' was not handled by the active router — todo keys are dead")
+	}
+	if todoSel != len(todoItems)-2 {
+		t.Fatalf("'k' should move the todo selection up to %d, got %d (keys not live in the todo view)", len(todoItems)-2, todoSel)
+	}
+
+	// 'q' closes the editor → app.Go("main"); we must land back on the inbox view with a
+	// balanced stack (the round-trip, not a one-way trip into a stuck view).
+	if !uiApp.Input().Dispatch(riffkey.Key{Rune: 'q'}) {
+		t.Fatal("'q' was not handled in the todo view")
+	}
+	uiApp.RenderNow()
+	if v := uiApp.CurrentView(); v != "main" {
+		t.Fatalf("'q' should return to the inbox view, got %q", v)
+	}
+	if d := uiApp.Input().Depth(); d != 1 {
+		t.Fatalf("back on the inbox view the stack should be base 1, got %d", d)
 	}
 }

@@ -295,16 +295,19 @@ func runUI() error {
 		}
 	}()
 
-	// SetView once — glyph re-layouts the template against the new terminal size
-	// every frame, so no SetView-on-resize is needed (and rebuilding the tree on
-	// resize would discard the diff layer's scroll state). The diff layer itself
-	// re-renders on width change via renderDiffLayer/NeedsRender.
-	uiApp.SetView(buildMain())
+	// Two named views, registered once (glyph re-layouts each against the terminal
+	// size every frame, so no re-register on resize is needed — and rebuilding would
+	// discard the diff layer's scroll state). The TODO editor is its OWN view reached
+	// via app.Go, not an in-place panel: a full view switch deactivates the inbox view
+	// and pops any modal it had pushed (the omnibox), so opening the todo editor can't
+	// strand an orphaned router (the dead-keys bug). NoCounts on both so digits type in
+	// their prompts instead of buffering vim counts.
+	uiApp.View("main", buildMain()).NoCounts()
+	uiApp.View("todo", buildTodoView()).NoCounts()
 	uiApp.OnBeforeRender(refreshDetail)
-	uiApp.Router().NoCounts()
 	// diff line-picking uses glyph's jump engine (EnterJumpMode pushes its own
 	// router for the label keystrokes), so no root unmatched handler is needed.
-	return uiApp.Run()
+	return uiApp.RunFrom("main")
 }
 
 // --- data ------------------------------------------------------------------
@@ -1229,11 +1232,10 @@ func buildMain() Component {
 			Key("U", unsubmitSelected),
 			Key("t", openTodoEditor),
 		),
-		// the TODO editor takes over the column area when open (it's a panel inside
-		// this view, not a separate PushView, so the prompt over it behaves like the
-		// inbox: single Esc, working screen effects).
-		If(&todoOpen).Then(todoEditorPanel()).Else(
-			HBox.Grow(1).Gap(4)(
+		// the inbox columns. The TODO editor is no longer swapped in here — it's a
+		// separate named view (buildTodoView) reached via app.Go, so opening it cleanly
+		// deactivates this view (and pops any modal it had open, e.g. the omnibox).
+		HBox.Grow(1).Gap(4)(
 				// left — review inbox (darker column fill claims the area)
 				VBox.Grow(2).Fill(cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0).NodeRef(&listPaneRef)(
 					HBox(
@@ -1362,12 +1364,11 @@ func buildMain() Component {
 						)),
 					),
 				),
-			)),
+			),
 		// transient status (errors/confirmations) only — no permanent keybar
 		If(&statusMsg).Then(HBox(SpaceW(3), Text(&statusMsg).FG(cSubtle))),
-		// per-column focus fade: unfocused columns dim (mail's FocusShade) — only
-		// while the columns are shown (not over the TODO editor).
-		If(&todoOpen).Then(Text("")).Else(columnShades()),
+		// per-column focus fade: unfocused columns dim (mail's FocusShade)
+		columnShades(),
 		// floating comment prompts (add/edit + read), over the inbox/diff
 		inputPromptOverlay(),
 		readCommentOverlay(),

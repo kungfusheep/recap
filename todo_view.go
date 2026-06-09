@@ -21,13 +21,6 @@ var (
 	// the shared add/edit prompt: editingTodoIdx is -1 for add (append a new task),
 	// or the index of the line being edited.
 	editingTodoIdx = -1
-
-	// todoOpen gates the TODO editor panel inside buildMain. It used to be a
-	// separate PushView, but glyph's If-gated modal pop doesn't fire reliably in a
-	// secondary view, so the prompt over it leaked a modal router (multiple-Esc) and
-	// its screen effects didn't apply. As an in-buildMain panel it behaves like the
-	// inbox: one view, consistent modal + effect handling.
-	todoOpen bool
 )
 
 // openTodoEditor resolves the selected task's repo TODO path (via the config
@@ -68,13 +61,16 @@ func openTodoFor(repo, repoPath string) {
 	}
 	todoTitle = "TODO · " + repo
 	todoPrep()
-	todoOpen = true
-	uiApp.RequestRender()
+	// switch to the dedicated "todo" view via glyph's router (app.Go), NOT a manual
+	// in-buildMain panel: a full view switch deactivates the inbox view — which pops
+	// any modal it had pushed (e.g. the omnibox that launched this) deterministically,
+	// instead of relying on a fade-out exit animation to release it. That fade timing
+	// was the "todo opens but keys are dead, must kill" bug.
+	uiApp.Go("todo")
 }
 
 func closeTodoEditor() {
-	todoOpen = false
-	uiApp.RequestRender()
+	uiApp.Go("main")
 }
 
 // todoPrep recomputes the per-row UI fields (selection band + the display text and
@@ -201,12 +197,15 @@ func todoRow(it *todoItem) Component {
 	)
 }
 
-// todoEditorPanel is the full-screen TODO editor, swapped in for the columns by
-// buildMain when todoOpen. On.Modal makes it exclusive (suppressing the inbox
-// keys) while open; the add/edit prompt overlay (in buildMain) floats over it.
-func todoEditorPanel() Component {
+// buildTodoView is the full-screen TODO editor, registered as the named "todo" view
+// and reached with app.Go (see openTodoFor). As its own top-level view it owns its
+// keys on the base router via plain On() (no modal stacking) — the inbox view isn't
+// active behind it, so there are no inbox keys to suppress. The add/edit prompt is
+// rendered here too (inputPromptOverlay), so it floats over the editor in this view
+// and pushes/pops its own modal exactly as it does in the inbox.
+func buildTodoView() Component {
 	return VBox.Fill(cBG).CascadeStyle(&Style{Fill: cBG, BG: cBG, FG: cFG}).Grow(1).PaddingTRBL(1, 2, 1, 2)(
-		On.Modal(
+		On(
 			Key("j", func() { todoMove(1) }),
 			Key("k", func() { todoMove(-1) }),
 			Key("g", todoTop),
@@ -231,5 +230,10 @@ func todoEditorPanel() Component {
 			Marker("  ").
 			SelectedStyle(Style{}). // band painted per-row (todoRow Fill)
 			Render(todoRow),
+		// transient status (write errors etc.), mirroring the inbox view
+		If(&statusMsg).Then(HBox(Text(&statusMsg).FG(cSubtle))),
+		// the add/edit prompt floats over the editor in THIS view (same pattern as
+		// the inbox), so typing works and its modal pops cleanly on close.
+		inputPromptOverlay(),
 	)
 }
