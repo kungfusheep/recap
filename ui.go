@@ -1262,7 +1262,11 @@ func buildMain() Component {
 							// pointer and wraps to the width-set VBox, unlike a ForEach of
 							// pointer-Text rows (which measure empty at build → truncate). The
 							// in-flight row's spinner glyph is built into the blob each frame.
-							TextBlock(&upcomingBlob).FG(&cSubtle),
+							// FIXED HEIGHT (upcomingMax): fewer tasks leave blanks, more/wrapping clip, so
+							// the inbox below never shifts between projects with different upcoming counts.
+							VBox.Height(upcomingMax)(
+								TextBlock(&upcomingBlob).FG(&cSubtle),
+							),
 						),
 					),
 					List(&vmRows).

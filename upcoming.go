@@ -43,9 +43,10 @@ type upcomingRow struct {
 }
 
 type upcomingResult struct {
-	repo  string
-	ref   string // the in-flight item's ref at load time
-	items []string
+	repo    string
+	ref     string // the in-flight item's ref at load time
+	items   []string
+	hasPath bool // the repo resolved a TODO path (template configured) — gates the section
 }
 
 const upcomingMax = 5 // how many upcoming tasks to surface
@@ -77,7 +78,10 @@ func updateUpcoming() {
 		hasCurrent = currentRef != ""
 		markInFlight() // re-mark inbox rows now the fresh cursor ref has landed (no reload lag)
 		upcomingItems = buildUpcomingRows(staged.items, currentRef)
-		hasUpcoming = len(upcomingItems) > 0
+		// show the section for any repo with a resolvable TODO path — NOT just when it
+		// has items — so it reserves a fixed block and the inbox below doesn't jump as
+		// you move between projects with different numbers of upcoming tasks.
+		hasUpcoming = staged.hasPath
 	}
 
 	t, ok := selectedTask()
@@ -91,9 +95,9 @@ func updateUpcoming() {
 	repo := t.RepoPath
 	go func() {
 		ref, _ := loadCurrent(filepath.Base(repo)) // the displayed repo's in-flight item ref
-		items := loadUpcoming(repo)                // TODO tasks — file read + parse, off the render thread
+		items, hasPath := loadUpcoming(repo)       // TODO tasks — file read + parse, off the render thread
 		upcomingMu.Lock()
-		upcomingStaged = &upcomingResult{repo: repo, ref: ref, items: items}
+		upcomingStaged = &upcomingResult{repo: repo, ref: ref, items: items, hasPath: hasPath}
 		upcomingMu.Unlock()
 		if uiApp != nil {
 			uiApp.RequestRender()
@@ -101,23 +105,24 @@ func updateUpcoming() {
 	}()
 }
 
-// loadUpcoming resolves repoPath's TODO file and returns its next incomplete
-// tasks. Runs on a goroutine only. Any failure (no template, unreadable) yields
-// an empty list, which simply hides the section.
-func loadUpcoming(repoPath string) []string {
+// loadUpcoming resolves repoPath's TODO file and returns its next incomplete tasks
+// plus whether a TODO path resolved at all (template configured). Runs on a goroutine
+// only. hasPath gates the section: a resolvable path shows a fixed block (even with
+// zero tasks) so the layout is stable; no template at all hides it entirely.
+func loadUpcoming(repoPath string) (items []string, hasPath bool) {
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	path, err := todo.PathFor(cfg.TODOTemplate, repoPath)
 	if err != nil || path == "" {
-		return nil
+		return nil, false
 	}
-	items, err := readTodo(path)
+	parsed, err := readTodo(path)
 	if err != nil {
-		return nil
+		return nil, true // path is configured (just unreadable/missing) — still reserve the block
 	}
-	return upcomingFromItems(items)
+	return upcomingFromItems(parsed), true
 }
 
 // buildUpcomingRows turns the upcoming task texts into plain bulleted rows. Runs on
@@ -136,6 +141,9 @@ func buildUpcomingRows(texts []string, currentRef string) []upcomingRow {
 // a "·" bullet per row, except the in-flight row gets the current spinner frame so it
 // animates in place. Cheap — rebuilt each frame so the spinner ticks.
 func buildUpcomingBlob(rows []upcomingRow, frame int) string {
+	if len(rows) == 0 {
+		return "· nothing upcoming" // the section's fixed Height reserves the rest
+	}
 	var b strings.Builder
 	for i, r := range rows {
 		if i > 0 {

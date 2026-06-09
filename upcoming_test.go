@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	. "github.com/kungfusheep/glyph"
 )
 
 // upcomingFromItems surfaces the next incomplete tasks in file order, skips done
@@ -74,6 +76,56 @@ func TestBuildUpcomingBlob(t *testing.T) {
 	}
 	if !strings.HasSuffix(lines[1], " beta") || strings.HasPrefix(lines[1], "·") {
 		t.Fatalf("in-flight row should have a spinner prefix (not '·'), got %q", lines[1])
+	}
+
+	// empty → a placeholder line (the section's fixed Height reserves the rest), never ""
+	if got := buildUpcomingBlob(nil, 0); got != "· nothing upcoming" {
+		t.Fatalf("empty upcoming blob = %q, want placeholder", got)
+	}
+}
+
+// the upcoming section reserves a FIXED height (upcomingMax rows), so the inbox list
+// below sits at the same screen row regardless of how many upcoming tasks the selected
+// project has — no more "slapping about" when moving between projects (#1f3c631d).
+func TestUpcomingSectionFixedHeight(t *testing.T) {
+	prevStore, prevApp, prevOmni := uiStore, uiApp, omni
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	t.Cleanup(func() {
+		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
+		vmRows = nil
+		hasUpcoming = false
+		upcomingBlob = ""
+	})
+	st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "INBOXMARKER", Status: StatusPending})
+	reloadTasks()
+	hasUpcoming = true
+	upcomingWidth = 30
+
+	inboxY := func() int {
+		tmpl := Build(buildMain())
+		buf := NewBuffer(120, 40)
+		tmpl.Execute(buf, 120, 40)
+		for y := 0; y < 40; y++ {
+			if strings.Contains(buf.GetLine(y), "INBOXMARKER") {
+				return y
+			}
+		}
+		return -1
+	}
+
+	upcomingBlob = "· one\n· two"
+	y2 := inboxY()
+	upcomingBlob = "· one\n· two\n· three\n· four\n· five"
+	y5 := inboxY()
+
+	if y2 < 0 || y5 < 0 {
+		t.Fatalf("inbox marker not rendered: y(2 upcoming)=%d, y(5 upcoming)=%d", y2, y5)
+	}
+	if y2 != y5 {
+		t.Fatalf("inbox shifted with upcoming count: y(2)=%d vs y(5)=%d — section is not fixed height", y2, y5)
 	}
 }
 
