@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	. "github.com/kungfusheep/glyph"
+	"github.com/kungfusheep/riffkey"
 )
 
 // the comment/todo prompts are OVERLAYS: they float over the current view with the
@@ -74,6 +75,42 @@ func TestPromptOpenSubmitClose(t *testing.T) {
 	closePrompt()
 	if promptOpen || commentField.Value != "" || saved != "" {
 		t.Fatalf("close should cancel without saving: open=%v val=%q saved=%q", promptOpen, commentField.Value, saved)
+	}
+}
+
+// regression (todo:6d79ece2): opt+Backspace in the prompt must EDIT the text (delete a
+// word), not close the dialog and lose everything. The fix is upstream (riffkey parses
+// ESC+0x7f as Alt+Backspace instead of a lone Escape), but verify the real recap path:
+// with the prompt open, dispatching Alt+Backspace deletes a word AND leaves the prompt
+// open (the modal's Esc binding must not fire).
+func TestPromptAltBackspaceEditsNotCloses(t *testing.T) {
+	prevApp, prevStore, prevOmni := uiApp, uiStore, omni
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	t.Cleanup(func() {
+		uiApp, uiStore, omni = prevApp, prevStore, prevOmni
+		promptOpen = false
+		commentField = InputState{}
+		vmRows = nil
+	})
+	reloadTasks()
+
+	uiApp.SetView(buildMain())
+	uiApp.RenderNow()
+
+	openInputPrompt("add todo", "", "", "hello world", func() {})
+	uiApp.RenderNow() // prompt overlay renders → its modal router is pushed
+
+	if !uiApp.Input().Dispatch(riffkey.Key{Special: riffkey.SpecialBackspace, Mod: riffkey.ModAlt}) {
+		t.Fatal("Alt+Backspace was not handled by the prompt — would fall through")
+	}
+	if !promptOpen {
+		t.Fatal("prompt closed on Alt+Backspace — text lost (the reported bug)")
+	}
+	if commentField.Value != "hello " {
+		t.Fatalf("Alt+Backspace should delete the last word: got %q, want %q", commentField.Value, "hello ")
 	}
 }
 
