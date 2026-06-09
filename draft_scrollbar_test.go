@@ -229,3 +229,69 @@ func TestDraftPaneScrollbarGeometry(t *testing.T) {
 		t.Fatalf("thumb (%d cells) fills the whole ~%d-row track — should be partial for an overflowing thread", topN, trackRows)
 	}
 }
+
+// regression for #174 c267 ("the track should be the size of the display, but it's like
+// 2 lines high"): the scrollbar TRACK must span the full list column height, not collapse.
+// Renders the draft pane in the real Grow-based column layout (VBox.Grow column, the
+// HBox.Grow(1)(VBox.Grow(1)(List), Scrollbar) body) and asserts the track ≈ the column
+// height for BOTH overflowing and short content. (Current code passes in every case —
+// a 2-line track only happens on a stale binary / older glyph build.)
+func TestDraftScrollbarTrackFullHeight(t *testing.T) {
+	prevStore, prevApp, prevOmni := uiStore, uiApp, omni
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	t.Cleanup(func() {
+		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
+		draftComments = nil
+		draftScrollOffset, draftScrollVisible, draftScrollTotal = 0, 0, 0
+	})
+
+	const W, H = 90, 24
+	trackRows := func() int {
+		view := VBox.Fill(&cBG).Height(H).Width(W)(
+			HBox.Grow(1).Gap(4)(
+				VBox.Grow(2).Fill(&cPaneBG)(Text("LEFT")),
+				VBox.Grow(2).Fill(&cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0)(
+					HBox(SpaceW(3), Text("comments").FG(&cBright).Bold(), Space(), SpaceW(2)),
+					SpaceH(2),
+					HBox.Grow(1)(
+						VBox.Grow(1)(
+							List(&draftComments).Selection(&draftSel).Marker("  ").
+								SelectedStyle(Style{}).Render(draftRow).
+								ScrollState(&draftScrollOffset, &draftScrollVisible, &draftScrollTotal),
+						),
+						ScrollbarDyn(&draftScrollTotal, &draftScrollVisible, &draftScrollOffset),
+					),
+				),
+			),
+		)
+		buf := NewBuffer(W, H)
+		Build(view).Execute(buf, W, H)
+		n := 0
+		for y := 0; y < H; y++ {
+			if r := buf.Get(W-1, y).Rune; r == '│' || r == '█' || (r >= '▁' && r <= '▇') {
+				n++
+			}
+		}
+		return n
+	}
+
+	// overflowing thread
+	draftComments = make([]draftCommentVM, 8)
+	for i := range draftComments {
+		draftComments[i] = draftCommentVM{Location: "general", Body: fmt.Sprintf("comment %d wraps across several rows in the narrow column overflowing it now", i)}
+	}
+	draftSel = 0
+	if n := trackRows(); n < H-6 {
+		t.Fatalf("overflowing: track only %d rows of a %d-row pane — collapsed track (#174 c267)", n, H)
+	}
+
+	// short thread (does NOT overflow) — track must STILL be full
+	draftComments = []draftCommentVM{{Location: "general", Body: "short one"}, {Location: "general", Body: "short two"}}
+	draftSel = 0
+	if n := trackRows(); n < H-6 {
+		t.Fatalf("short content: track only %d rows of a %d-row pane — collapsed track", n, H)
+	}
+}
