@@ -3,142 +3,381 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>async review loop</title>
   <style>
     :root {
-      color-scheme: light;
-      --ink: #15201b;
-      --muted: #5b6a62;
-      --paper: #fbfaf6;
-      --panel: #ffffff;
-      --line: #d8ded3;
-      --agent:    #2f7a68;   /* build / new work */
-      --fix:      #c07d1c;   /* rework triggered by feedback */
-      --reviewer: #7c4a86;   /* review */
-      --idle:     #8a8f8a;   /* dead time, nothing happening */
-      --tax:      #b4513a;   /* integration cost: merge, drift */
-      --done:     #1f6f4f;   /* finished */
-      --shadow: 0 18px 50px rgba(28, 39, 33, 0.12);
+      --bg: #E3E3DC;
+      --brand-fg: #111111;
+      --code-bg: #D6D6CF;
+      --fg: #2D2D29;
+      --footer-fg: #686860;
+      --hover-bg: #D6D6CF;
+      --link-bg: #D4DCE1;
+      --link-fg: #314D5F;
     }
-    * { box-sizing: border-box; }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #090908;
+        --brand-fg: #F7F0DE;
+        --code-bg: #171511;
+        --fg: #D7CFBE;
+        --footer-fg: #756E60;
+        --hover-bg: #201D17;
+        --link-bg: #1D1A13;
+        --link-fg: #D9C68F;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      font-size: inherit;
+      font-style: normal;
+      font-weight: 500;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+
+    html {
+      background: var(--bg);
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
+    }
+
     body {
-      margin: 0; min-height: 100vh; background: var(--paper); color: var(--ink);
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: Jost, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 15px;
+      font-weight: 500;
+      line-height: 1.5;
+      margin: 0 auto;
+      max-width: 59ch;
+      padding: 4rem 1rem 3rem;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
-    main { width: min(1080px, 100%); margin: 0 auto; padding: 44px 20px 50px; }
 
-    .kicker { margin: 0 0 12px; color: var(--agent); font-size: 13px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
-    h1 { max-width: 820px; margin: 0 0 14px; font-size: clamp(40px, 6vw, 72px); line-height: 0.95; text-wrap: balance; }
-    .summary { max-width: 680px; margin: 0 0 30px; color: var(--muted); font-size: 18px; line-height: 1.5; }
-    .summary b { color: var(--ink); }
+    ::selection {
+      background: var(--fg);
+      color: var(--bg);
+    }
 
-    .stage { padding: 26px 30px 22px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
-    .scroll { overflow-x: auto; }
+    h1 {
+      color: var(--brand-fg);
+      font-size: inherit;
+      font-weight: 675;
+      letter-spacing: 2px;
+      line-height: inherit;
+      margin: 0 0 3.25em;
+      text-transform: uppercase;
+    }
+
+    p {
+      margin: 0.65em 0;
+    }
+
+    b {
+      color: var(--brand-fg);
+      font-weight: 675;
+    }
+
+    .kicker {
+      color: var(--footer-fg);
+      font-weight: 675;
+      letter-spacing: 2px;
+      margin: 0 0 0.65em;
+      text-transform: uppercase;
+    }
+
+    .summary {
+      margin-bottom: 1.35em;
+    }
+
+    .review-loop-figure {
+      background: var(--code-bg);
+      border-radius: 1.1em;
+      color: var(--fg);
+      margin: 1.35em -1.1em;
+      overflow: hidden;
+      padding: 1em 1.1em;
+    }
+
+    .figure-scroll {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
 
     .chart {
-      min-width: 740px;
       display: grid;
-      grid-template-columns: 150px repeat(6, minmax(54px, 1fr)) 16px;
-      align-items: center;
-      row-gap: 7px;
+      grid-template-columns: 13ch repeat(6, minmax(8.5ch, 1fr));
+      min-width: 760px;
+      row-gap: 0.55em;
     }
 
     .axis {
-      grid-column: 2 / 8; grid-row: 1;
-      display: flex; justify-content: space-between; align-items: center;
-      color: var(--muted); font-size: 12px; font-weight: 700;
-      border-bottom: 1.5px solid var(--line); padding-bottom: 5px; margin-bottom: 2px;
+      border-bottom: 1px solid color-mix(in srgb, var(--fg), transparent 72%);
+      color: var(--footer-fg);
+      display: flex;
+      font-family: "Berkeley Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.78em;
+      font-weight: 650;
+      grid-column: 2 / 8;
+      justify-content: space-between;
+      padding-bottom: 0.35em;
     }
-    .axis .arrow { color: var(--ink); }
 
-    .head { display: flex; align-items: baseline; gap: 10px; }
-    .head b { font-size: 16px; }
-    .head .sub { color: var(--muted); font-size: 13px; }
-    .head .cyc { margin-left: auto; font-size: 13px; font-weight: 900; padding: 3px 11px; border-radius: 999px; }
-    .head.slow .cyc { color: var(--idle); background: color-mix(in srgb, var(--idle), white 82%); }
-    .head.fast .cyc { color: var(--done); background: color-mix(in srgb, var(--done), white 84%); }
-    .head.regress .cyc { color: var(--tax); background: color-mix(in srgb, var(--tax), white 84%); }
-
-    .role { grid-column: 1; padding-right: 14px; text-align: right; color: var(--muted); font-size: 13px; font-weight: 700; }
-
-    .seam { width: 0; justify-self: start; z-index: 4; pointer-events: none; }
-    .seam.slow { border-left: 2px solid color-mix(in srgb, var(--idle), white 40%); }
-    .seam.fast { border-left: 2px solid color-mix(in srgb, var(--done), white 22%); }
-    .seam.regress { border-left: 2px solid color-mix(in srgb, var(--tax), white 22%); }
-    /* ghost line: where async already finished, so the merge tail reads as "late" */
-    .ghost { border-left: 2px dashed color-mix(in srgb, var(--done), white 45%); }
-
-    .seg {
-      display: flex; align-items: center; justify-content: center;
-      height: 54px; margin: 0 3px; padding: 0 4px;
-      border-radius: 9px; font-size: 13.5px; font-weight: 800; text-align: center; line-height: 1.05;
+    .flow-head {
+      align-items: baseline;
+      display: flex;
+      gap: 1ch;
+      grid-column: 1 / 8;
+      margin-top: 1.1em;
     }
-    .work { color: var(--agent);    background: color-mix(in srgb, var(--agent), white 88%);    border: 1.5px solid color-mix(in srgb, var(--agent), white 26%); }
-    .fix  { color: var(--fix);      background: color-mix(in srgb, var(--fix), white 86%);      border: 1.5px solid color-mix(in srgb, var(--fix), white 26%); }
-    .rev  { color: var(--reviewer); background: color-mix(in srgb, var(--reviewer), white 88%); border: 1.5px solid color-mix(in srgb, var(--reviewer), white 32%); }
-    /* a review OF a fix — purple, flagged with the amber rework accent */
-    .rerev { color: var(--reviewer); background: color-mix(in srgb, var(--reviewer), white 88%); border: 1.5px solid color-mix(in srgb, var(--reviewer), white 32%); border-left: 5px solid color-mix(in srgb, var(--fix), white 12%); }
-    .idle {
-      color: var(--idle); font-weight: 700;
-      background: repeating-linear-gradient(45deg, transparent, transparent 7px, color-mix(in srgb, var(--idle), white 78%) 7px, color-mix(in srgb, var(--idle), white 78%) 13px);
-      border: 1.5px dashed color-mix(in srgb, var(--idle), white 34%);
-    }
-    /* integration cost only worktrees pay: merging the trees back, resolving drift */
-    .tax { color: var(--tax); background: color-mix(in srgb, var(--tax), white 84%); border: 1.5px solid color-mix(in srgb, var(--tax), white 24%); }
 
-    /* parallel worktrees: two builds stacked in one time slot */
+    .flow-head b {
+      color: var(--brand-fg);
+      font-weight: 675;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    .flow-head .sub {
+      color: var(--footer-fg);
+    }
+
+    .flow-head .cycles {
+      background: var(--bg);
+      border-radius: 0.32em;
+      color: var(--footer-fg);
+      font-family: "Berkeley Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.82em;
+      font-weight: 650;
+      margin-left: auto;
+      padding: 0.08em 0.36em;
+    }
+
+    .role {
+      color: var(--footer-fg);
+      font-family: "Berkeley Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.82em;
+      font-weight: 650;
+      grid-column: 1;
+      padding-right: 1ch;
+      text-align: right;
+    }
+
+    .seg,
+    .done,
     .wt {
-      display: flex; flex-direction: column; gap: 3px; justify-content: center;
-      height: 54px; margin: 0 3px; padding: 5px; border-radius: 9px;
-      background: color-mix(in srgb, var(--agent), white 88%);
-      border: 1.5px solid color-mix(in srgb, var(--agent), white 26%);
+      align-items: center;
+      border: 1px solid color-mix(in srgb, var(--fg), transparent 68%);
+      border-radius: 0.32em;
+      display: flex;
+      font-family: "Berkeley Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.82em;
+      font-weight: 650;
+      justify-content: center;
+      line-height: 1.15;
+      margin: 0 0.25ch;
+      min-height: 3.5em;
+      padding: 0.25em 0.5ch;
+      text-align: center;
     }
-    .wt .chip { font-size: 11px; font-weight: 800; color: var(--agent); background: #fff; border: 1px solid color-mix(in srgb, var(--agent), white 40%); border-radius: 5px; padding: 1px 0; text-align: center; }
 
-    .overlap { margin: -3px 1px; border-radius: 11px; border: 2px dashed color-mix(in srgb, var(--ink), white 70%); background: color-mix(in srgb, var(--ink), white 96%); z-index: 0; pointer-events: none; }
-    .tag { text-align: center; font-size: 12.5px; font-weight: 800; margin-top: 1px; }
-    .tag.parallel { color: var(--ink); }
-    .tag.bottleneck { color: var(--reviewer); }
+    .work {
+      background: color-mix(in srgb, var(--fg), transparent 92%);
+      color: var(--brand-fg);
+    }
+
+    .fix,
+    .rerev {
+      background: color-mix(in srgb, var(--link-fg), transparent 86%);
+      border-color: color-mix(in srgb, var(--link-fg), transparent 42%);
+      color: var(--link-fg);
+    }
+
+    .rev {
+      background: color-mix(in srgb, var(--footer-fg), transparent 88%);
+      color: var(--fg);
+    }
+
+    .idle {
+      background: repeating-linear-gradient(
+        45deg,
+        transparent,
+        transparent 0.4em,
+        color-mix(in srgb, var(--footer-fg), transparent 82%) 0.4em,
+        color-mix(in srgb, var(--footer-fg), transparent 82%) 0.75em
+      );
+      border-style: dashed;
+      color: var(--footer-fg);
+    }
+
+    .tax {
+      background: color-mix(in srgb, var(--link-fg), transparent 82%);
+      border-color: color-mix(in srgb, var(--link-fg), transparent 34%);
+      color: var(--link-fg);
+    }
 
     .done {
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      height: 54px; margin: 0 3px; border-radius: 9px;
-      border: 1.5px solid color-mix(in srgb, var(--done), white 30%);
-      background: color-mix(in srgb, var(--done), white 86%);
-      color: var(--done); text-align: center;
+      background: var(--bg);
+      color: var(--brand-fg);
+      flex-direction: column;
+      font-weight: 675;
     }
-    .done b { font-size: 14px; } .done span { font-size: 10.5px; font-weight: 700; opacity: 0.82; }
 
-    .result { display: flex; align-items: baseline; gap: 16px; margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--line); }
-    .result strong { font-size: clamp(30px, 4.4vw, 50px); line-height: 0.9; white-space: nowrap; }
-    .result strong .a { color: var(--idle); } .result strong .b { color: var(--done); } .result strong .c { color: var(--tax); } .result strong .sep { color: var(--line); font-weight: 700; }
-    .result p { margin: 0; max-width: 560px; color: var(--muted); font-size: 16px; line-height: 1.45; }
-    .result p b { color: var(--ink); }
+    .done span {
+      color: var(--footer-fg);
+      display: block;
+      font-size: 0.82em;
+      font-weight: 500;
+      margin-top: 0.2em;
+    }
+
+    .wt {
+      background: color-mix(in srgb, var(--fg), transparent 92%);
+      flex-direction: column;
+      gap: 0.25em;
+    }
+
+    .chip {
+      background: var(--bg);
+      border-radius: 0.32em;
+      color: var(--brand-fg);
+      padding: 0 0.45ch;
+    }
+
+    .overlap {
+      background: color-mix(in srgb, var(--bg), transparent 20%);
+      border: 1px dashed color-mix(in srgb, var(--fg), transparent 52%);
+      border-radius: 0.55em;
+      margin: -0.25em 0.1ch;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .seam,
+    .ghost {
+      border-left: 1px solid color-mix(in srgb, var(--fg), transparent 50%);
+      justify-self: start;
+      pointer-events: none;
+      width: 0;
+      z-index: 3;
+    }
+
+    .ghost {
+      border-left-style: dashed;
+      border-left-color: color-mix(in srgb, var(--footer-fg), transparent 42%);
+    }
+
+    .tag {
+      color: var(--footer-fg);
+      font-family: "Berkeley Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.78em;
+      font-weight: 650;
+      margin-top: 0.15em;
+      text-align: center;
+    }
+
+    .result {
+      border-top: 1px solid color-mix(in srgb, var(--fg), transparent 74%);
+      display: flex;
+      gap: 1.4ch;
+      margin-top: 1.35em;
+      padding-top: 1.35em;
+    }
+
+    .result strong {
+      color: var(--brand-fg);
+      font-family: "Berkeley Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: clamp(1.8em, 5vw, 3.2em);
+      font-weight: 700;
+      line-height: 0.95;
+      white-space: nowrap;
+    }
+
+    .result p {
+      color: var(--fg);
+      margin: 0;
+    }
 
     .taxnote {
-      margin-top: 20px; padding: 16px 18px;
-      border: 1px solid color-mix(in srgb, var(--tax), white 60%); border-left: 4px solid var(--tax);
-      border-radius: 9px; background: color-mix(in srgb, var(--tax), white 92%);
+      border-left: 2px solid var(--fg);
+      color: var(--fg);
+      margin: 1.35em 0 0;
+      padding-left: 2.5ch;
     }
-    .taxnote b.lead { display: block; margin-bottom: 8px; font-size: 15px; color: var(--ink); }
-    .taxnote ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 14px; line-height: 1.55; }
-    .taxnote li b { color: var(--tax); }
 
-    .legend { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 16px; color: var(--muted); font-size: 13px; }
-    .legend span { display: inline-flex; align-items: center; gap: 8px; }
-    .sw { width: 18px; height: 13px; border-radius: 3px; border: 1.5px solid; }
-    .sw-work { background: color-mix(in srgb, var(--agent), white 88%); border-color: color-mix(in srgb, var(--agent), white 26%); }
-    .sw-fix  { background: color-mix(in srgb, var(--fix), white 86%); border-color: color-mix(in srgb, var(--fix), white 26%); }
-    .sw-rev  { background: color-mix(in srgb, var(--reviewer), white 88%); border-color: color-mix(in srgb, var(--reviewer), white 32%); }
-    .sw-idle { background: repeating-linear-gradient(45deg, transparent, transparent 4px, color-mix(in srgb, var(--idle), white 70%) 4px, color-mix(in srgb, var(--idle), white 70%) 8px); border-color: color-mix(in srgb, var(--idle), white 34%); border-style: dashed; }
-    .sw-tax  { background: color-mix(in srgb, var(--tax), white 84%); border-color: color-mix(in srgb, var(--tax), white 24%); }
-    .sw-done { background: color-mix(in srgb, var(--done), white 86%); border-color: color-mix(in srgb, var(--done), white 30%); }
+    .taxnote b.lead {
+      display: block;
+      font-weight: 675;
+      margin-bottom: 0.65em;
+    }
 
-    @media (max-width: 720px) {
-      main { padding: 30px 14px 38px; }
-      h1 { font-size: clamp(34px, 10vw, 48px); }
-      .stage { padding: 18px 14px; }
-      .result { flex-direction: column; gap: 6px; }
+    .taxnote ul {
+      list-style: none;
+      margin: 0.65em 0;
+      padding-left: 2.5ch;
+    }
+
+    .taxnote li {
+      margin: 0.45em 0;
+      position: relative;
+    }
+
+    .taxnote li::before {
+      color: var(--footer-fg);
+      content: "-";
+      left: -2ch;
+      position: absolute;
+    }
+
+    .legend {
+      color: var(--footer-fg);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1ch 2ch;
+      margin-top: 1.35em;
+    }
+
+    .legend span {
+      align-items: center;
+      display: inline-flex;
+      gap: 0.7ch;
+    }
+
+    .sw {
+      border: 1px solid color-mix(in srgb, var(--fg), transparent 68%);
+      border-radius: 0.32em;
+      display: inline-block;
+      height: 0.9em;
+      width: 1.25em;
+    }
+
+    .sw-work { background: color-mix(in srgb, var(--fg), transparent 92%); }
+    .sw-fix,
+    .sw-tax { background: color-mix(in srgb, var(--link-fg), transparent 86%); border-color: color-mix(in srgb, var(--link-fg), transparent 42%); }
+    .sw-rev { background: color-mix(in srgb, var(--footer-fg), transparent 88%); }
+    .sw-idle {
+      background: repeating-linear-gradient(45deg, transparent, transparent 0.22em, color-mix(in srgb, var(--footer-fg), transparent 82%) 0.22em, color-mix(in srgb, var(--footer-fg), transparent 82%) 0.44em);
+      border-style: dashed;
+    }
+    .sw-done { background: var(--bg); }
+
+    @media (max-width: 560px) {
+      body {
+        padding: 2rem 1rem 3rem;
+      }
+      .review-loop-figure {
+        margin-left: 0.65em;
+        margin-right: 0.65em;
+        padding: 1em;
+      }
+      .result {
+        flex-direction: column;
+        gap: 0.65em;
+      }
     }
   </style>
 </head>
@@ -148,67 +387,64 @@
     <h1>What moves the finish&nbsp;line?</h1>
     <p class="summary">The same two tasks &mdash; <b>task&nbsp;1 takes a fix and a re&#8209;review, task&nbsp;2 passes first time</b> &mdash; run three ways, on one clock, with one reviewer. Watch what actually moves the finish: and what doesn't.</p>
 
-    <section class="stage" aria-label="three review flows on one clock">
-      <div class="scroll">
+    <section class="review-loop-figure" aria-label="three review flows on one clock">
+      <div class="figure-scroll">
         <div class="chart">
-          <div class="axis"><span>start</span><span class="arrow">wall time &rarr;</span></div>
+          <div class="axis"><span>start</span><span>wall time -&gt;</span></div>
 
-          <!-- 1 · STOP & WAIT — turn-taking ----------------------------------- -->
-          <div class="head slow" style="grid-column:1/9;grid-row:2"><b>Stop &amp; wait</b><span class="sub">they take turns</span><span class="cyc">6 cycles</span></div>
-          <div class="seam slow" style="grid-column:8;grid-row:3/5"></div>
+          <div class="flow-head" style="grid-row:2"><b>Stop &amp; wait</b><span class="sub">they take turns</span><span class="cycles">6 cycles</span></div>
+          <div class="seam" style="grid-column:8;grid-row:3/5"></div>
           <div class="role" style="grid-row:3">agent</div>
           <div class="seg work" style="grid-row:3;grid-column:2/3">task 1</div>
           <div class="seg idle" style="grid-row:3;grid-column:3/4">waiting</div>
-          <div class="seg fix"  style="grid-row:3;grid-column:4/5">fix 1</div>
+          <div class="seg fix" style="grid-row:3;grid-column:4/5">fix 1</div>
           <div class="seg idle" style="grid-row:3;grid-column:5/6">waiting</div>
           <div class="seg work" style="grid-row:3;grid-column:6/7">task 2</div>
           <div class="seg idle" style="grid-row:3;grid-column:7/8">waiting</div>
           <div class="role" style="grid-row:4">reviewer</div>
-          <div class="seg rev"   style="grid-row:4;grid-column:3/4">review 1</div>
+          <div class="seg rev" style="grid-row:4;grid-column:3/4">review 1</div>
           <div class="seg rerev" style="grid-row:4;grid-column:5/6">review fix 1</div>
-          <div class="seg rev"   style="grid-row:4;grid-column:7/8">review 2</div>
+          <div class="seg rev" style="grid-row:4;grid-column:7/8">review 2</div>
 
-          <!-- 2 · ASYNC — one agent, pipelined -------------------------------- -->
-          <div class="head fast" style="grid-column:1/9;grid-row:5;margin-top:14px"><b>Async</b><span class="sub">one agent, never waits</span><span class="cyc">4 cycles</span></div>
-          <div class="seam fast" style="grid-column:6;grid-row:6/8"></div>
+          <div class="flow-head" style="grid-row:5;margin-top:1.35em"><b>Async</b><span class="sub">one agent, never waits</span><span class="cycles">4 cycles</span></div>
+          <div class="seam" style="grid-column:6;grid-row:6/8"></div>
           <div class="overlap" style="grid-column:3/5;grid-row:6/8"></div>
           <div class="role" style="grid-row:6">agent</div>
           <div class="seg work" style="grid-row:6;grid-column:2/3">task 1</div>
           <div class="seg work" style="grid-row:6;grid-column:3/4">task 2</div>
-          <div class="seg fix"  style="grid-row:6;grid-column:4/5">fix 1</div>
-          <div class="done"     style="grid-row:6/8;grid-column:6/8"><b>&#10003; done</b><span>stop &amp; wait still going</span></div>
+          <div class="seg fix" style="grid-row:6;grid-column:4/5">fix 1</div>
+          <div class="done" style="grid-row:6/8;grid-column:6/8"><b>done</b><span>stop &amp; wait still going</span></div>
           <div class="role" style="grid-row:7">reviewer</div>
-          <div class="seg rev"   style="grid-row:7;grid-column:3/4">review 1</div>
-          <div class="seg rev"   style="grid-row:7;grid-column:4/5">review 2</div>
+          <div class="seg rev" style="grid-row:7;grid-column:3/4">review 1</div>
+          <div class="seg rev" style="grid-row:7;grid-column:4/5">review 2</div>
           <div class="seg rerev" style="grid-row:7;grid-column:5/6">review fix 1</div>
-          <div class="tag parallel" style="grid-column:3/5;grid-row:8">&#8597; agent &amp; reviewer overlap</div>
+          <div class="tag" style="grid-column:3/5;grid-row:8">agent + reviewer overlap</div>
 
-          <!-- 3 · WORKTREES — parallel build, then pay to merge --------------- -->
-          <div class="head regress" style="grid-column:1/9;grid-row:9;margin-top:16px"><b>Worktrees</b><span class="sub">parallel build, then merge back</span><span class="cyc">5 cycles</span></div>
+          <div class="flow-head" style="grid-row:9;margin-top:1.55em"><b>Worktrees</b><span class="sub">parallel build, then merge back</span><span class="cycles">5 cycles</span></div>
           <div class="ghost" style="grid-column:6;grid-row:10/12"></div>
-          <div class="seam regress" style="grid-column:7;grid-row:10/12"></div>
+          <div class="seam" style="grid-column:7;grid-row:10/12"></div>
           <div class="role" style="grid-row:10">agent</div>
           <div class="wt" style="grid-row:10;grid-column:2/3"><div class="chip">task 1</div><div class="chip">task 2</div></div>
           <div class="seg idle" style="grid-row:10;grid-column:3/4">waiting</div>
-          <div class="seg fix"  style="grid-row:10;grid-column:4/5">fix 1</div>
+          <div class="seg fix" style="grid-row:10;grid-column:4/5">fix 1</div>
           <div class="seg idle" style="grid-row:10;grid-column:5/6">waiting</div>
-          <div class="seg tax"  style="grid-row:10;grid-column:6/7">merge + drift</div>
-          <div class="done"     style="grid-row:10/12;grid-column:7/9"><b>&#10003; done</b><span>a cycle behind async</span></div>
+          <div class="seg tax" style="grid-row:10;grid-column:6/7">merge + drift</div>
+          <div class="done" style="grid-row:10/12;grid-column:7/9"><b>done</b><span>a cycle behind async</span></div>
           <div class="role" style="grid-row:11">reviewer</div>
-          <div class="seg rev"   style="grid-row:11;grid-column:3/4">review 1</div>
-          <div class="seg rev"   style="grid-row:11;grid-column:4/5">review 2</div>
+          <div class="seg rev" style="grid-row:11;grid-column:3/4">review 1</div>
+          <div class="seg rev" style="grid-row:11;grid-column:4/5">review 2</div>
           <div class="seg rerev" style="grid-row:11;grid-column:5/6">review fix 1</div>
-          <div class="tag bottleneck" style="grid-column:3/7;grid-row:12">reviewer never sped up &mdash; and now there&rsquo;s a merge to pay for &#8593;</div>
+          <div class="tag" style="grid-column:3/7;grid-row:12">reviewer never sped up, and now there is a merge to pay for</div>
         </div>
       </div>
 
       <div class="result">
-        <strong><span class="a">6</span> <span class="sep">&rarr;</span> <span class="b">4</span> <span class="sep">&rarr;</span> <span class="c">5</span></strong>
-        <p>Stop&#8209;and&#8209;wait to async: <b>a third faster</b>. Async to worktrees: <b>a cycle slower</b>. Parallel building collapses the agent&rsquo;s time &mdash; but the reviewer reads the same things in the same order, so review stays the bottleneck, and now you owe an integration step async never needed. More agents just buys <b>more idle agents and a merge</b>.</p>
+        <strong>6 -&gt; 4 -&gt; 5</strong>
+        <p>Stop&#8209;and&#8209;wait to async: <b>a third faster</b>. Async to worktrees: <b>a cycle slower</b>. Parallel building collapses the agent&rsquo;s time, but the reviewer reads the same things in the same order, so review stays the bottleneck. More agents just buys <b>more idle agents and a merge</b>.</p>
       </div>
 
       <div class="taxnote">
-        <b class="lead">And that&rsquo;s the optimistic read &mdash; off the clock, worktrees add cost the diagram can&rsquo;t time:</b>
+        <b class="lead">And that&rsquo;s the optimistic read. Off the clock, worktrees add cost the diagram can&rsquo;t time:</b>
         <ul>
           <li><b>drift</b> &mdash; trees diverge from main and from each other while they run</li>
           <li><b>merge conflicts</b> &mdash; reconciling them is serial, error&#8209;prone work, and can force a re&#8209;review</li>
@@ -218,7 +454,7 @@
 
       <div class="legend">
         <span><i class="sw sw-work"></i> build</span>
-        <span><i class="sw sw-fix"></i> fix (rework)</span>
+        <span><i class="sw sw-fix"></i> fix</span>
         <span><i class="sw sw-rev"></i> review</span>
         <span><i class="sw sw-idle"></i> waiting</span>
         <span><i class="sw sw-tax"></i> merge / drift</span>

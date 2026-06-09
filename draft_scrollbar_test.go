@@ -141,3 +141,90 @@ func TestDraftScrollbarThumbPartialAndPositioned(t *testing.T) {
 		t.Fatalf("thumb starts at the top while scrolled to the bottom (rows %d..%d) — position not tracking", firstThumb, lastThumb)
 	}
 }
+
+// faithful geometry repro of the draft pane (header + SpaceH(2) + HBox(list, scrollbar),
+// CascadeStyle, narrow column) minus the opacity — so a single render shows the thumb.
+// Renders a small thread (like the reviewer's 6 tallish comments) at top and at bottom and
+// checks the thumb tracks: at top it starts at the track top, at bottom it reaches the
+// track bottom, and it's the SAME partial size both times. Catches header-offset / track-
+// height bugs the isolated test misses.
+func TestDraftPaneScrollbarGeometry(t *testing.T) {
+	prevStore, prevApp, prevOmni := uiStore, uiApp, omni
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	t.Cleanup(func() {
+		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
+		draftComments = nil
+		draftScrollOffset, draftScrollVisible, draftScrollTotal = 0, 0, 0
+	})
+
+	draftComments = make([]draftCommentVM, 6)
+	for i := range draftComments {
+		draftComments[i] = draftCommentVM{
+			Location: "general",
+			Body:     fmt.Sprintf("comment %d — a multi-line body that wraps to several rows in this narrow comments column so the thread overflows the viewport and actually scrolls", i),
+		}
+	}
+
+	const W, H = 34, 18 // ~the draft column width in a normal terminal
+	// mirror buildMain's draft pane structure (sans the focus-fade opacity)
+	pane := func() Component {
+		return VBox.Height(H).Width(W).Fill(&cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0)(
+			HBox(SpaceW(3), Text("comments").FG(&cBright).Bold(), Space(), SpaceW(2)),
+			SpaceH(2),
+			HBox.Grow(1)(
+				VBox.Grow(1)(
+					List(&draftComments).Selection(&draftSel).Marker("  ").
+						SelectedStyle(Style{}).Render(draftRow).
+						ScrollState(&draftScrollOffset, &draftScrollVisible, &draftScrollTotal),
+				),
+				ScrollbarDyn(&draftScrollTotal, &draftScrollVisible, &draftScrollOffset),
+			),
+		)
+	}
+	thumb := func() (first, last, n int) {
+		tmpl := Build(pane())
+		buf := NewBuffer(W, H)
+		tmpl.Execute(buf, W, H)
+		first, last = -1, -1
+		for y := 0; y < H; y++ {
+			r := buf.Get(W-1, y).Rune
+			if r != '│' && r != ' ' && r != 0 {
+				if first < 0 {
+					first = y
+				}
+				last = y
+				n++
+			}
+		}
+		return
+	}
+
+	draftSel = 0 // top
+	topFirst, topLast, topN := thumb()
+	draftSel = len(draftComments) - 1 // bottom
+	botFirst, botLast, botN := thumb()
+
+	if topN == 0 || botN == 0 {
+		t.Fatalf("no thumb rendered (top n=%d, bottom n=%d)", topN, botN)
+	}
+	if draftScrollTotal <= draftScrollVisible {
+		t.Fatalf("content should overflow (total=%d, visible=%d)", draftScrollTotal, draftScrollVisible)
+	}
+	// the scrollbar sits BELOW the header (its track = the list area, not the whole pane),
+	// so the thumb at top starts at the track top and at bottom reaches the track bottom.
+	// Correct behaviour: same thumb SIZE both ways, and it moves strictly DOWN when scrolled.
+	if topN != botN {
+		t.Fatalf("thumb changed size between top (%d cells) and bottom (%d cells) — should be constant", topN, botN)
+	}
+	if botFirst <= topFirst || botLast <= topLast {
+		t.Fatalf("scrolling to the bottom must move the thumb DOWN (top %d..%d, bottom %d..%d)", topFirst, topLast, botFirst, botLast)
+	}
+	// the thumb must be a real PARTIAL bar (a few cells), not most of the track
+	trackRows := botLast - topFirst + 1
+	if topN >= trackRows {
+		t.Fatalf("thumb (%d cells) fills the whole ~%d-row track — should be partial for an overflowing thread", topN, trackRows)
+	}
+}
