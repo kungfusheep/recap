@@ -47,11 +47,11 @@ func TestThemeRepaintsDiffLayer(t *testing.T) {
 		detailDirty = true
 		lastSel = -99
 		refreshDetail() // sets diffFiles (the real path)
-		// the diff is built into the buffer via components now; render it and read the
-		// add-coloured '+' gutter cell (added line / new-file header — both use cAdd).
-		tree, _ := buildDiffView(diffFiles, 80)
+		// the diff renders via the ONE compiled template now; prep + execute and read
+		// the add-coloured '+' gutter cell (added line / new-file header — both cAdd).
+		prepDiffRows(80)
 		buf := NewBuffer(80, 200)
-		Build(tree).Execute(buf, 80, 200)
+		diffTemplate().Execute(buf, 80, 200)
 		for y := 0; y < 200; y++ {
 			if c := buf.Get(0, y); c.Rune == '+' {
 				return c.Style.FG, true

@@ -166,7 +166,7 @@ var (
 	taskByID = map[int64]db.Task{}
 
 	// diff pane: a native-scroll Layer. renderDiffLayer builds a component tree from
-	// diffFiles/diffBanner into the buffer on content/size change (see buildDiffView),
+	// diffFiles/diffBanner into the buffer on content/size change (see prepDiffRows),
 	// then the framework blits the visible window each frame — scroll is free.
 	diffLayer  *Layer
 	diffMeta   []diffLineMeta // one entry per rendered row (render order): anchor info
@@ -1089,16 +1089,49 @@ func span(text string, fg Color, bold bool) Span {
 	return Span{Text: text, Style: st}
 }
 
-// buildDiffView builds the diff as a glyph component tree (todo: diff renderer as
-// glyph components). It renders the parsed model as a per-file VBox — file chrome (the
-// header band, hunk headers) as standard glyph components, the diff body as Rich Textf
-// rows, the commented-line wash as a row .Fill — and returns a parallel meta slice with
-// one entry per rendered 1-line row in render order, so jump/anchor registration still
-// works by buffer row. Text is clipped to w so each row is exactly one line, preserving
-// the row==Y mapping the jump registration relies on (no wrap). Built alongside the
-// existing renderer; the swap happens once it's render-verified.
-func buildDiffView(files []diff.File, w int) (Component, []diffLineMeta) {
-	var meta []diffLineMeta
+// The diff pane follows glyph's cardinal rule — compile once, mutate state. The
+// template below is compiled a single time (lazily) and re-executed into the layer
+// buffer whenever the content or width changes; per-row content lives in diffRows
+// (a []Span per visual row, a sanctioned derived field rebuilt by prepDiffRows),
+// which Rich(&r.Spans) re-reads every execute. No component trees are constructed
+// or compiled at render time.
+type diffRowVM struct {
+	Spans []Span
+}
+
+var (
+	diffRows []diffRowVM
+	diffTmpl *Template
+)
+
+// diffTemplate returns the diff pane's single compiled template (built on first use:
+// one ForEach over the row VMs, one Rich per row).
+func diffTemplate() *Template {
+	if diffTmpl == nil {
+		diffTmpl = Build(VBox.Fill(&cBG).Gap(0)(
+			ForEach(&diffRows, func(r *diffRowVM) Component { return Rich(&r.Spans).CharWrap() }),
+		))
+	}
+	return diffTmpl
+}
+
+// padTo right-pads a row's spans with background-coloured spaces to width w, so a
+// banded row (file header, comment wash) paints its colour edge to edge.
+func padTo(spans []Span, w int, bg Color) []Span {
+	used := 0
+	for _, sp := range spans {
+		used += len([]rune(sp.Text))
+	}
+	if used < w {
+		spans = append(spans, Span{Text: strings.Repeat(" ", w-used), Style: Style{BG: bg}})
+	}
+	return spans
+}
+
+// prepDiffRows flattens the banner + parsed diff into diffRows (one []Span per visual
+// row) and the parallel diffMeta (jump/anchor coordinates by row). Pure data prep —
+// runs only when content or width changes, never per frame.
+func prepDiffRows(w int) {
 	clipN := func(s string, max int) string {
 		if r := []rune(s); max > 0 && len(r) > max {
 			return string(r[:max])
@@ -1106,16 +1139,27 @@ func buildDiffView(files []diff.File, w int) (Component, []diffLineMeta) {
 		return s
 	}
 	clip := func(s string) string { return clipN(s, w) }
-	if len(files) == 0 {
-		meta = append(meta, diffLineMeta{})
-		return VBox.Fill(&cBG)(Text("no changes").FG(&cSubtle)), meta
+
+	diffRows = diffRows[:0]
+	diffMeta = diffMeta[:0]
+	row := func(m diffLineMeta, spans ...Span) {
+		diffRows = append(diffRows, diffRowVM{Spans: spans})
+		diffMeta = append(diffMeta, m)
 	}
-	var fileBoxes []Component
-	for fi, f := range files {
-		var rows []Component
+
+	for _, brow := range diffBanner {
+		diffRows = append(diffRows, diffRowVM{Spans: append([]Span(nil), brow...)})
+		diffMeta = append(diffMeta, diffLineMeta{})
+	}
+
+	if len(diffFiles) == 0 {
+		row(diffLineMeta{}, span("no changes", cSubtle, false))
+		return
+	}
+
+	for fi, f := range diffFiles {
 		if fi > 0 {
-			rows = append(rows, Text("")) // blank spacer row between files
-			meta = append(meta, diffLineMeta{})
+			row(diffLineMeta{}, span(" ", cFG, false)) // blank spacer row between files
 		}
 		sym, c := "~", cBright
 		switch f.Status {
@@ -1126,98 +1170,78 @@ func buildDiffView(files []diff.File, w int) (Component, []diffLineMeta) {
 		case "renamed":
 			sym, c = "»", cBright
 		}
-		// chrome: standard components. The header band is a full-width row .Fill, led by a
-		// fold indicator (▾ open / ▸ folded). A folded file collapses to its header only.
+		// header band: fold caret (▾ open / ▸ folded) + status + path, padded so the
+		// band colour reaches the right edge. Renames show both ends of the move.
 		folded := fileFolded[f.Path]
 		caret := "▾ "
 		if folded {
 			caret = "▸ "
 		}
-		// renames show both ends of the move (old → new), not just the new path —
-		// otherwise a pure rename (no hunks) reads like an untouched file.
 		label := cleanLine(f.Path)
 		if f.Status == "renamed" && f.OldPath != "" {
 			label = cleanLine(f.OldPath) + " → " + cleanLine(f.Path)
 		}
-		rows = append(rows, HBox.Fill(&cFileHdrBG)(Text(clip(caret+sym+" "+label)).FG(c).Bold()))
-		meta = append(meta, diffLineMeta{FileHeader: true, File: f.Path})
+		hdr := Span{Text: clip(caret + sym + " " + label), Style: Style{FG: c, BG: cFileHdrBG, Attr: AttrBold}}
+		row(diffLineMeta{FileHeader: true, File: f.Path}, padTo([]Span{hdr}, w, cFileHdrBG)...)
 		if folded {
-			fileBoxes = append(fileBoxes, VBox.Gap(0)(rows...))
 			continue
 		}
 		lexer := highlight.LexerFor(f.Path) // nil for unknown languages → added lines render unhighlighted
 		for _, hk := range f.Hunks {
-			rows = append(rows, Text(clip("  "+cleanLine(hk.Header))).FG(&cMuted))
-			meta = append(meta, diffLineMeta{})
+			row(diffLineMeta{}, span(clip("  "+cleanLine(hk.Header)), cMuted, false))
 			cur := hunkNewStart(hk.Header)
 			for _, l := range hk.Lines {
 				txt := cleanLine(l.Text)
 				m := diffLineMeta{File: f.Path, Anchor: hk.Header, Text: txt, Commentable: true}
-				var row Component
+				var spans []Span
 				switch l.Kind {
 				case diff.LineAdd:
 					m.Line = cur
 					cur++
-					// ONLY added code is syntax-highlighted. The "+ " gutter (green) and the
-					// leading indent are a plain Text — Rich trims leading whitespace, so the
-					// indent must live outside it; the code after the indent is highlighted Rich.
+					// ONLY added code is syntax-highlighted: green gutter + indent,
+					// then the code tokens in the theme's syntax colours.
 					code := clipN(txt, w-2) // leave room for the 2-char gutter
 					indent := code[:len(code)-len(strings.TrimLeft(code, " "))]
 					rest := code[len(indent):]
-					row = HBox(Text("+ "+indent).FG(&cAdd), Textf(highlight.Parts(rest, lexer, cFG)...))
+					spans = append([]Span{span("+ "+indent, cAdd, false)}, highlight.Spans(rest, lexer, cFG, cBG)...)
 				case diff.LineDel:
-					row = Text(clip("- " + txt)).FG(&cDel) // removed: stays red, not highlighted
+					spans = []Span{span(clip("- "+txt), cDel, false)} // removed: red, not highlighted
 				default:
 					m.Line = cur
 					cur++
-					row = Text(clip("  " + txt)).FG(&cSubtle) // context: unchanged, subtle
+					spans = []Span{span(clip("  "+txt), cSubtle, false)} // context: unchanged, subtle
 				}
-				// a commented line gets a full-width wash via row .Fill.
+				// a commented line gets a full-width wash: every span takes the wash
+				// background, padded to the edge.
 				if commentedLines[lineKey(m.File, m.Line)] {
-					row = HBox.Fill(&cCommentBG)(row)
+					for i := range spans {
+						spans[i].Style.BG = cCommentBG
+					}
+					spans = padTo(spans, w, cCommentBG)
 				}
-				rows = append(rows, row)
-				meta = append(meta, m)
+				row(m, spans...)
 			}
 		}
-		fileBoxes = append(fileBoxes, VBox.Gap(0)(rows...))
 	}
-	return VBox.Fill(&cBG).Gap(0)(fileBoxes...), meta
 }
 
-// renderDiffLayer (re)builds the layer buffer from diffFiles via buildDiffView. Called by the
-// framework only when the viewport width changes or after Invalidate — never
-// per-frame. A fresh, exact-size buffer means no stale rows; every cell is
-// cleared to cBG and spans carry an explicit BG, so nothing bleeds.
+// renderDiffLayer re-executes the diff's ONE compiled template into a fresh layer
+// buffer. Called by the framework only when the viewport width changes or after
+// Invalidate — never per-frame. prepDiffRows rebuilds the row data (content and
+// width are inputs to the spans); the template itself is never rebuilt.
 func renderDiffLayer() {
 	w := diffLayer.ViewportWidth()
 	if w <= 0 {
 		return
 	}
-	// build the diff as a component tree each render: banner rows (Textf from their spans)
-	// + the per-file component diff (buildDiffView). diffMeta is rebuilt parallel to the
-	// rendered rows so the jump/anchor mapping still works by buffer row. Components own the
-	// visuals (band + wash are row .Fills); we still own the line-pick coordinates.
-	diffTree, dmeta := buildDiffView(diffFiles, w-2)
-	children := make([]Component, 0, len(diffBanner)+1)
-	diffMeta = diffMeta[:0]
-	for _, brow := range diffBanner {
-		parts := make([]any, len(brow))
-		for i, sp := range brow {
-			parts[i] = sp
-		}
-		children = append(children, Textf(parts...))
-		diffMeta = append(diffMeta, diffLineMeta{})
-	}
-	children = append(children, diffTree)
-	diffMeta = append(diffMeta, dmeta...)
+	prepDiffRows(w - 2)
 
 	h := len(diffMeta)
 	if vh := diffLayer.ViewportHeight(); h < vh {
 		h = vh // pad to viewport so the themed fill covers the whole pane
 	}
 	buf := NewBuffer(w, h)
-	Build(VBox.Fill(&cBG).Gap(0)(children...)).Execute(buf, int16(w), int16(h))
+	diffTemplate().Execute(buf, int16(w), int16(h))
 
 	// while glyph's jump mode is active, register one jump target per visible commentable
 	// row at its screen position (screenY = diffViewRef.Y + row − scroll) — same manual

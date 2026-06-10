@@ -14,6 +14,20 @@ import (
 	. "github.com/kungfusheep/glyph"
 )
 
+// renderDiff drives the REAL compile-once path: set the model, prep the row VMs,
+// execute the single compiled template (no Build at render time — the cardinal rule).
+// Returns the buffer; diffMeta is populated as a side effect, like production.
+func renderDiff(t *testing.T, files []diff.File, w, h int) *Buffer {
+	t.Helper()
+	prevFiles, prevBanner := diffFiles, diffBanner
+	t.Cleanup(func() { diffFiles, diffBanner = prevFiles, prevBanner })
+	diffFiles, diffBanner = files, nil
+	prepDiffRows(w)
+	buf := NewBuffer(w, h)
+	diffTemplate().Execute(buf, int16(w), int16(h))
+	return buf
+}
+
 // buildDiffView renders the diff as components equivalently to the hand-rolled path:
 // a full-width header band, the body lines (+/-/context) present, and a full-width wash
 // on a commented line. Asserted on the rendered buffer. (diff-renderer-as-components)
@@ -34,10 +48,10 @@ func TestBuildDiffViewRenders(t *testing.T) {
 	start := hunkNewStart("@@ -1,3 +1,3 @@") // new-side start = the added line's number
 	commentedLines[lineKey("main.go", start)] = true
 
-	tree, meta := buildDiffView(files, 40)
+	buf := renderDiff(t, files, 40, 30)
+	meta := diffMeta
 	w, h := 40, len(meta)+2
-	buf := NewBuffer(w, h)
-	Build(tree).Execute(buf, int16(w), int16(h))
+	_ = w
 
 	// file header row: banded full width + carries the path
 	hdr := -1
@@ -105,7 +119,8 @@ func TestBuildDiffViewFold(t *testing.T) {
 		Status: "modified",
 		Hunks:  []diff.Hunk{{Header: "@@ -1,2 +1,2 @@", Lines: []diff.Line{{Kind: diff.LineAdd, Text: "x"}, {Kind: diff.LineDel, Text: "y"}}}},
 	}}
-	_, openMeta := buildDiffView(files, 40)
+	renderDiff(t, files, 40, 4)
+	openMeta := append([]diffLineMeta(nil), diffMeta...)
 	openBody := 0
 	for _, m := range openMeta {
 		if m.Commentable {
@@ -117,7 +132,8 @@ func TestBuildDiffViewFold(t *testing.T) {
 	}
 
 	fileFolded["main.go"] = true
-	_, foldMeta := buildDiffView(files, 40)
+	renderDiff(t, files, 40, 4)
+	foldMeta := append([]diffLineMeta(nil), diffMeta...)
 	for _, m := range foldMeta {
 		if m.Commentable {
 			t.Fatal("folded file should have no commentable body rows")
@@ -160,9 +176,8 @@ func TestBuildDiffViewPreservesIndent(t *testing.T) {
 		Status: "modified",
 		Hunks:  []diff.Hunk{{Header: "@@ -a,b +c,d @@", Lines: []diff.Line{{Kind: diff.LineAdd, Text: "        deeplyIndented()"}}}},
 	}}
-	tree, meta := buildDiffView(files, 60)
-	buf := NewBuffer(60, len(meta)+2)
-	Build(tree).Execute(buf, 60, int16(len(meta)+2))
+	buf := renderDiff(t, files, 60, 30)
+	meta := diffMeta
 
 	found := false
 	for y := 0; y < len(meta)+2; y++ {
@@ -192,9 +207,8 @@ func TestDiffAddedLineHighlighted(t *testing.T) {
 			{Kind: diff.LineDel, Text: "func old() {"},
 		}}},
 	}}
-	tree, meta := buildDiffView(files, 60)
-	buf := NewBuffer(60, len(meta)+2)
-	Build(tree).Execute(buf, 60, int16(len(meta)+2))
+	buf := renderDiff(t, files, 60, 30)
+	meta := diffMeta
 
 	addY, delY := -1, -1
 	for y := 0; y < len(meta)+2; y++ {
@@ -349,9 +363,7 @@ func TestDiffViewShowsRenames(t *testing.T) {
 		OldPath: "old/place.go",
 		Status:  "renamed",
 	}}
-	tree, _ := buildDiffView(files, 80)
-	buf := NewBuffer(80, 6)
-	Build(tree).Execute(buf, 80, 6)
+	buf := renderDiff(t, files, 80, 6)
 	full := ""
 	for y := 0; y < 6; y++ {
 		full += buf.GetLine(y) + "\n"
@@ -377,9 +389,7 @@ func TestSyntaxColoursFollowTheme(t *testing.T) {
 	}}}}
 
 	cellAt := func(needle rune) (Cell, bool) {
-		tree, _ := buildDiffView(files, 60)
-		buf := NewBuffer(60, 8)
-		Build(tree).Execute(buf, 60, 8)
+		buf := renderDiff(t, files, 60, 8)
 		for y := 0; y < 8; y++ {
 			for x := 0; x < 60; x++ {
 				if buf.Get(x, y).Rune == needle {

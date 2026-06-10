@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>What moves the finish line? - ideas</title>
+  <style>
+    @font-face {
+      font-family: 'Jost';
+      src: url('https://kungfusheep.com/assets/fonts/Jost-wght.ttf') format('truetype');
+      font-weight: 100 900;
+      font-display: block;
+    }
+    :root {
+      --bg: #E3E3DC;
+      --brand-fg: #111111;
+      --code-bg: #D6D6CF;
+      --fg: #2D2D29;
+      --footer-fg: #686860;
+      --hover-bg: #D6D6CF;
+      --link-bg: #D4DCE1;
+      --link-fg: #314D5F;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #090908;
+        --brand-fg: #F7F0DE;
+        --code-bg: #171511;
+        --fg: #D7CFBE;
+        --footer-fg: #756E60;
+        --hover-bg: #201D17;
+        --link-bg: #1D1A13;
+        --link-fg: #D9C68F;
+      }
+    }
+    html {
+      background: var(--bg);
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
+    }
+    body {
+      background: var(--bg);
+      color: var(--fg);
+      font-family: 'Jost', sans-serif;
+      font-size: 15px;
+      font-style: normal;
+      font-weight: 500;
+      line-height: 1.5;
+      margin: 0 auto;
+      max-width: 59ch;
+      padding: 4rem 1rem 3rem 1rem;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    ::selection {
+      background: var(--fg);
+      color: var(--bg);
+    }
+    * {
+      font-size: inherit;
+      font-style: normal;
+      font-weight: 500;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+    h1 {
+      text-transform: uppercase;
+    }
+    .site-branding {
+      display: flex;
+      gap: 2ch;
+      justify-content: space-between;
+      margin: 0 0 5em 0;
+    }
+    .site-name {
+      color: var(--brand-fg);
+      font-weight: 675;
+      letter-spacing: 2px;
+      text-decoration: none;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .site-links {
+      display: flex;
+      gap: 1ch;
+    }
+    .site-links a {
+      border-radius: 0.32em;
+      color: var(--fg);
+      padding: 0.08em 0.36em;
+      text-decoration: none;
+      text-transform: lowercase;
+    }
+    .article-title {
+      display: inline;
+      letter-spacing: 2px;
+      margin: 0;
+    }
+    .article-title-wrap {
+      margin: 0 0 3.25em 0;
+    }
+    p {
+      margin: 0.65em 0;
+    }
+    b {
+      color: var(--brand-fg);
+      font-weight: 675;
+    }
+    .variant-label {
+      color: var(--footer-fg);
+      font-weight: 675;
+      letter-spacing: 2px;
+      margin: 4.5em 0 1em 0;
+      text-transform: uppercase;
+    }
+
+    /* shared chart bits */
+    .bar,
+    .fixbar,
+    .revbar {
+      align-self: center;
+      border-radius: 0.32em;
+      padding: 0.08em 0;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .bar {
+      background: var(--code-bg);
+      color: var(--fg);
+    }
+    .revbar {
+      background: var(--code-bg);
+      color: var(--footer-fg);
+    }
+    .fixbar {
+      background: var(--link-bg);
+      color: var(--link-fg);
+    }
+    .role {
+      color: var(--footer-fg);
+      grid-column: 1;
+      padding-right: 1ch;
+      text-align: right;
+    }
+    .flow-head {
+      align-items: baseline;
+      display: flex;
+      gap: 1ch;
+      grid-column: 1 / -1;
+      margin-top: 1.1em;
+    }
+    .flow-head b {
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+    .flow-head .sub {
+      color: var(--footer-fg);
+    }
+    .caption {
+      color: var(--footer-fg);
+      grid-column: 2 / -1;
+      margin-top: 0.2em;
+    }
+
+    /* variant a: table grammar */
+    .ga {
+      display: grid;
+      font-variant-numeric: tabular-nums;
+      grid-template-columns: 8ch repeat(6, 1fr) 9ch;
+      margin: 1.35em 0;
+      row-gap: 0.3em;
+    }
+    .ga .num {
+      color: var(--footer-fg);
+      padding-bottom: 0.2em;
+      text-align: center;
+    }
+    .ga .bar,
+    .ga .fixbar,
+    .ga .revbar {
+      margin: 1px 3px;
+    }
+    .ga .guide {
+      border-left: 1px solid var(--code-bg);
+      justify-self: start;
+      pointer-events: none;
+      width: 0;
+    }
+    .ga .finish {
+      border-left: 2px solid var(--fg);
+      justify-self: start;
+      pointer-events: none;
+      width: 0;
+    }
+    .ga .count {
+      align-self: center;
+      color: var(--footer-fg);
+      padding-left: 1ch;
+      white-space: nowrap;
+    }
+    .ga .stack {
+      align-self: center;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      margin: 1px 3px;
+    }
+    .ga .stack > div {
+      border-radius: 0.32em;
+      padding: 0.08em 0;
+      text-align: center;
+    }
+
+    /* variant b: rows end at the finish */
+    .gb {
+      display: grid;
+      font-variant-numeric: tabular-nums;
+      grid-template-columns: 8ch repeat(6, 1fr) 10ch;
+      margin: 1.35em 0;
+      row-gap: 0.3em;
+    }
+    .gb .axis {
+      border-bottom: 1px solid var(--code-bg);
+      color: var(--footer-fg);
+      display: flex;
+      grid-column: 2 / -1;
+      justify-content: space-between;
+      padding-bottom: 0.2em;
+    }
+    .gb .bar,
+    .gb .fixbar,
+    .gb .revbar {
+      margin: 1px 2px;
+    }
+    .gb .lead {
+      align-self: center;
+      color: var(--footer-fg);
+      overflow: hidden;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .gb .lead::before {
+      content: ". . . . . . . . . . . . . . .";
+    }
+    .gb .doneword {
+      align-self: center;
+      color: var(--brand-fg);
+      font-weight: 675;
+      padding-left: 1ch;
+      white-space: nowrap;
+    }
+    .gb .doneword span {
+      color: var(--footer-fg);
+      font-weight: 500;
+    }
+    .gb .stack {
+      align-self: center;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      margin: 1px 2px;
+    }
+    .gb .stack > div {
+      border-radius: 0.32em;
+      padding: 0.08em 0;
+      text-align: center;
+    }
+
+    /* variant c: the race, time runs down */
+    .gc {
+      column-gap: 0.5ch;
+      display: grid;
+      font-variant-numeric: tabular-nums;
+      grid-template-columns: 3ch 1fr 1fr 1.5ch 1fr 1fr 1.5ch 1fr 1fr;
+      margin: 1.35em 0;
+    }
+    .gc .head {
+      align-self: end;
+      color: var(--brand-fg);
+      font-weight: 675;
+      letter-spacing: 1.2px;
+      padding-bottom: 0.3em;
+      text-align: center;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .gc .subrole {
+      color: var(--footer-fg);
+      padding-bottom: 0.3em;
+      text-align: center;
+    }
+    .gc .cyc {
+      border-bottom: 1px solid var(--code-bg);
+      color: var(--footer-fg);
+      text-align: left;
+    }
+    .gc .cell {
+      border-bottom: 1px solid var(--code-bg);
+      padding: 0.25em 0;
+    }
+    .gc .cell.out {
+      border-bottom: 0;
+    }
+    .gc .bar,
+    .gc .fixbar,
+    .gc .revbar {
+      align-self: auto;
+      display: block;
+      margin: 0 1px;
+    }
+    .gc .finish {
+      border-top: 2px solid var(--fg);
+      color: var(--footer-fg);
+      padding-top: 0.25em;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .gc .clockword {
+      color: var(--footer-fg);
+      padding-right: 1ch;
+      white-space: nowrap;
+    }
+
+    @media (max-width: 560px) {
+      .ga {
+        grid-template-columns: 6ch repeat(6, 1fr) 7ch;
+      }
+      .gb {
+        grid-template-columns: 6ch repeat(6, 1fr) 8ch;
+      }
+    }
+  </style>
+</head>
+<body>
+  <nav class="site-branding" aria-label="site">
+    <a class="site-name" href="https://kungfusheep.com/">Unpopular Opinions</a>
+    <div class="site-links">
+      <a href="https://kungfusheep.com/about">about</a>
+      <a href="https://kungfusheep.com/archive">archive</a>
+    </div>
+  </nav>
+  <main>
+    <article>
+      <header class="article-title-wrap">
+        <h1 class="article-title">What moves the finish line?</h1>
+      </header>
+
+      <p>The same two tasks - <b>task 1 takes a fix and a re-review, task 2 passes first time</b> - run three ways, on one clock, with one reviewer. Watch what actually moves the finish, and what doesn't.</p>
+
+      <p class="variant-label">a &middot; table grammar</p>
+
+      <div class="ga" role="img" aria-label="stop and wait takes six cycles, async four, worktrees five">
+        <div class="num" style="grid-column:2;grid-row:1">1</div>
+        <div class="num" style="grid-column:3;grid-row:1">2</div>
+        <div class="num" style="grid-column:4;grid-row:1">3</div>
+        <div class="num" style="grid-column:5;grid-row:1">4</div>
+        <div class="num" style="grid-column:6;grid-row:1">5</div>
+        <div class="num" style="grid-column:7;grid-row:1">6</div>
+
+        <div class="flow-head" style="grid-row:2"><b>Stop &amp; wait</b><span class="sub">they take turns</span></div>
+        <div class="guide" style="grid-column:2;grid-row:3/5"></div>
+        <div class="guide" style="grid-column:3;grid-row:3/5"></div>
+        <div class="guide" style="grid-column:4;grid-row:3/5"></div>
+        <div class="guide" style="grid-column:5;grid-row:3/5"></div>
+        <div class="guide" style="grid-column:6;grid-row:3/5"></div>
+        <div class="guide" style="grid-column:7;grid-row:3/5"></div>
+        <div class="finish" style="grid-column:8;grid-row:3/5"></div>
+        <div class="count" style="grid-column:8;grid-row:3/5">6 cycles</div>
+        <div class="role" style="grid-row:3">agent</div>
+        <div class="bar" style="grid-column:2;grid-row:3">task 1</div>
+        <div class="fixbar" style="grid-column:4;grid-row:3">fix 1</div>
+        <div class="bar" style="grid-column:6;grid-row:3">task 2</div>
+        <div class="role" style="grid-row:4">reviewer</div>
+        <div class="revbar" style="grid-column:3;grid-row:4">rev 1</div>
+        <div class="revbar" style="grid-column:5;grid-row:4">rev fix 1</div>
+        <div class="revbar" style="grid-column:7;grid-row:4">rev 2</div>
+
+        <div class="flow-head" style="grid-row:5"><b>Async</b><span class="sub">one agent, never waits</span></div>
+        <div class="guide" style="grid-column:2;grid-row:6/8"></div>
+        <div class="guide" style="grid-column:3;grid-row:6/8"></div>
+        <div class="guide" style="grid-column:4;grid-row:6/8"></div>
+        <div class="guide" style="grid-column:5;grid-row:6/8"></div>
+        <div class="finish" style="grid-column:6;grid-row:6/8"></div>
+        <div class="count" style="grid-column:6/9;grid-row:6/8">4 cycles</div>
+        <div class="role" style="grid-row:6">agent</div>
+        <div class="bar" style="grid-column:2;grid-row:6">task 1</div>
+        <div class="bar" style="grid-column:3;grid-row:6">task 2</div>
+        <div class="fixbar" style="grid-column:4;grid-row:6">fix 1</div>
+        <div class="role" style="grid-row:7">reviewer</div>
+        <div class="revbar" style="grid-column:3;grid-row:7">rev 1</div>
+        <div class="revbar" style="grid-column:4;grid-row:7">rev 2</div>
+        <div class="revbar" style="grid-column:5;grid-row:7">rev fix 1</div>
+
+        <div class="flow-head" style="grid-row:8"><b>Worktrees</b><span class="sub">parallel build, then merge back</span></div>
+        <div class="guide" style="grid-column:2;grid-row:9/11"></div>
+        <div class="guide" style="grid-column:3;grid-row:9/11"></div>
+        <div class="guide" style="grid-column:4;grid-row:9/11"></div>
+        <div class="guide" style="grid-column:5;grid-row:9/11"></div>
+        <div class="guide" style="grid-column:6;grid-row:9/11"></div>
+        <div class="finish" style="grid-column:7;grid-row:9/11"></div>
+        <div class="count" style="grid-column:7/9;grid-row:9/11">5 cycles</div>
+        <div class="role" style="grid-row:9">agent</div>
+        <div class="stack" style="grid-column:2;grid-row:9"><div class="bar">task 1</div><div class="bar">task 2</div></div>
+        <div class="fixbar" style="grid-column:4;grid-row:9">fix 1</div>
+        <div class="fixbar" style="grid-column:6;grid-row:9">merge</div>
+        <div class="role" style="grid-row:10">reviewer</div>
+        <div class="revbar" style="grid-column:3;grid-row:10">rev 1</div>
+        <div class="revbar" style="grid-column:4;grid-row:10">rev 2</div>
+        <div class="revbar" style="grid-column:5;grid-row:10">rev fix 1</div>
+      </div>
+
+      <p class="variant-label">b &middot; rows end at the finish</p>
+
+      <div class="gb" role="img" aria-label="stop and wait takes six cycles, async four, worktrees five">
+        <div class="axis" style="grid-row:1"><span>start</span><span>wall time &rarr;</span></div>
+
+        <div class="flow-head" style="grid-row:2"><b>Stop &amp; wait</b><span class="sub">they take turns</span></div>
+        <div class="role" style="grid-row:3">agent</div>
+        <div class="bar" style="grid-column:2;grid-row:3">task 1</div>
+        <div class="lead" style="grid-column:3;grid-row:3"></div>
+        <div class="fixbar" style="grid-column:4;grid-row:3">fix 1</div>
+        <div class="lead" style="grid-column:5;grid-row:3"></div>
+        <div class="bar" style="grid-column:6;grid-row:3">task 2</div>
+        <div class="lead" style="grid-column:7;grid-row:3"></div>
+        <div class="role" style="grid-row:4">reviewer</div>
+        <div class="lead" style="grid-column:2;grid-row:4"></div>
+        <div class="revbar" style="grid-column:3;grid-row:4">rev 1</div>
+        <div class="lead" style="grid-column:4;grid-row:4"></div>
+        <div class="revbar" style="grid-column:5;grid-row:4">rev fix 1</div>
+        <div class="lead" style="grid-column:6;grid-row:4"></div>
+        <div class="revbar" style="grid-column:7;grid-row:4">rev 2</div>
+        <div class="doneword" style="grid-column:8;grid-row:4">done <span>&middot; 6</span></div>
+
+        <div class="flow-head" style="grid-row:5"><b>Async</b><span class="sub">one agent, never waits</span></div>
+        <div class="role" style="grid-row:6">agent</div>
+        <div class="bar" style="grid-column:2;grid-row:6">task 1</div>
+        <div class="bar" style="grid-column:3;grid-row:6">task 2</div>
+        <div class="fixbar" style="grid-column:4;grid-row:6">fix 1</div>
+        <div class="role" style="grid-row:7">reviewer</div>
+        <div class="lead" style="grid-column:2;grid-row:7"></div>
+        <div class="revbar" style="grid-column:3;grid-row:7">rev 1</div>
+        <div class="revbar" style="grid-column:4;grid-row:7">rev 2</div>
+        <div class="revbar" style="grid-column:5;grid-row:7">rev fix 1</div>
+        <div class="doneword" style="grid-column:6/9;grid-row:7">done <span>&middot; 4</span></div>
+
+        <div class="flow-head" style="grid-row:8"><b>Worktrees</b><span class="sub">parallel build, then merge back</span></div>
+        <div class="role" style="grid-row:9">agent</div>
+        <div class="stack" style="grid-column:2;grid-row:9"><div class="bar">task 1</div><div class="bar">task 2</div></div>
+        <div class="lead" style="grid-column:3;grid-row:9"></div>
+        <div class="fixbar" style="grid-column:4;grid-row:9">fix 1</div>
+        <div class="lead" style="grid-column:5;grid-row:9"></div>
+        <div class="fixbar" style="grid-column:6;grid-row:9">merge</div>
+        <div class="doneword" style="grid-column:7/9;grid-row:9">done <span>&middot; 5</span></div>
+        <div class="role" style="grid-row:10">reviewer</div>
+        <div class="lead" style="grid-column:2;grid-row:10"></div>
+        <div class="revbar" style="grid-column:3;grid-row:10">rev 1</div>
+        <div class="revbar" style="grid-column:4;grid-row:10">rev 2</div>
+        <div class="revbar" style="grid-column:5;grid-row:10">rev fix 1</div>
+      </div>
+
+      <p class="variant-label">c &middot; the race, time runs down</p>
+
+      <div class="gc" role="img" aria-label="stop and wait finishes at cycle six, async at four, worktrees at five">
+        <div class="head" style="grid-column:2/4;grid-row:1">Stop &amp; wait</div>
+        <div class="head" style="grid-column:5/7;grid-row:1">Async</div>
+        <div class="head" style="grid-column:8/10;grid-row:1">Worktrees</div>
+        <div class="subrole" style="grid-column:2;grid-row:2">agent</div>
+        <div class="subrole" style="grid-column:3;grid-row:2">reviewer</div>
+        <div class="subrole" style="grid-column:5;grid-row:2">agent</div>
+        <div class="subrole" style="grid-column:6;grid-row:2">reviewer</div>
+        <div class="subrole" style="grid-column:8;grid-row:2">agent</div>
+        <div class="subrole" style="grid-column:9;grid-row:2">reviewer</div>
+
+        <div class="cyc" style="grid-row:3">1</div>
+        <div class="cell" style="grid-column:2;grid-row:3"><div class="bar">task 1</div></div>
+        <div class="cell" style="grid-column:3;grid-row:3"></div>
+        <div class="cell" style="grid-column:5;grid-row:3"><div class="bar">task 1</div></div>
+        <div class="cell" style="grid-column:6;grid-row:3"></div>
+        <div class="cell" style="grid-column:8;grid-row:3"><div class="bar">t1 + t2</div></div>
+        <div class="cell" style="grid-column:9;grid-row:3"></div>
+
+        <div class="cyc" style="grid-row:4">2</div>
+        <div class="cell" style="grid-column:2;grid-row:4"></div>
+        <div class="cell" style="grid-column:3;grid-row:4"><div class="revbar">rev 1</div></div>
+        <div class="cell" style="grid-column:5;grid-row:4"><div class="bar">task 2</div></div>
+        <div class="cell" style="grid-column:6;grid-row:4"><div class="revbar">rev 1</div></div>
+        <div class="cell" style="grid-column:8;grid-row:4"></div>
+        <div class="cell" style="grid-column:9;grid-row:4"><div class="revbar">rev 1</div></div>
+
+        <div class="cyc" style="grid-row:5">3</div>
+        <div class="cell" style="grid-column:2;grid-row:5"><div class="fixbar">fix 1</div></div>
+        <div class="cell" style="grid-column:3;grid-row:5"></div>
+        <div class="cell" style="grid-column:5;grid-row:5"><div class="fixbar">fix 1</div></div>
+        <div class="cell" style="grid-column:6;grid-row:5"><div class="revbar">rev 2</div></div>
+        <div class="cell" style="grid-column:8;grid-row:5"><div class="fixbar">fix 1</div></div>
+        <div class="cell" style="grid-column:9;grid-row:5"><div class="revbar">rev 2</div></div>
+
+        <div class="cyc" style="grid-row:6">4</div>
+        <div class="cell" style="grid-column:2;grid-row:6"></div>
+        <div class="cell" style="grid-column:3;grid-row:6"><div class="revbar">rev fix 1</div></div>
+        <div class="cell" style="grid-column:5;grid-row:6"></div>
+        <div class="cell" style="grid-column:6;grid-row:6"><div class="revbar">rev fix 1</div></div>
+        <div class="cell" style="grid-column:8;grid-row:6"></div>
+        <div class="cell" style="grid-column:9;grid-row:6"><div class="revbar">rev fix 1</div></div>
+
+        <div class="finish" style="grid-column:5/7;grid-row:7">done &middot; 4 cycles</div>
+
+        <div class="cyc" style="grid-row:7">5</div>
+        <div class="cell" style="grid-column:2;grid-row:7"><div class="bar">task 2</div></div>
+        <div class="cell" style="grid-column:3;grid-row:7"></div>
+        <div class="cell" style="grid-column:8;grid-row:7"><div class="fixbar">merge</div></div>
+        <div class="cell" style="grid-column:9;grid-row:7"></div>
+
+        <div class="finish" style="grid-column:8/10;grid-row:8">done &middot; 5 cycles</div>
+
+        <div class="cyc" style="grid-row:8">6</div>
+        <div class="cell" style="grid-column:2;grid-row:8"></div>
+        <div class="cell" style="grid-column:3;grid-row:8"><div class="revbar">rev 2</div></div>
+
+        <div class="finish" style="grid-column:2/4;grid-row:9">done &middot; 6 cycles</div>
+      </div>
+
+      <p>Six cycles, then four, then five. Stop-and-wait to async is <b>a third faster</b> - and when async finishes, stop-and-wait still has a whole review to go. Async to worktrees gives a cycle back. Parallel building collapses the agent's time, but the reviewer reads the same things in the same order, so review stays the bottleneck. More agents just buys <b>more idle agents and a merge</b>.</p>
+    </article>
+  </main>
+</body>
+</html>

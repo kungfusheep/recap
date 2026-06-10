@@ -29,36 +29,36 @@ func LexerFor(path string) chroma.Lexer {
 	return chroma.Coalesce(l)
 }
 
-// Parts tokenises a single line of code with the given lexer and returns Textf
-// parts (one FG span per token), each token coloured by syntaxStyle. Tokens without a
-// style colour use fallback. With no lexer / empty code / a tokenise error it returns a
-// single fallback-coloured span, so the line still renders. The input must NOT carry
-// leading whitespace (render that separately — Rich trims it) or a newline.
-func Parts(code string, lexer chroma.Lexer, fallback Color) []any {
+// Spans tokenises a single line of code with the given lexer and returns one glyph
+// Span per token, coloured + decorated by the active syntax style (bold keywords,
+// italic strings, underlined types — the mfd model). Tokens without a style colour
+// use fg; every span carries bg so cells never fall back to the terminal default.
+// With no lexer / empty code / a tokenise error it returns a single fg-coloured span,
+// so the line still renders. The input must not carry a trailing newline.
+func Spans(code string, lexer chroma.Lexer, fg, bg Color) []Span {
+	plain := []Span{{Text: code, Style: Style{FG: fg, BG: bg}}}
 	if lexer == nil || code == "" {
-		return []any{FG(code, fallback)}
+		return plain
 	}
 	it, err := lexer.Tokenise(nil, code)
 	if err != nil {
-		return []any{FG(code, fallback)}
+		return plain
 	}
 	st := syntaxStyle
 	if st == nil {
 		st = styles.Fallback
 	}
-	var parts []any
+	var out []Span
 	for _, tok := range it.Tokens() {
 		val := strings.ReplaceAll(tok.Value, "\n", "")
 		if val == "" {
 			continue
 		}
 		e := st.Get(tok.Type)
-		style := Style{FG: fallback}
+		style := Style{FG: fg, BG: bg}
 		if e.Colour.IsSet() {
 			style.FG = RGB(e.Colour.Red(), e.Colour.Green(), e.Colour.Blue())
 		}
-		// decoration carries the mfd hierarchy (bold keywords, italic strings,
-		// underlined types) — colour alone is nearly monotone by design.
 		if e.Bold == chroma.Yes {
 			style.Attr |= AttrBold
 		}
@@ -68,12 +68,12 @@ func Parts(code string, lexer chroma.Lexer, fallback Color) []any {
 		if e.Underline == chroma.Yes {
 			style.Attr |= AttrUnderline
 		}
-		parts = append(parts, Styled(val, style))
+		out = append(out, Span{Text: val, Style: style})
 	}
-	if len(parts) == 0 {
-		return []any{FG(code, fallback)}
+	if len(out) == 0 {
+		return plain
 	}
-	return parts
+	return out
 }
 
 // SetTheme rebuilds the syntax style from a recap theme. The mfd vim scheme this
