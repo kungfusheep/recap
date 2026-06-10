@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/kungfusheep/recap/cursor"
 	"github.com/kungfusheep/recap/db"
+	"github.com/kungfusheep/recap/listener"
 	"github.com/kungfusheep/recap/snooze"
 	"hash/fnv"
 	"os"
@@ -241,6 +242,9 @@ func cmdNext(args []string) error {
 func waitForWork(st *db.Store, repo string) (WorkItem, bool) {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	// while parked we ARE this repo's active listener — visible to `recap listeners`
+	// and reachable by `recap send --listeners` broadcasts.
+	defer listener.Register(repo)()
 	fmt.Fprintf(os.Stderr, "waiting for work (--wait, up to %s; Ctrl-C to stop)…\n", waitTimeout)
 	switch poll.Wait(ctx, waitInterval, waitTimeout, func() bool {
 		return len(buildQueue(st, repo, currentRepoPath())) > 0

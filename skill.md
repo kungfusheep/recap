@@ -242,6 +242,13 @@ your go.mod"), requesting a capability from the repo that owns it (with the cont
 you need), handing off a bug whose fix lives in another repo (attach a falsifiable
 repro), or reporting back that an integration passes.
 
+**Broadcast — ask the room.** `recap send --listeners --body "…"` delivers to every
+repo with a live parked loop (`recap listeners` shows who that is), excluding you.
+Use it when you don't know WHO can help: a call for a second pair of eyes, "anyone
+seen this glyph behaviour?", a heads-up that affects whoever's awake. It deliberately
+targets only loops that can respond *now* — a broadcast is a question to the present,
+not an announcement to posterity (durably address a specific repo for that).
+
 Boundaries: messages **coordinate, they never approve** — verdicts stay with the
 human, who sees all traffic (the TUI's ✉ badge + `recap messages`). Keep them terse
 and actionable; one in-flight question per pair (the ball-in-one-court rule applies

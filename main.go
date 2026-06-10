@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"github.com/kungfusheep/recap/cursor"
 	"github.com/kungfusheep/recap/db"
+	"github.com/kungfusheep/recap/listener"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,6 +80,8 @@ func main() {
 		err = cmdSend(args)
 	case "messages":
 		err = cmdMessages(args)
+	case "listeners":
+		err = cmdListeners(args)
 	case "skill":
 		fmt.Print(skillGuide)
 	case "help", "-h", "--help":
@@ -152,6 +155,9 @@ usage:
   recap send <repo> --body TEXT [--reply-to N] [--task ID]
                          queue an agent→agent message for another repo's loop
                          (durable; its next recap next / parked --wait picks it up)
+  recap send --listeners --body TEXT
+                         broadcast to every ACTIVELY listening repo (ask the room)
+  recap listeners        show repos with a live parked loop right now
   recap messages [--all] the message ledger, both directions (m-ids, read state)
   recap read m<id>       clear a peer message (read c<id> still clears comments)
 
@@ -1149,24 +1155,55 @@ func cmdSet(args []string) error {
 // picks it up, and the human sees all traffic (TUI badge + recap messages).
 // Coordination only: messages never carry verdicts; approvals stay human.
 func cmdSend(args []string) error {
-	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return fmt.Errorf("usage: recap send <repo> --body TEXT [--reply-to N] [--task ID]")
+	// `recap send --listeners --body …` broadcasts to every ACTIVELY LISTENING repo
+	// (a parked `recap next --wait`), excluding the sender — "ask the room": a call
+	// for help or a second pair of eyes, delivered only to loops that can answer now.
+	to := ""
+	rest := args
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		to = args[0]
+		rest = args[1:]
 	}
-	to := args[0]
 	fs := flag.NewFlagSet("send", flag.ExitOnError)
 	body := fs.String("body", "", "message text (required)")
 	replyTo := fs.Int64("reply-to", 0, "thread under message m<N>")
 	taskID := fs.Int64("task", 0, "anchor to a task id")
-	fs.Parse(args[1:])
+	toListeners := fs.Bool("listeners", false, "broadcast to every actively listening repo (instead of one target)")
+	fs.Parse(rest)
 	if *body == "" {
 		return fmt.Errorf("--body is required")
+	}
+	if (to == "") == !*toListeners {
+		return fmt.Errorf("usage: recap send <repo> --body TEXT [--reply-to N] [--task ID]  |  recap send --listeners --body TEXT")
 	}
 	st, err := db.Open()
 	if err != nil {
 		return err
 	}
 	defer st.Close()
-	id, err := st.SendMessage(currentRepo(), identityWho(), to, *replyTo, *taskID, *body)
+	from := currentRepo()
+	if *toListeners {
+		targets := []string{}
+		for _, r := range listener.Active() {
+			if r != from {
+				targets = append(targets, r)
+			}
+		}
+		if len(targets) == 0 {
+			fmt.Println("(no active listeners — nobody is parked on recap next --wait right now)")
+			return nil
+		}
+		for _, r := range targets {
+			id, err := st.SendMessage(from, identityWho(), r, 0, *taskID, *body)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("sent m%d → %s\n", id, r)
+		}
+		notify.Reload()
+		return nil
+	}
+	id, err := st.SendMessage(from, identityWho(), to, *replyTo, *taskID, *body)
 	if err != nil {
 		return err
 	}
@@ -1178,6 +1215,20 @@ func cmdSend(args []string) error {
 		if name, _ := loadIdentity(to); name == "" {
 			fmt.Printf("(note: no tasks or named agent seen for %q yet — it will wait until a loop runs there)\n", to)
 		}
+	}
+	return nil
+}
+
+// cmdListeners shows which repos have a live parked loop right now — the audience
+// a `recap send --listeners` broadcast would reach.
+func cmdListeners(_ []string) error {
+	repos := listener.Active()
+	if len(repos) == 0 {
+		fmt.Println("(no active listeners)")
+		return nil
+	}
+	for _, r := range repos {
+		fmt.Println(r)
 	}
 	return nil
 }
