@@ -1259,7 +1259,11 @@ func buildMain() Component {
 		// deactivates this view (and pops any modal it had open, e.g. the omnibox).
 		HBox.Grow(1).Gap(4)(
 			// left — review inbox (darker column fill claims the area)
-			VBox.Grow(2).Fill(&cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0).NodeRef(&listPaneRef)(
+			// percentage-sized, NOT Grow: with Grow the left column re-flowed every time
+			// the comments column appeared/vanished (2/5 ↔ 2/7 of the width) — a
+			// distracting jump while reviewing. A fixed share keeps the inbox put; the
+			// middle column alone absorbs the right pane.
+			VBox.WidthPct(0.28).Fill(&cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0).NodeRef(&listPaneRef)(
 				HBox(
 					SpaceW(3),
 					Text("recap").FG(&cBright).Bold(),

@@ -928,3 +928,43 @@ func TestReloadKeepsSelectionByTask(t *testing.T) {
 	}
 	_ = a
 }
+
+// the inbox (left) column must NOT change width when the comments column appears —
+// it's percentage-sized, so only the middle column absorbs the right pane. With Grow
+// it re-flowed 2/5 ↔ 2/7 of the screen on every selection change that toggled
+// hasDraft, a distracting jump (#e4393fae).
+func TestLeftColumnStableWhenDraftToggles(t *testing.T) {
+	st := testStore(t)
+	prevStore, prevApp, prevOmni := uiStore, uiApp, omni
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	t.Cleanup(func() {
+		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
+		vmRows, draftComments = nil, nil
+		hasDraft = false
+	})
+	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
+	reloadTasks()
+
+	tmpl := Build(buildMain())
+	render := func() int {
+		buf := NewBuffer(140, 40)
+		tmpl.Execute(buf, 140, 40)
+		return int(listPaneRef.W)
+	}
+
+	hasDraft = false
+	wNoDraft := render()
+	if wNoDraft <= 0 {
+		t.Fatalf("left column width not captured: %d", wNoDraft)
+	}
+
+	hasDraft = true
+	draftComments = []draftCommentVM{{Location: "general", Body: "x"}}
+	wDraft := render()
+
+	if wNoDraft != wDraft {
+		t.Fatalf("left column jumped when the comments pane appeared: %d → %d (should be stable)", wNoDraft, wDraft)
+	}
+}
