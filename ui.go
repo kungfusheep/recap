@@ -708,6 +708,11 @@ func refreshDetail() {
 		filterText = repoFltr
 	}
 	countText = fmt.Sprintf("%d", inboxCount)
+	// cross-repo unread peer-message badge: the human always sees pending
+	// agent→agent traffic at a glance, whichever repo the TUI runs in.
+	if n, err := uiStore.UnreadMessageCount(); err == nil && n > 0 {
+		countText += fmt.Sprintf("  ✉ %d", n)
+	}
 
 	if sel == lastSel && len(tasks) == lastLen && repoFltr == lastFltr && !detailDirty {
 		return

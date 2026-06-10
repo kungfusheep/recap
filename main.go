@@ -75,6 +75,10 @@ func main() {
 		err = cmdDelete(args)
 	case "revise":
 		err = cmdRevise(args)
+	case "send":
+		err = cmdSend(args)
+	case "messages":
+		err = cmdMessages(args)
 	case "skill":
 		fmt.Print(skillGuide)
 	case "help", "-h", "--help":
@@ -144,6 +148,12 @@ usage:
   recap review discard <task>      drop the draft
   recap review ls [--state S] [--repo NAME] [--all]
                          inspect reviews (default: current repo only)
+
+  recap send <repo> --body TEXT [--reply-to N] [--task ID]
+                         queue an agent→agent message for another repo's loop
+                         (durable; its next recap next / parked --wait picks it up)
+  recap messages [--all] the message ledger, both directions (m-ids, read state)
+  recap read m<id>       clear a peer message (read c<id> still clears comments)
 
   recap skill            print the agent loop guide (self-contained)
   recap help
@@ -519,16 +529,26 @@ func cmdUnread(args []string) error {
 // cmdRead records the agent's read-receipt on one or more comments (clears them
 // from `recap unread`). Pushes so the user's open TUI fills the agent-read dot live.
 func cmdRead(args []string) error {
-	var ids []int64
+	var ids, mids []int64
 	for _, a := range args {
+		// m-prefixed refs are peer MESSAGES (recap send); c-prefixed (or bare) are
+		// reviewer comments. Both clear the agent receipt → drop from the queue.
+		if strings.HasPrefix(a, "m") {
+			id, err := parseID(strings.TrimPrefix(a, "m"))
+			if err != nil {
+				return fmt.Errorf("usage: recap read <c<id>|m<id>>…")
+			}
+			mids = append(mids, id)
+			continue
+		}
 		id, err := parseID(strings.TrimPrefix(a, "c"))
 		if err != nil {
-			return fmt.Errorf("usage: recap read <comment-id>…")
+			return fmt.Errorf("usage: recap read <c<id>|m<id>>…")
 		}
 		ids = append(ids, id)
 	}
-	if len(ids) == 0 {
-		return fmt.Errorf("usage: recap read <comment-id>…")
+	if len(ids) == 0 && len(mids) == 0 {
+		return fmt.Errorf("usage: recap read <c<id>|m<id>>…")
 	}
 	st, err := db.Open()
 	if err != nil {
@@ -538,8 +558,15 @@ func cmdRead(args []string) error {
 	if err := st.MarkReadAgent(ids...); err != nil {
 		return err
 	}
+	if err := st.MarkMessageReadAgent(mids...); err != nil {
+		return err
+	}
 	notify.Reload() // push: the user's open TUI fills the agent-read dot without a refresh
-	fmt.Printf("marked %d comment(s) read\n", len(ids))
+	if len(mids) > 0 {
+		fmt.Printf("marked %d comment(s) + %d message(s) read\n", len(ids), len(mids))
+	} else {
+		fmt.Printf("marked %d comment(s) read\n", len(ids))
+	}
 	return nil
 }
 
@@ -1094,5 +1121,80 @@ func cmdSet(args []string) error {
 	}
 	fmt.Printf("#%d -> %s\n", id, args[1])
 	notify.Reload()
+	return nil
+}
+
+// cmdSend queues an agent→agent message for another repo's loop. Durable: nothing
+// needs to be listening — the target's next `recap next` (or its parked --wait)
+// picks it up, and the human sees all traffic (TUI badge + recap messages).
+// Coordination only: messages never carry verdicts; approvals stay human.
+func cmdSend(args []string) error {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return fmt.Errorf("usage: recap send <repo> --body TEXT [--reply-to N] [--task ID]")
+	}
+	to := args[0]
+	fs := flag.NewFlagSet("send", flag.ExitOnError)
+	body := fs.String("body", "", "message text (required)")
+	replyTo := fs.Int64("reply-to", 0, "thread under message m<N>")
+	taskID := fs.Int64("task", 0, "anchor to a task id")
+	fs.Parse(args[1:])
+	if *body == "" {
+		return fmt.Errorf("--body is required")
+	}
+	st, err := db.Open()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	id, err := st.SendMessage(currentRepo(), identityWho(), to, *replyTo, *taskID, *body)
+	if err != nil {
+		return err
+	}
+	notify.Reload() // wakes the target's parked --wait + refreshes any open TUI
+	fmt.Printf("sent m%d → %s\n", id, to)
+	// soft heads-up if the target repo has never been seen: not an error — the
+	// message waits — but flag a likely typo'd repo name.
+	if ts, err := st.List("", to); err == nil && len(ts) == 0 {
+		if name, _ := loadIdentity(to); name == "" {
+			fmt.Printf("(note: no tasks or named agent seen for %q yet — it will wait until a loop runs there)\n", to)
+		}
+	}
+	return nil
+}
+
+// cmdMessages prints the repo's message ledger, both directions, oldest first —
+// the human-visible record of agent→agent traffic. --all crosses repos.
+func cmdMessages(args []string) error {
+	fs := flag.NewFlagSet("messages", flag.ExitOnError)
+	all := fs.Bool("all", false, "every repo, not just the current one")
+	fs.Parse(args)
+	repo := currentRepo()
+	if *all {
+		repo = ""
+	}
+	st, err := db.Open()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	ms, err := st.Messages(repo)
+	if err != nil {
+		return err
+	}
+	if len(ms) == 0 {
+		fmt.Println("(no messages)")
+		return nil
+	}
+	for _, m := range ms {
+		read := "○"
+		if m.ReadAgent != "" {
+			read = "●"
+		}
+		thread := ""
+		if m.ParentID != 0 {
+			thread = fmt.Sprintf(" ↳m%d", m.ParentID)
+		}
+		fmt.Printf("m%-4d %s  %s@%s → %s%s  %s\n", m.ID, read, m.FromWho, m.FromRepo, m.ToRepo, thread, firstLine(m.Body))
+	}
 	return nil
 }

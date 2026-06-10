@@ -41,7 +41,8 @@ type WorkItem struct {
 	Repo      string
 	TaskID    int64  // amends/reply
 	ReviewID  int64  // amends: the open request_changes review (for `recap review show`)
-	CommentID int64  // reply
+	CommentID int64  // reply / message id
+	From      string // message sender repo (Kind "message") — the reply target
 	Title     string // display text (task title / comment body / todo line)
 	Ref       string // stable cursor id, e.g. "amends:50" / "reply:73" / "todo:9f2a"
 }
@@ -78,6 +79,17 @@ func buildQueue(st *db.Store, repo, repoPath string) []WorkItem {
 			}
 			q = append(q, WorkItem{Kind: "reply", Repo: repo, TaskID: c.TaskID, CommentID: c.ID,
 				Title: firstLine(c.Body), Ref: fmt.Sprintf("reply:%d", c.ID)})
+		}
+	}
+
+	// 3. peer messages — agent→agent notes addressed to THIS repo, FIFO. They sit
+	// below human feedback (amends/replies) but above fresh todos, and complete via
+	// recap read m<N>. Durable: a message sent while no loop runs here simply waits.
+	if ms, err := st.UnreadMessages(repo); err == nil {
+		for _, m := range ms {
+			q = append(q, WorkItem{Kind: "message", Repo: repo, CommentID: m.ID, From: m.FromRepo,
+				Title: fmt.Sprintf("%s@%s: %s", m.FromWho, m.FromRepo, firstLine(m.Body)),
+				Ref:   fmt.Sprintf("msg:%d", m.ID)})
 		}
 	}
 
@@ -281,6 +293,8 @@ func cmdDone(args []string) error {
 		return fmt.Errorf("#%d is an amends — complete it with: recap revise %d --summary \"…\"", item.TaskID, item.TaskID)
 	case item.Kind == "reply":
 		return fmt.Errorf("c%d is a reply — clear it with: recap read c%d", item.CommentID, item.CommentID)
+	case item.Kind == "message":
+		return fmt.Errorf("m%d is a peer message — clear it with: recap read m%d (reply: recap send %s --reply-to %d --body \"…\")", item.CommentID, item.CommentID, item.From, item.CommentID)
 	}
 
 	// todo: record the finished work for review (title = the todo text) ...
@@ -349,6 +363,9 @@ func printWorkOrder(w WorkItem) {
 	case "reply":
 		fmt.Printf("▸ reply    c%d  %q  (task #%d)\n", w.CommentID, w.Title, w.TaskID)
 		fmt.Printf("  recap reply %d --body \"…\"  ·  recap read c%d\n", w.CommentID, w.CommentID)
+	case "message":
+		fmt.Printf("▸ message  m%d  %s\n", w.CommentID, w.Title)
+		fmt.Printf("  recap read m%d  ·  reply: recap send %s --reply-to %d --body \"…\"\n", w.CommentID, w.From, w.CommentID)
 	case "todo":
 		fmt.Printf("▸ todo   %s  %s\n", w.Ref, w.Title)
 		fmt.Printf("  when finished: recap done %s --criterion \"…\" --check \"…\" --result PASS --summary \"…\" --sha HEAD\n", w.Ref)

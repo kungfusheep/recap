@@ -220,6 +220,34 @@ pastes a clipboard image: it writes a temp PNG ($TMPDIR, OS-tidied — the loop 
 so long-term retention isn't needed) and inserts the `[[path]]` link for you. You can also
 type any `[[path]]` by hand to attach a log, file, or screenshot to feedback.
 
+## Peer messages (agent→agent)
+
+Loops in different repos can message each other directly — for coordination that
+shouldn't need the human as a courier:
+
+```
+recap send <repo> --body "…"            # queue a note for that repo's loop
+recap send <repo> --reply-to N --body … # thread under a message you received
+recap messages [--all]                  # the ledger, both directions, read state
+recap read m<N>                         # clear a received message from your queue
+```
+
+Messages are **durable and addressed to a repo, not a process**: if no loop is
+running there, the note simply waits — its next `recap next` (or parked `--wait`)
+picks it up. Received messages surface in your queue between reviewer replies and
+todos; the work order shows the sender (`name@repo`) and the reply command.
+
+Use them for: announcing a dependency/API change downstream ("riffkey grew X — bump
+your go.mod"), requesting a capability from the repo that owns it (with the contract
+you need), handing off a bug whose fix lives in another repo (attach a falsifiable
+repro), or reporting back that an integration passes.
+
+Boundaries: messages **coordinate, they never approve** — verdicts stay with the
+human, who sees all traffic (the TUI's ✉ badge + `recap messages`). Keep them terse
+and actionable; one in-flight question per pair (the ball-in-one-court rule applies
+to agent pairs too — don't ping-pong). A message is NOT a place to invent new scope:
+work still only enters a repo through its human-owned TODO/review flow.
+
 ## Falsifiable criteria
 
 Before you start an item, state its success check as something that can **fail** if the

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"github.com/kungfusheep/recap/db"
 	"os"
 	"strings"
@@ -129,5 +130,53 @@ func TestBuildQueuePriority(t *testing.T) {
 	}
 	if q[1].Kind != "reply" || q[1].TaskID != chat {
 		t.Fatalf("reply (non-amends task) must be second, got %+v", q[1])
+	}
+}
+
+// peer messages enter the queue between reviewer replies and todos, FIFO, with the
+// sender's identity on the title and the reply target on the item; recap read m<N>
+// (MarkMessageReadAgent) completes them. Durable: nothing needs to be listening
+// when they're sent.
+func TestBuildQueueMessageTier(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RECAP_DB", dir+"/recap.db")
+	st, err := db.OpenAt(dir + "/recap.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	// a reviewer reply (higher tier) + two peer messages (FIFO within the tier)
+	tid, _ := st.Add(db.Task{Repo: "wed", RepoPath: "/tmp/wed", Title: "t"})
+	st.AddComment(tid, "you", "human feedback")
+	m1, _ := st.SendMessage("recap", "Kestrel", "wed", 0, 0, "first note\nwith detail")
+	m2, _ := st.SendMessage("recap", "Kestrel", "wed", 0, 0, "second note")
+
+	q := buildQueue(st, "wed", "") // repoPath "" → no todo tier
+	if len(q) != 3 {
+		t.Fatalf("queue = %d items, want 3 (reply + 2 messages): %+v", len(q), q)
+	}
+	if q[0].Kind != "reply" {
+		t.Fatalf("human feedback must outrank peer messages, got %q first", q[0].Kind)
+	}
+	if q[1].Kind != "message" || q[1].CommentID != m1 || q[2].CommentID != m2 {
+		t.Fatalf("message tier not FIFO after replies: %+v", q[1:])
+	}
+	if q[1].From != "recap" || !strings.Contains(q[1].Title, "Kestrel@recap") || !strings.Contains(q[1].Title, "first note") {
+		t.Fatalf("message item missing sender/title: %+v", q[1])
+	}
+	if q[1].Ref != fmt.Sprintf("msg:%d", m1) {
+		t.Fatalf("message ref = %q", q[1].Ref)
+	}
+
+	// reading m1 completes it — drops from the queue
+	if err := st.MarkMessageReadAgent(m1); err != nil {
+		t.Fatal(err)
+	}
+	q = buildQueue(st, "wed", "")
+	for _, w := range q {
+		if w.Kind == "message" && w.CommentID == m1 {
+			t.Fatal("read message still in the queue")
+		}
 	}
 }
