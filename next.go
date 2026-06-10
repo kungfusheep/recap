@@ -89,7 +89,7 @@ func buildQueue(st *db.Store, repo, repoPath string) []WorkItem {
 	if ms, err := st.UnreadMessages(repo); err == nil {
 		for _, m := range ms {
 			q = append(q, WorkItem{Kind: "message", Repo: repo, CommentID: m.ID, From: m.FromRepo,
-				Title: fmt.Sprintf("%s@%s: %s", m.FromWho, m.FromRepo, firstLine(m.Body)),
+				Title: fmt.Sprintf("%s: %s", msgSender(m.FromWho, m.FromRepo), firstLine(m.Body)),
 				Ref:   fmt.Sprintf("msg:%d", m.ID)})
 		}
 	}

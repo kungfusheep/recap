@@ -1265,7 +1265,7 @@ func cmdMessages(args []string) error {
 		if m.ParentID != 0 {
 			thread = fmt.Sprintf(" ↳m%d", m.ParentID)
 		}
-		fmt.Printf("m%-4d %s  %s@%s → %s%s  %s\n", m.ID, read, m.FromWho, m.FromRepo, m.ToRepo, thread, firstLine(m.Body))
+		fmt.Printf("m%-4d %s  %s → %s%s  %s\n", m.ID, read, msgSender(m.FromWho, m.FromRepo), m.ToRepo, thread, firstLine(m.Body))
 	}
 	return nil
 }
