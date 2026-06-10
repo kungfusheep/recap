@@ -377,3 +377,60 @@ func TestUnreadScopedByRepo(t *testing.T) {
 		t.Fatalf("unscoped should return both, got %d", len(all))
 	}
 }
+
+// the inbox is FIFO by ARRIVAL into the inbox, not by creation order: a task that
+// comes back from amends (resolve) or is unsubmitted re-queues at the END — it must
+// not jump to the top on its old id (#0f8ba945). Created stamps are set in the past
+// so the re-entry stamp (now) is strictly newer regardless of second boundaries.
+func TestInboxFIFOByArrival(t *testing.T) {
+	st := testStore(t)
+	prev := uiStore
+	uiStore = st
+	t.Cleanup(func() { uiStore = prev; vmRows = nil; sel = 0 })
+
+	a, _ := st.Add(db.Task{Repo: "r", Title: "a", CreatedAt: "2026-06-10 09:00:01"})
+	b, _ := st.Add(db.Task{Repo: "r", Title: "b", CreatedAt: "2026-06-10 09:00:02"})
+	c, _ := st.Add(db.Task{Repo: "r", Title: "c", CreatedAt: "2026-06-10 09:00:03"})
+
+	pendingOrder := func() []int64 {
+		reloadTasks()
+		var ids []int64
+		for _, tk := range tasks {
+			if uiStore.ReviewState(tk.ID) == db.StatePending {
+				ids = append(ids, tk.ID)
+			}
+		}
+		return ids
+	}
+
+	// baseline: creation order
+	if got := pendingOrder(); len(got) != 3 || got[0] != a || got[1] != b || got[2] != c {
+		t.Fatalf("baseline inbox order = %v, want [%d %d %d]", got, a, b, c)
+	}
+
+	// A goes to amends and comes BACK via resolve → A re-queues at the END
+	if _, err := st.AddReviewComment(a, "you", "fix", "", 0, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	rv, err := st.SubmitReview(a, db.VerdictRequestChanges, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ResolveReview(rv.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := pendingOrder(); len(got) != 3 || got[0] != b || got[1] != c || got[2] != a {
+		t.Fatalf("after amends round-trip, inbox = %v, want [%d %d %d] (returned task at the END)", got, b, c, a)
+	}
+
+	// B approved then unsubmitted → B re-queues at the END (after A)
+	if _, err := st.SubmitReview(b, db.VerdictApprove, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UnsubmitReview(b); err != nil {
+		t.Fatal(err)
+	}
+	if got := pendingOrder(); len(got) != 3 || got[0] != c || got[1] != a || got[2] != b {
+		t.Fatalf("after unsubmit, inbox = %v, want [%d %d %d]", got, c, a, b)
+	}
+}

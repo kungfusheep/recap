@@ -397,7 +397,20 @@ func reloadTasks() {
 			return pi < pj
 		}
 		if si == db.StatePending {
-			return tasks[i].ID < tasks[j].ID // oldest first in the inbox
+			// FIFO by ARRIVAL into the inbox, not creation order: a task resolved
+			// back from amends (or unsubmitted) re-queues at the END — its stamped
+			// inbox_at is newer — instead of jumping to the top on its old id.
+			ai, aj := tasks[i].InboxAt, tasks[j].InboxAt
+			if ai == "" {
+				ai = tasks[i].CreatedAt // pre-migration rows
+			}
+			if aj == "" {
+				aj = tasks[j].CreatedAt
+			}
+			if ai != aj {
+				return ai < aj // oldest arrival first
+			}
+			return tasks[i].ID < tasks[j].ID
 		}
 		// non-pending (amends/done): newest review activity first, then id as a
 		// tie-break (covers tasks approved directly, with no review row).

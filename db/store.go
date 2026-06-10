@@ -58,6 +58,7 @@ type Task struct {
 	CreatedAt string
 	ParentID  int64  // the task this one fixes forward (0 = none)
 	Summary   string // agent-written reviewer briefing (richer than the commit msg)
+	InboxAt   string // when the task last entered the inbox (FIFO sort key; falls back to CreatedAt)
 }
 
 // Review is a batch of reviewer feedback against a task: a verdict, an overall
@@ -150,6 +151,7 @@ CREATE TABLE IF NOT EXISTS revisions (
 var addColumns = []struct{ table, col, decl string }{
 	{"tasks", "parent_id", "INTEGER"},
 	{"tasks", "summary", "TEXT"}, // agent-written reviewer briefing (not the commit msg)
+	{"tasks", "inbox_at", "TEXT"}, // when the task last ENTERED the inbox (created / resolved back / unsubmitted) — FIFO ordering
 	{"comments", "review_id", "INTEGER"},
 	{"comments", "file", "TEXT"},
 	{"comments", "line", "INTEGER"},
@@ -268,9 +270,9 @@ func (s *Store) Add(t Task) (int64, error) {
 		t.CreatedAt = NowStamp()
 	}
 	res, err := s.db.Exec(
-		`INSERT INTO tasks (repo, repo_path, sha, title, criterion, check_cmd, result, status, created_at, parent_id, summary)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-		t.Repo, t.RepoPath, t.SHA, t.Title, t.Criterion, t.CheckCmd, t.Result, t.Status, t.CreatedAt, nullID(t.ParentID), nullStr(t.Summary))
+		`INSERT INTO tasks (repo, repo_path, sha, title, criterion, check_cmd, result, status, created_at, parent_id, summary, inbox_at)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		t.Repo, t.RepoPath, t.SHA, t.Title, t.Criterion, t.CheckCmd, t.Result, t.Status, t.CreatedAt, nullID(t.ParentID), nullStr(t.Summary), t.CreatedAt)
 	if err != nil {
 		return 0, err
 	}
@@ -280,11 +282,11 @@ func (s *Store) Add(t Task) (int64, error) {
 func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 	var t Task
 	err := row.Scan(&t.ID, &t.Repo, &t.RepoPath, &t.SHA, &t.Title, &t.Criterion,
-		&t.CheckCmd, &t.Result, &t.Status, &t.CreatedAt, &t.ParentID, &t.Summary)
+		&t.CheckCmd, &t.Result, &t.Status, &t.CreatedAt, &t.ParentID, &t.Summary, &t.InboxAt)
 	return t, err
 }
 
-const taskCols = `id, repo, repo_path, sha, title, criterion, check_cmd, result, status, created_at, COALESCE(parent_id,0), COALESCE(summary,'')`
+const taskCols = `id, repo, repo_path, sha, title, criterion, check_cmd, result, status, created_at, COALESCE(parent_id,0), COALESCE(summary,''), COALESCE(inbox_at,'')`
 
 // Get returns one task by id.
 func (s *Store) Get(id int64) (Task, error) {
@@ -723,6 +725,10 @@ func (s *Store) UnsubmitReview(taskID int64) error {
 		ReviewDraft, rid); err != nil {
 		return err
 	}
+	// unsubmit returns the task to the inbox — stamp its arrival (FIFO ordering).
+	if _, err := s.db.Exec(`UPDATE tasks SET inbox_at = ? WHERE id = ?`, NowStamp(), taskID); err != nil {
+		return err
+	}
 	// derived state recomputes from reviews; also clear the legacy status flag so
 	// CLI views (which still read tasks.status) agree.
 	return s.SetStatus(taskID, StatusPending)
@@ -858,6 +864,14 @@ func (s *Store) ResolveReview(id int64) error {
 	// though they were dealt with. (The fix for: "multiple comments aren't all marked read".)
 	if _, err := s.db.Exec(
 		`UPDATE comments SET read_agent = ? WHERE review_id = ? AND who = 'you' AND COALESCE(read_agent,'') = ''`,
+		NowStamp(), id); err != nil {
+		return err
+	}
+	// resolving returns the task to the inbox — stamp its arrival so the inbox
+	// stays FIFO by most-recent entry (a task back from amends queues at the END,
+	// it does not jump to the top on its old creation order).
+	if _, err := s.db.Exec(
+		`UPDATE tasks SET inbox_at = ? WHERE id = (SELECT task_id FROM reviews WHERE id = ?)`,
 		NowStamp(), id); err != nil {
 		return err
 	}
