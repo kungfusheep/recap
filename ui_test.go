@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/kungfusheep/recap/db"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1009,5 +1010,74 @@ func TestSummaryBannerShowsAgentName(t *testing.T) {
 	}
 	if !strings.Contains(out, "summary") {
 		t.Fatalf("anon banner lost its header:\n%s", out)
+	}
+}
+
+// pinSHA refuses a sha the checkout can't resolve (recording it would render as an
+// empty diff forever — the dangling-sha "no changes" bug); --force stores it verbatim;
+// a real ref pins to the concrete short hash.
+func TestPinSHARefusesDangling(t *testing.T) {
+	dir := t.TempDir()
+	git(dir, "init")
+	git(dir, "config", "user.email", "t@t")
+	git(dir, "config", "user.name", "t")
+	os.WriteFile(dir+"/a.txt", []byte("x\n"), 0o644)
+	git(dir, "add", "-A")
+	git(dir, "commit", "-m", "one")
+
+	h, err := pinSHA(dir, "HEAD", false)
+	if err != nil || h == "" || h == "HEAD" {
+		t.Fatalf("HEAD should pin to a concrete hash: %q %v", h, err)
+	}
+	if _, err := pinSHA(dir, "deadbeef1", false); err == nil {
+		t.Fatal("a sha unknown to the checkout must be refused")
+	}
+	forced, err := pinSHA(dir, "deadbeef1", true)
+	if err != nil || forced != "deadbeef1" {
+		t.Fatalf("--force should store verbatim: %q %v", forced, err)
+	}
+}
+
+// a task whose sha doesn't exist in its repo shows a LOUD banner ("commit not found"),
+// never a silent "no changes" — the symptom that hid the dangling-sha problem.
+func TestDiffShowsDanglingShaWarning(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RECAP_DB", dir+"/recap.db")
+	git(dir, "init")
+	git(dir, "config", "user.email", "t@t")
+	git(dir, "config", "user.name", "t")
+	os.WriteFile(dir+"/a.txt", []byte("x\n"), 0o644)
+	git(dir, "add", "-A")
+	git(dir, "commit", "-m", "one")
+
+	st := testStore(t)
+	prevStore, prevApp, prevOmni := uiStore, uiApp, omni
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	t.Cleanup(func() {
+		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
+		vmRows, diffBanner, diffFiles = nil, nil, nil
+	})
+	st.Add(db.Task{Repo: "r", RepoPath: dir, SHA: "deadbeef1", Title: "t", Status: db.StatusPending})
+	reloadTasks()
+	sel = 0
+	detailDirty = true
+	lastSel = -99
+	refreshDetail()
+
+	found := false
+	for _, row := range diffBanner {
+		for _, sp := range row {
+			if strings.Contains(sp.Text, "not found") {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("dangling sha should produce a 'commit not found' banner, got banner=%v filesText=%q", diffBanner, filesText)
+	}
+	if filesText != "commit not found" {
+		t.Fatalf("filesText = %q, want 'commit not found'", filesText)
 	}
 }

@@ -207,6 +207,21 @@ func resolveSHA(repo, ref string) (string, error) {
 	return git(repo, "rev-parse", "--short", ref)
 }
 
+// pinSHA resolves ref to a concrete short hash IN repoPath, or fails loudly. A sha
+// that doesn't resolve here would be recorded dangling and render as an empty diff
+// forever (the "no changes" mystery: agents committing in one checkout and recording
+// against another). force stores the ref verbatim for exotic flows.
+func pinSHA(repoPath, ref string, force bool) (string, error) {
+	h, err := resolveSHA(repoPath, ref)
+	if err != nil {
+		if force {
+			return ref, nil
+		}
+		return "", fmt.Errorf("sha %q does not resolve in %s — commit first, and record from the checkout the commit lives in (--force to store it anyway)", ref, repoPath)
+	}
+	return h, nil
+}
+
 // --- commands --------------------------------------------------------------
 
 func cmdAdd(args []string) error {
@@ -221,6 +236,7 @@ func cmdAdd(args []string) error {
 	status := fs.String("status", db.StatusPending, "pending|approved|redo")
 	parent := fs.Int64("parent", 0, "id of the task this fixes forward")
 	summary := fs.String("summary", "", "reviewer briefing: what you did + why + what to watch (richer than the commit msg)")
+	force := fs.Bool("force", false, "record a sha even if it doesn't resolve in the repo")
 	fs.Parse(args)
 
 	if *title == "" {
@@ -241,8 +257,11 @@ func cmdAdd(args []string) error {
 		*sha = "HEAD"
 	}
 	// resolve whatever ref was given (incl. the "HEAD" default) to a concrete hash,
-	// so the recorded diff is pinned and doesn't drift as new commits land.
-	if h, err := resolveSHA(*repoPath, *sha); err == nil {
+	// so the recorded diff is pinned and doesn't drift as new commits land. Refuses
+	// a sha this checkout doesn't know — that records a permanent empty diff.
+	if h, err := pinSHA(*repoPath, *sha, *force); err != nil {
+		return err
+	} else {
 		*sha = h
 	}
 
@@ -770,6 +789,7 @@ func cmdRevise(args []string) error {
 	fs := flag.NewFlagSet("revise", flag.ExitOnError)
 	sha := fs.String("sha", "", "the fix-forward commit (default: short HEAD of the task's repo)")
 	summary := fs.String("summary", "", "what changed in this revision (shown with its diff)")
+	reviseForce := fs.Bool("force", false, "record a sha even if it doesn't resolve in the repo")
 	idStr, rest := splitID(args)
 	fs.Parse(rest)
 	if idStr == "" {
@@ -794,12 +814,12 @@ func cmdRevise(args []string) error {
 	if *sha == "" {
 		*sha = "HEAD"
 	}
-	// pin the ref to a concrete hash (see resolveSHA) so the revision diff is fixed.
-	if h, err := resolveSHA(t.RepoPath, *sha); err == nil {
+	// pin the ref to a concrete hash (see pinSHA) so the revision diff is fixed —
+	// and refuse one this checkout doesn't know (the dangling-sha "no changes" bug).
+	if h, err := pinSHA(t.RepoPath, *sha, *reviseForce); err != nil {
+		return err
+	} else {
 		*sha = h
-	}
-	if *sha == "" || *sha == "HEAD" {
-		return fmt.Errorf("--sha required (could not resolve HEAD for %s)", t.RepoPath)
 	}
 	if _, err := st.AddRevision(id, *sha, *summary); err != nil {
 		return err

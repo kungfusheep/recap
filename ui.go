@@ -763,7 +763,16 @@ func refreshDetail() {
 	filesText = changedFiles(t.RepoPath, sha)
 	full, err := git(t.RepoPath, "show", "--format=", sha)
 	if err != nil {
+		// a sha this checkout can't resolve must SAY so — silently rendering
+		// "no changes" hid a real data problem (agents recording shas from a
+		// different clone/sandbox, so the commit never existed here).
 		diffFiles = nil
+		filesText = "commit not found"
+		diffBanner = append(diffBanner,
+			[]Span{span(fmt.Sprintf("⚠ commit %s not found in %s", sha, t.RepoPath), cDel, true)},
+			[]Span{span("  the work may have been recorded from a different checkout (clone/sandbox),", cSubtle, false)},
+			[]Span{span("  or this repo's history was rewritten after recording", cSubtle, false)},
+			[]Span{})
 	} else {
 		diffFiles = diff.Parse(full)
 	}

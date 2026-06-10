@@ -271,6 +271,7 @@ func cmdDone(args []string) error {
 	result := fs.String("result", "", "observed result (e.g. PASS)")
 	summary := fs.String("summary", "", "reviewer briefing for the inbox item")
 	sha := fs.String("sha", "", "commit sha (default: short HEAD)")
+	doneForce := fs.Bool("force", false, "record a sha even if it doesn't resolve in the repo")
 	ref, rest := splitID(args)
 	fs.Parse(rest)
 	if ref == "" {
@@ -302,8 +303,10 @@ func cmdDone(args []string) error {
 	if resolved == "" {
 		resolved = "HEAD"
 	}
-	if h, err := resolveSHA(repoPath, resolved); err == nil {
-		resolved = h
+	// refuse a sha this checkout can't resolve (the dangling-sha "no changes" bug)
+	resolved, err = pinSHA(repoPath, resolved, *doneForce)
+	if err != nil {
+		return err
 	}
 	id, err := st.Add(db.Task{
 		Repo: repo, RepoPath: repoPath, SHA: resolved, Title: item.Title,
