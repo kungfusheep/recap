@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/kungfusheep/recap/db"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -966,5 +967,47 @@ func TestLeftColumnStableWhenDraftToggles(t *testing.T) {
 
 	if wNoDraft != wDraft {
 		t.Fatalf("left column jumped when the comments pane appeared: %d → %d (should be stable)", wNoDraft, wDraft)
+	}
+}
+
+// the diff summary header carries the writing agent's name (the task repo's identity)
+// in its colour — "summary · Kestrel" — so a cross-repo inbox shows who did the work.
+// No identity saved → header unchanged. (#8dfaf5e4)
+func TestSummaryBannerShowsAgentName(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RECAP_DB", filepath.Join(dir, "recap.db"))
+	st := testStore(t)
+	prevStore := uiStore
+	uiStore = st
+	t.Cleanup(func() { uiStore = prevStore })
+
+	if err := saveIdentity("withname", "Kestrel", "#79C0FF"); err != nil {
+		t.Fatal(err)
+	}
+
+	flat := func(rows [][]Span) string {
+		s := ""
+		for _, r := range rows {
+			for _, sp := range r {
+				s += sp.Text
+			}
+			s += "\n"
+		}
+		return s
+	}
+
+	named := db.Task{ID: 1, Repo: "withname", Summary: "did the thing"}
+	out := flat(buildBanner(named))
+	if !strings.Contains(out, "summary") || !strings.Contains(out, "Kestrel") {
+		t.Fatalf("named banner should carry the agent name:\n%s", out)
+	}
+
+	anon := db.Task{ID: 2, Repo: "noname", Summary: "did the thing"}
+	out = flat(buildBanner(anon))
+	if strings.Contains(out, "Kestrel") {
+		t.Fatalf("unnamed repo must not inherit another repo's identity:\n%s", out)
+	}
+	if !strings.Contains(out, "summary") {
+		t.Fatalf("anon banner lost its header:\n%s", out)
 	}
 }

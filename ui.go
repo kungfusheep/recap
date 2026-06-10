@@ -792,7 +792,7 @@ func buildBanner(t db.Task) [][]Span {
 			rows = append(rows, reviewBanner(fmt.Sprintf("↩ amends review #%d", rv.ID), rv, true)...)
 		}
 		if strings.TrimSpace(t.Summary) != "" {
-			rows = append(rows, summaryBanner("what changed", t.Summary)...)
+			rows = append(rows, summaryBannerBy(t, "what changed")...)
 		}
 		if len(rows) > 0 {
 			return rows
@@ -800,9 +800,21 @@ func buildBanner(t db.Task) [][]Span {
 	}
 	// plain inbox/done item: lead with the reviewer briefing if there is one.
 	if strings.TrimSpace(t.Summary) != "" {
-		return summaryBanner("summary", t.Summary)
+		return summaryBannerBy(t, "summary")
 	}
 	return nil
+}
+
+// summaryBannerBy is summaryBanner with the writing agent's name (the task repo's
+// per-repo identity, in its colour) appended to the header — so the briefing reads
+// as "summary · Kestrel" and a multi-agent inbox shows who did the work. Cheap: the
+// banner only rebuilds on selection change, and the identity is a tiny file read.
+func summaryBannerBy(t db.Task, title string) [][]Span {
+	rows := summaryBanner(title, t.Summary)
+	if name, color := loadIdentity(t.Repo); name != "" && len(rows) > 0 {
+		rows[0] = append(rows[0], span("  ·  ", cMuted, false), span(name, color, true))
+	}
+	return rows
 }
 
 // summaryBanner renders an agent-written summary as wrapped banner rows under a
