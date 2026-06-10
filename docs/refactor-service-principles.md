@@ -84,6 +84,12 @@ Ordered low-risk → high-risk so the reviewer can stop/redirect at any boundary
         pointer-bound into the compiled view; methods for prep/move/save/toggle/add/
         edit; openTodoFor → todoUI.openFor). Outside todo_view.go the old globals were
         referenced ONLY by tests — zero production coupling, ideal first seam.
+      - [x] 5c: comments/draft pane → `draftView` struct, one instance `draftUI`
+        (row VMs + selection + focus band + ScrollState ints + pane gate + the
+        read-overlay content; 16 globals gone). The diff pane's RENDER side became
+        compile-once separately (one template, span-row VMs — the c281 fix), which
+        covers most of what 5d was for; its remaining loose state (layer/meta/fold/
+        pick vars) is the 5d residue.
       - [x] 5b: prompt overlays → `promptView` struct, one instance `promptUI` (input
         prompt Open/Title/Loc/Snip/OnSave/Field + read-overlay flag + both NodeRefs;
         methods open/close/submit/openRead/insertLink/pasteImage). The cv* read-overlay

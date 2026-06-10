@@ -141,6 +141,36 @@ type draftCommentVM struct {
 	Selected bool // updated each frame like the inbox rows, drives the fill
 }
 
+// draftView is the comments (draft) pane's state in one concrete struct (the
+// cohesive-structs pattern, like todoView/promptView): the row VMs + selection,
+// the focus-aware band + scrollbar state, the column gate, and the read-overlay
+// content. One bound package instance (draftUI) — fields are pointer-bound into
+// the compiled view, so the struct must be a stable package var.
+type draftView struct {
+	Comments []draftCommentVM
+	Sel      int
+	LastSel  int   // selection watermark: re-sync the diff highlight on change
+	SelBG    Color // focus-aware selection band (bright focused, dim elsewhere)
+
+	ScrollOffset, ScrollVisible, ScrollTotal int // List ScrollState → ScrollbarDyn
+
+	Focused float64 // scrollbar fade target: 1 while the column has focus
+	PaneRef NodeRef
+	Has     bool   // gates the whole column (any comments on the selected task)
+	Note    string // header pill (e.g. draft count)
+
+	// read-overlay content (rendered by prompt.go's readCommentOverlay)
+	ViewLoc  string
+	ViewSnip string
+	ViewBody []string
+
+	EditingID  int64 // comment being edited via the prompt
+	ReplyingTo int64 // parent comment for a reply in flight
+}
+
+// draftUI is the single instance the view tree binds against.
+var draftUI = draftView{LastSel: -1}
+
 var (
 	uiStore *db.Store
 	uiApp   *App
@@ -196,12 +226,6 @@ var (
 	// scrollbar fades in only when the diff column has focus (mail's cue).
 	diffFocused = 0.0
 
-	// draftFocused does the same for the comments (draft) column's scrollbar; the
-	// scroll ints are the live window the List publishes via ScrollState (read by the
-	// ScrollbarDyn beside it).
-	draftFocused                                            = 0.0
-	draftScrollOffset, draftScrollVisible, draftScrollTotal int
-
 	helpOpen bool // ? cheatsheet overlay
 
 	// the anchor of the line currently being commented on (set when picked).
@@ -211,21 +235,6 @@ var (
 	// display strings for the line-comment prompt
 	pcLocation    string
 	pcSnippetView string
-
-	// comment view/edit: which draft comment is open, and its display strings.
-	editingCommentID int64
-	replyingToID     int64 // comment being replied to (TUI 'r' in the comments pane)
-	cvLocation       string
-	cvSnippet        string
-	cvBodyLines      []string // body wrapped to the modal width
-
-	draftNote string // e.g. "✎ 2 draft" when the current task has draft comments
-
-	// draft review pane (conditional): shows the selected task's accumulated
-	// draft comments in one place, like a PR's conversation overview. Only
-	// rendered when hasDraft is true, so it costs no width otherwise.
-	hasDraft      bool
-	draftComments []draftCommentVM
 
 	countText, filterText string
 	spinFrame             int // animation frame for the in-flight spinner flare
@@ -673,19 +682,19 @@ func refreshDetail() {
 	for i := range vmRows {
 		vmRows[i].Selected = i == sel
 	}
-	for i := range draftComments {
-		draftComments[i].Selected = i == draftSel
+	for i := range draftUI.Comments {
+		draftUI.Comments[i].Selected = i == draftUI.Sel
 	}
 	// focus-aware selection bands: the active column's selected row reads bright,
 	// the others dim. Painted per-row (in taskRow/draftRow) so the band covers
 	// only the row body, never a group header sharing the same list item.
 	curSelBG = cFloat
-	draftSelBG = cFloat
+	draftUI.SelBG = cFloat
 	switch pane {
 	case paneList:
 		curSelBG = cSelBG
 	case paneDraft:
-		draftSelBG = cSelBG
+		draftUI.SelBG = cSelBG
 	}
 	// fade the diff scrollbar in only while the diff column has focus
 	if pane == paneDiff {
@@ -695,12 +704,12 @@ func refreshDetail() {
 	}
 	// …and the comments scrollbar only while the draft column has focus
 	if pane == paneDraft {
-		draftFocused = 1.0
+		draftUI.Focused = 1.0
 	} else {
-		draftFocused = 0.0
+		draftUI.Focused = 0.0
 	}
-	if draftSel != lastDraftSel {
-		lastDraftSel = draftSel
+	if draftUI.Sel != draftUI.LastSel {
+		draftUI.LastSel = draftUI.Sel
 		syncDiffToDraft()
 		markSelectedCommentRead()
 	}
@@ -732,8 +741,8 @@ func refreshDetail() {
 	lastDiffKey = diffKey
 	if !ok || row == nil {
 		detailTitle, metaRepo, metaWhen, metaResult = "no tasks", "", "", ""
-		filesText, diffFiles, draftNote = "", nil, ""
-		hasDraft, draftComments = false, nil
+		filesText, diffFiles, draftUI.Note = "", nil, ""
+		draftUI.Has, draftUI.Comments = false, nil
 		setDiff(resetScroll)
 		return
 	}
@@ -886,7 +895,7 @@ func reviewBanner(title string, rv db.Review, withComments bool) [][]Span {
 // loadDraftPane refreshes the draft-review overview for a task: the ✎ N hint and
 // the conditional pane's comment rows, sourced from the open draft review.
 func loadDraftPane(taskID int64) {
-	draftComments = nil
+	draftUI.Comments = nil
 	for k := range commentedLines {
 		delete(commentedLines, k)
 	}
@@ -894,10 +903,10 @@ func loadDraftPane(taskID int64) {
 	// stays visible after submit. Each row knows if it's still an editable draft.
 	cs, _ := uiStore.TaskReviewComments(taskID)
 	if len(cs) == 0 {
-		hasDraft, draftNote = false, ""
+		draftUI.Has, draftUI.Note = false, ""
 		return
 	}
-	hasDraft = true
+	draftUI.Has = true
 	drafts := 0
 	for _, c := range cs {
 		if c.Draft {
@@ -925,23 +934,23 @@ func loadDraftPane(taskID int64) {
 			vm.Snippet = cleanLine(c.Snippet)
 		}
 		vm.LocColor = cSubtle
-		draftComments = append(draftComments, vm)
+		draftUI.Comments = append(draftUI.Comments, vm)
 	}
 	// header reflects draft-in-progress vs settled comments.
 	if drafts > 0 {
-		draftNote = fmt.Sprintf("✎ %d draft", drafts)
+		draftUI.Note = fmt.Sprintf("✎ %d draft", drafts)
 	} else {
-		draftNote = fmt.Sprintf("%d comment%s", len(cs), plural(len(cs)))
+		draftUI.Note = fmt.Sprintf("%d comment%s", len(cs), plural(len(cs)))
 	}
-	if draftSel >= len(draftComments) {
-		draftSel = len(draftComments) - 1
+	if draftUI.Sel >= len(draftUI.Comments) {
+		draftUI.Sel = len(draftUI.Comments) - 1
 	}
-	if draftSel < 0 {
-		draftSel = 0
+	if draftUI.Sel < 0 {
+		draftUI.Sel = 0
 	}
 	// order top-level comments (general first, then anchored by file:line) with each
 	// reply nested under its parent.
-	draftComments = threadComments(draftComments)
+	draftUI.Comments = threadComments(draftUI.Comments)
 }
 
 // threadComments orders a flat comment list into threads: top-level comments in
@@ -1434,27 +1443,27 @@ func buildMain() Component {
 				)),
 			),
 			// right — comments overview (shown whenever the task has any comments)
-			If(&hasDraft).Then(
-				VBox.Grow(2).Fill(&cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0).NodeRef(&draftPaneRef)(
-					HBox(SpaceW(3), Text("comments").FG(&cBright).Bold(), Space(), Text(&draftNote).FG(&cSubtle), SpaceW(2)),
+			If(&draftUI.Has).Then(
+				VBox.Grow(2).Fill(&cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0).NodeRef(&draftUI.PaneRef)(
+					HBox(SpaceW(3), Text("comments").FG(&cBright).Bold(), Space(), Text(&draftUI.Note).FG(&cSubtle), SpaceW(2)),
 					SpaceH(2),
 					// list + a flush-right scrollbar that tracks the list's window
 					// (ScrollState → ScrollbarDyn), fading in only while this column
 					// has focus — the diff pane's treatment, for a List.
 					HBox.Grow(1)(
 						VBox.Grow(1)(
-							List(&draftComments).
-								Selection(&draftSel).
+							List(&draftUI.Comments).
+								Selection(&draftUI.Sel).
 								Style(&listBaseStyle).
 								SelectedStyle(Style{}). // band painted per-row
 								Marker("  ").           // blank gutter: Marker("") falls back to the default "> "
 								Render(draftRow).
-								ScrollState(&draftScrollOffset, &draftScrollVisible, &draftScrollTotal),
+								ScrollState(&draftUI.ScrollOffset, &draftUI.ScrollVisible, &draftUI.ScrollTotal),
 						),
-						ScrollbarDyn(&draftScrollTotal, &draftScrollVisible, &draftScrollOffset).
+						ScrollbarDyn(&draftUI.ScrollTotal, &draftUI.ScrollVisible, &draftUI.ScrollOffset).
 							TrackStyle(&scrollTrackStyle).
 							ThumbStyle(&scrollThumbStyle).
-							Opacity(Animate(&draftFocused)),
+							Opacity(Animate(&draftUI.Focused)),
 					),
 					If(&pane).Eq(paneDraft).Then(On(
 						Key("j", func() { moveDraft(1) }),
@@ -1527,9 +1536,8 @@ var helpRef NodeRef
 // column node refs for the focus-fade effect (mail's FocusShade): each column
 // dims while it isn't the focused pane.
 var (
-	listPaneRef  NodeRef
-	diffPaneRef  NodeRef
-	draftPaneRef NodeRef
+	listPaneRef NodeRef
+	diffPaneRef NodeRef
 )
 
 // columnShades returns the per-column focus-fade effects, gated by pane: a column
@@ -1545,8 +1553,8 @@ func columnShades() Component {
 	return VBox(
 		If(&pane).Ne(paneList).Then(ScreenEffect(mk(&listPaneRef))),
 		If(&pane).Ne(paneDiff).Then(ScreenEffect(mk(&diffPaneRef))),
-		// the draft column only exists when hasDraft; otherwise its ref is stale.
-		If(&hasDraft).Then(If(&pane).Ne(paneDraft).Then(ScreenEffect(mk(&draftPaneRef)))),
+		// the draft column only exists when draftUI.Has; otherwise its ref is stale.
+		If(&draftUI.Has).Then(If(&pane).Ne(paneDraft).Then(ScreenEffect(mk(&draftUI.PaneRef)))),
 	)
 }
 
@@ -1595,7 +1603,7 @@ func toggleHelp() { helpOpen = !helpOpen }
 // (selection-aware, accent bar) with the location, the snippet, then the note.
 func draftRow(c *draftCommentVM) Component {
 	// per-row body fill = full-width flat band (no list marker), focus-aware.
-	itemBG := If(&c.Selected).Then(&draftSelBG).Else(&cPaneBG)
+	itemBG := If(&c.Selected).Then(&draftUI.SelBG).Else(&cPaneBG)
 	// Indent (precomputed per row) nests replies; empty for top-level comments.
 	return VBox.Fill(itemBG).PaddingVH(1, 1)(
 		// one read-receipt dot: has the OTHER party read this? (● read / ○ unread)
@@ -1705,7 +1713,7 @@ func taskRow(r *taskVM) Component {
 // Focusable panes (list, diff, and the conditional draft overview). h/l/Tab move
 // focus; within a pane hjkl and the actions are contextual, bound via On(Key) in
 // buildMain behind If(&pane).Eq(...) — no global ^* shortcuts. The draft pane is
-// only reachable while hasDraft is true.
+// only reachable while draftUI.Has is true.
 
 const (
 	paneList  = "list"
@@ -1714,15 +1722,12 @@ const (
 )
 
 var (
-	pane         = paneList
-	curSelBG     = cSelBG
-	draftSelBG   = cSelBG
-	draftSel     int
-	lastDraftSel = -1
+	pane     = paneList
+	curSelBG = cSelBG
 
 	// the list's base style fills unselected rows with the pane colour; the
 	// selection band is painted per-row (taskRow/draftRow) so it never covers a
-	// group header. curSelBG/draftSelBG carry the focus-aware band colour.
+	// group header. curSelBG/draftUI.SelBG carry the focus-aware band colour.
 	listBaseStyle = Style{BG: cPaneBG}
 
 	// side columns cascade this so header text cells sit on the pane bg (not the
@@ -1752,10 +1757,10 @@ var (
 // is anchored to (GitHub-style: click a comment, jump to its code). Native
 // layer scroll, so no re-render.
 func syncDiffToDraft() {
-	if draftSel < 0 || draftSel >= len(draftComments) {
+	if draftUI.Sel < 0 || draftUI.Sel >= len(draftUI.Comments) {
 		return
 	}
-	c := draftComments[draftSel]
+	c := draftUI.Comments[draftUI.Sel]
 	if c.File == "" {
 		return
 	}
@@ -1768,11 +1773,11 @@ func syncDiffToDraft() {
 }
 
 func setPane(p string) {
-	if p == paneDraft && !hasDraft {
+	if p == paneDraft && !draftUI.Has {
 		p = paneList // can't focus a pane that isn't shown
 	}
 	if p == paneDraft && pane != paneDraft {
-		lastDraftSel = -1 // force a diff sync to the current comment on focus-in
+		draftUI.LastSel = -1 // force a diff sync to the current comment on focus-in
 	}
 	pane = p
 	if p == paneList {
@@ -1785,7 +1790,7 @@ func setPane(p string) {
 // panes returns the focus ring in left-to-right order, including the draft pane
 // only when it's visible.
 func panes() []string {
-	if hasDraft {
+	if draftUI.Has {
 		return []string{paneList, paneDiff, paneDraft}
 	}
 	return []string{paneList, paneDiff}
@@ -1808,21 +1813,21 @@ func stepFocus(d int) {
 }
 
 func moveDraft(d int) {
-	draftSel += d
-	if draftSel >= len(draftComments) {
-		draftSel = len(draftComments) - 1
+	draftUI.Sel += d
+	if draftUI.Sel >= len(draftUI.Comments) {
+		draftUI.Sel = len(draftUI.Comments) - 1
 	}
-	if draftSel < 0 {
-		draftSel = 0
+	if draftUI.Sel < 0 {
+		draftUI.Sel = 0
 	}
 }
 
 // selectedDraft returns the comment under the draft cursor, or nil.
 func selectedDraft() *draftCommentVM {
-	if draftSel < 0 || draftSel >= len(draftComments) {
+	if draftUI.Sel < 0 || draftUI.Sel >= len(draftUI.Comments) {
 		return nil
 	}
-	return &draftComments[draftSel]
+	return &draftUI.Comments[draftUI.Sel]
 }
 
 // markSelectedCommentRead records the user's read-receipt on the selected comment:
@@ -1852,10 +1857,10 @@ func openCommentView() {
 	if c == nil {
 		return
 	}
-	editingCommentID = c.ID
-	cvLocation = c.Location
-	cvSnippet = c.Snippet
-	cvBodyLines = wrapText(c.Body, 66)
+	draftUI.EditingID = c.ID
+	draftUI.ViewLoc = c.Location
+	draftUI.ViewSnip = c.Snippet
+	draftUI.ViewBody = wrapText(c.Body, 66)
 	promptUI.openRead()
 }
 
@@ -1890,16 +1895,16 @@ func replyToComment() {
 	if c == nil {
 		return
 	}
-	replyingToID = c.ID
+	draftUI.ReplyingTo = c.ID
 	promptUI.open("reply", c.Location, "  "+c.Body, "", saveReply)
 }
 
 func saveReply() {
 	body := strings.TrimSpace(promptUI.Field.Value)
-	if replyingToID == 0 || body == "" {
+	if draftUI.ReplyingTo == 0 || body == "" {
 		return
 	}
-	if _, err := uiStore.AddReply(replyingToID, "you", body); err != nil {
+	if _, err := uiStore.AddReply(draftUI.ReplyingTo, "you", body); err != nil {
 		statusMsg = "error: " + err.Error()
 		return
 	}
@@ -1918,20 +1923,20 @@ func editDraftComment() {
 		statusMsg = "submitted comments are read-only (unsubmit with U to edit)"
 		return
 	}
-	editingCommentID = c.ID
+	draftUI.EditingID = c.ID
 	promptUI.open("edit comment", "", "", c.Body, saveEditedComment)
 }
 
 func saveEditedComment() {
 	body := strings.TrimSpace(promptUI.Field.Value)
-	if editingCommentID == 0 {
+	if draftUI.EditingID == 0 {
 		return
 	}
 	if body == "" {
 		statusMsg = "(empty — comment unchanged)"
 		return
 	}
-	if err := uiStore.UpdateComment(editingCommentID, body); err != nil {
+	if err := uiStore.UpdateComment(draftUI.EditingID, body); err != nil {
 		statusMsg = "error: " + err.Error()
 		return
 	}
@@ -1953,8 +1958,8 @@ func deleteDraftComment() {
 		return
 	}
 	statusMsg = "comment deleted"
-	if draftSel > 0 {
-		draftSel--
+	if draftUI.Sel > 0 {
+		draftUI.Sel--
 	}
 	detailDirty = true
 }

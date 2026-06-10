@@ -15,7 +15,7 @@ import (
 func TestSyncDiffToDraft(t *testing.T) {
 	diffLayer = NewLayer()
 	diffLayer.Render = func() {}
-	t.Cleanup(func() { diffLayer = nil; diffMeta = nil; draftComments = nil; draftSel = 0 })
+	t.Cleanup(func() { diffLayer = nil; diffMeta = nil; draftUI.Comments = nil; draftUI.Sel = 0 })
 
 	// a diff buffer tall enough to scroll, with known anchor rows.
 	diffMeta = []diffLineMeta{
@@ -29,26 +29,26 @@ func TestSyncDiffToDraft(t *testing.T) {
 	diffLayer.SetBuffer(buf)
 	diffLayer.SetViewport(40, 3)
 
-	draftComments = []draftCommentVM{
+	draftUI.Comments = []draftCommentVM{
 		{File: "b.go", Line: 11},
 		{File: "a.go", Line: 2},
 	}
 
-	draftSel = 0
+	draftUI.Sel = 0
 	syncDiffToDraft()
 	if got := diffLayer.ScrollY(); got != 4 {
 		t.Fatalf("b.go:11 should scroll to row 4, got %d", got)
 	}
 
-	draftSel = 1
+	draftUI.Sel = 1
 	syncDiffToDraft()
 	if got := diffLayer.ScrollY(); got != 2 {
 		t.Fatalf("a.go:2 should scroll to row 2, got %d", got)
 	}
 
 	// a general (unanchored) comment leaves scroll untouched
-	draftComments = []draftCommentVM{{File: ""}}
-	draftSel = 0
+	draftUI.Comments = []draftCommentVM{{File: ""}}
+	draftUI.Sel = 0
 	before := diffLayer.ScrollY()
 	syncDiffToDraft()
 	if diffLayer.ScrollY() != before {
@@ -71,8 +71,8 @@ func TestLoadDraftPane(t *testing.T) {
 
 	// no draft yet → pane hidden, no rows, no hint
 	loadDraftPane(id)
-	if hasDraft || len(draftComments) != 0 || draftNote != "" {
-		t.Fatalf("expected empty draft state, got hasDraft=%v rows=%d note=%q", hasDraft, len(draftComments), draftNote)
+	if draftUI.Has || len(draftUI.Comments) != 0 || draftUI.Note != "" {
+		t.Fatalf("expected empty draft state, got draftUI.Has=%v rows=%d note=%q", draftUI.Has, len(draftUI.Comments), draftUI.Note)
 	}
 
 	// a line-anchored comment and a general one accumulate into the draft
@@ -84,29 +84,29 @@ func TestLoadDraftPane(t *testing.T) {
 	}
 
 	loadDraftPane(id)
-	if !hasDraft {
-		t.Fatal("expected hasDraft=true once comments exist")
+	if !draftUI.Has {
+		t.Fatal("expected draftUI.Has=true once comments exist")
 	}
-	if draftNote != "✎ 2 draft" {
-		t.Fatalf("draftNote = %q, want \"✎ 2 draft\"", draftNote)
+	if draftUI.Note != "✎ 2 draft" {
+		t.Fatalf("draftUI.Note = %q, want \"✎ 2 draft\"", draftUI.Note)
 	}
-	if len(draftComments) != 2 {
-		t.Fatalf("want 2 draft rows, got %d", len(draftComments))
+	if len(draftUI.Comments) != 2 {
+		t.Fatalf("want 2 draft rows, got %d", len(draftUI.Comments))
 	}
 	// general (unanchored) row sorts first, falls back to "general", no snippet
-	if draftComments[0].Location != "general" || draftComments[0].Snippet != "" {
-		t.Errorf("row0 = %+v, want general/no-snippet", draftComments[0])
+	if draftUI.Comments[0].Location != "general" || draftUI.Comments[0].Snippet != "" {
+		t.Errorf("row0 = %+v, want general/no-snippet", draftUI.Comments[0])
 	}
 	// the line-anchored row follows, carrying location + snippet
-	if draftComments[1].Location != "calc.go · line 3" {
-		t.Errorf("row1 location = %q", draftComments[1].Location)
+	if draftUI.Comments[1].Location != "calc.go · line 3" {
+		t.Errorf("row1 location = %q", draftUI.Comments[1].Location)
 	}
-	if draftComments[1].Snippet != "func sub(){}" || draftComments[1].Body != "needs a test" {
-		t.Errorf("row1 snippet/body = %q / %q", draftComments[1].Snippet, draftComments[1].Body)
+	if draftUI.Comments[1].Snippet != "func sub(){}" || draftUI.Comments[1].Body != "needs a test" {
+		t.Errorf("row1 snippet/body = %q / %q", draftUI.Comments[1].Snippet, draftUI.Comments[1].Body)
 	}
 
 	// the two are draft (editable) before submit
-	if !draftComments[0].Draft {
+	if !draftUI.Comments[0].Draft {
 		t.Fatalf("comments should be Draft before submit")
 	}
 
@@ -116,16 +116,16 @@ func TestLoadDraftPane(t *testing.T) {
 		t.Fatalf("submit: %v", err)
 	}
 	loadDraftPane(id)
-	if !hasDraft || len(draftComments) != 2 {
-		t.Fatalf("comments should persist after submit, got hasDraft=%v rows=%d", hasDraft, len(draftComments))
+	if !draftUI.Has || len(draftUI.Comments) != 2 {
+		t.Fatalf("comments should persist after submit, got draftUI.Has=%v rows=%d", draftUI.Has, len(draftUI.Comments))
 	}
-	for _, c := range draftComments {
+	for _, c := range draftUI.Comments {
 		if c.Draft {
 			t.Fatalf("submitted comments should not be Draft: %+v", c)
 		}
 	}
-	if draftNote != "2 comments" {
-		t.Fatalf("settled note = %q, want \"2 comments\"", draftNote)
+	if draftUI.Note != "2 comments" {
+		t.Fatalf("settled note = %q, want \"2 comments\"", draftUI.Note)
 	}
 }
 
@@ -134,7 +134,7 @@ func TestLoadDraftPane(t *testing.T) {
 func TestCommentedLinesCue(t *testing.T) {
 	st := testStore(t)
 	uiStore = st
-	t.Cleanup(func() { uiStore = nil; clear(commentedLines); draftComments = nil })
+	t.Cleanup(func() { uiStore = nil; clear(commentedLines); draftUI.Comments = nil })
 
 	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	cid, _ := st.AddReviewComment(id, "you", "note", "main.go", 12, "@@", "x := 1")
@@ -150,13 +150,13 @@ func TestCommentedLinesCue(t *testing.T) {
 	// general sorts first, so the anchored comment (cid) is row 1; assert the VM
 	// carries the right id regardless of position.
 	var found bool
-	for _, c := range draftComments {
+	for _, c := range draftUI.Comments {
 		if c.ID == cid {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("VM should carry comment id %d, got %+v", cid, draftComments)
+		t.Fatalf("VM should carry comment id %d, got %+v", cid, draftUI.Comments)
 	}
 }
 
@@ -165,7 +165,7 @@ func TestCommentedLinesCue(t *testing.T) {
 func TestDraftPaneOrdering(t *testing.T) {
 	st := testStore(t)
 	uiStore = st
-	t.Cleanup(func() { uiStore = nil; clear(commentedLines); draftComments = nil; draftSel = 0 })
+	t.Cleanup(func() { uiStore = nil; clear(commentedLines); draftUI.Comments = nil; draftUI.Sel = 0 })
 
 	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	// add deliberately out of order
@@ -175,8 +175,8 @@ func TestDraftPaneOrdering(t *testing.T) {
 	st.AddReviewComment(id, "you", "b low", "b.go", 9, "@@", "z")
 
 	loadDraftPane(id)
-	got := make([]string, len(draftComments))
-	for i, c := range draftComments {
+	got := make([]string, len(draftUI.Comments))
+	for i, c := range draftUI.Comments {
 		got[i] = c.Location
 	}
 	want := []string{"general", "a.go · line 5", "b.go · line 9", "b.go · line 40"}
@@ -359,13 +359,13 @@ func TestInboxCount(t *testing.T) {
 // column width, not truncate at one line. Verified by render: a long body in a
 // narrow column produces several non-empty body rows and keeps its trailing text.
 func TestDraftCommentBodyWraps(t *testing.T) {
-	prev, prevSel := draftComments, draftSel
-	t.Cleanup(func() { draftComments = prev; draftSel = prevSel })
+	prev, prevSel := draftUI.Comments, draftUI.Sel
+	t.Cleanup(func() { draftUI.Comments = prev; draftUI.Sel = prevSel })
 
 	long := "this is a deliberately long top-level comment that should wrap across several lines inside the narrow draft column instead of truncating at a single line in the available space"
-	draftComments = []draftCommentVM{{ID: 1, Location: "general", Body: long, Selected: true}}
-	draftSel = 0
-	node := List(&draftComments).Selection(&draftSel).Style(&listBaseStyle).
+	draftUI.Comments = []draftCommentVM{{ID: 1, Location: "general", Body: long, Selected: true}}
+	draftUI.Sel = 0
+	node := List(&draftUI.Comments).Selection(&draftUI.Sel).Style(&listBaseStyle).
 		SelectedStyle(Style{}).Marker("  ").Render(draftRow)
 	tmpl := Build(node)
 	buf := NewBuffer(34, 16) // narrow, like the Grow(2) column — forces wrapping
@@ -392,23 +392,23 @@ func TestDraftCommentBodyWraps(t *testing.T) {
 // the title rode one row higher than the left/right headers. Verified by render:
 // build the real main view and assert all three title rows are equal.
 func TestColumnHeadersAlign(t *testing.T) {
-	prevApp, prevOmni, prevHasDraft := uiApp, omni, hasDraft
-	prevRows, prevDrafts, prevTitle := vmRows, draftComments, detailTitle
+	prevApp, prevOmni, prevHasDraft := uiApp, omni, draftUI.Has
+	prevRows, prevDrafts, prevTitle := vmRows, draftUI.Comments, detailTitle
 	t.Cleanup(func() {
 		uiApp = prevApp
 		omni = prevOmni
-		hasDraft = prevHasDraft
+		draftUI.Has = prevHasDraft
 		vmRows = prevRows
-		draftComments = prevDrafts
+		draftUI.Comments = prevDrafts
 		detailTitle = prevTitle
 	})
 
 	uiApp = NewApp()
 	omni = newOmniBox(uiApp, omniCommands())
 	detailTitle = "PREVIEWTITLE"
-	hasDraft = true
+	draftUI.Has = true
 	vmRows = []taskVM{{ID: 1, Title: "a task", Repo: "recap", Glyph: "●", GlyphColor: cBright}}
-	draftComments = []draftCommentVM{{Location: "general", Body: "x"}}
+	draftUI.Comments = []draftCommentVM{{Location: "general", Body: "x"}}
 
 	tmpl := Build(buildMain())
 	buf := NewBuffer(120, 40)
@@ -557,12 +557,12 @@ func TestWrapText(t *testing.T) {
 // the focus ring includes the draft pane only when it's visible, so h/l/Tab
 // never land on a pane that isn't on screen.
 func TestPaneRingRespectsDraftVisibility(t *testing.T) {
-	hasDraft = false
-	t.Cleanup(func() { hasDraft = false; pane = paneList })
+	draftUI.Has = false
+	t.Cleanup(func() { draftUI.Has = false; pane = paneList })
 	if got := panes(); len(got) != 2 {
 		t.Fatalf("no draft: want 2 panes, got %v", got)
 	}
-	hasDraft = true
+	draftUI.Has = true
 	if got := panes(); len(got) != 3 || got[2] != paneDraft {
 		t.Fatalf("with draft: want [list diff draft], got %v", got)
 	}
@@ -574,10 +574,10 @@ func TestPaneRingRespectsDraftVisibility(t *testing.T) {
 		t.Fatalf("focusNext from diff = %q, want draft", pane)
 	}
 	// …and setPane refuses the draft pane when it's hidden
-	hasDraft = false
+	draftUI.Has = false
 	setPane(paneDraft)
 	if pane == paneDraft {
-		t.Fatal("setPane(draft) should be refused when hasDraft is false")
+		t.Fatal("setPane(draft) should be refused when draftUI.Has is false")
 	}
 }
 
@@ -744,7 +744,7 @@ func TestGeneralCommentAppearsAfterSave(t *testing.T) {
 		omni = nil
 		diffLayer = prevLayer
 		promptUI.Field = InputState{}
-		draftComments = nil
+		draftUI.Comments = nil
 		detailDirty = false
 	})
 	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
@@ -753,8 +753,8 @@ func TestGeneralCommentAppearsAfterSave(t *testing.T) {
 	sel = 0
 	uiApp.SetView(buildMain())
 	refreshDetail() // establishes lastSel/lastLen; no comments yet
-	if len(draftComments) != 0 {
-		t.Fatalf("precondition: expected 0 comments, got %d", len(draftComments))
+	if len(draftUI.Comments) != 0 {
+		t.Fatalf("precondition: expected 0 comments, got %d", len(draftUI.Comments))
 	}
 
 	promptUI.Field.Value = "a general note"
@@ -762,13 +762,13 @@ func TestGeneralCommentAppearsAfterSave(t *testing.T) {
 	refreshDetail() // selection unchanged → refreshes only if saveGeneralComment marked it dirty
 
 	found := false
-	for _, c := range draftComments {
+	for _, c := range draftUI.Comments {
 		if c.Body == "a general note" && c.Location == "general" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("general comment not shown after save (lost): %+v", draftComments)
+		t.Fatalf("general comment not shown after save (lost): %+v", draftUI.Comments)
 	}
 }
 
@@ -862,23 +862,23 @@ func TestReplyToCommentFromPane(t *testing.T) {
 	t.Cleanup(func() {
 		uiStore = prev
 		uiApp = nil
-		draftComments = nil
-		draftSel = 0
+		draftUI.Comments = nil
+		draftUI.Sel = 0
 		promptUI.Field = InputState{}
-		replyingToID = 0
+		draftUI.ReplyingTo = 0
 	})
 
 	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	parent, _ := st.AddReviewComment(id, "you", "the original", "", 0, "", "")
 	loadDraftPane(id)
-	draftSel = 0
+	draftUI.Sel = 0
 	if selectedDraft() == nil || selectedDraft().ID != parent {
 		t.Fatalf("setup: selected draft should be the parent comment")
 	}
 
 	replyToComment()
-	if replyingToID != parent {
-		t.Fatalf("replyToComment should target the selected comment %d, got %d", parent, replyingToID)
+	if draftUI.ReplyingTo != parent {
+		t.Fatalf("replyToComment should target the selected comment %d, got %d", parent, draftUI.ReplyingTo)
 	}
 	promptUI.Field.Value = "my reply"
 	saveReply()
@@ -934,7 +934,7 @@ func TestReloadKeepsSelectionByTask(t *testing.T) {
 // the inbox (left) column must NOT change width when the comments column appears —
 // it's percentage-sized, so only the middle column absorbs the right pane. With Grow
 // it re-flowed 2/5 ↔ 2/7 of the screen on every selection change that toggled
-// hasDraft, a distracting jump (#e4393fae).
+// draftUI.Has, a distracting jump (#e4393fae).
 func TestLeftColumnStableWhenDraftToggles(t *testing.T) {
 	st := testStore(t)
 	prevStore, prevApp, prevOmni := uiStore, uiApp, omni
@@ -943,8 +943,8 @@ func TestLeftColumnStableWhenDraftToggles(t *testing.T) {
 	omni = newOmniBox(uiApp, omniCommands())
 	t.Cleanup(func() {
 		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
-		vmRows, draftComments = nil, nil
-		hasDraft = false
+		vmRows, draftUI.Comments = nil, nil
+		draftUI.Has = false
 	})
 	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	reloadTasks()
@@ -956,14 +956,14 @@ func TestLeftColumnStableWhenDraftToggles(t *testing.T) {
 		return int(listPaneRef.W)
 	}
 
-	hasDraft = false
+	draftUI.Has = false
 	wNoDraft := render()
 	if wNoDraft <= 0 {
 		t.Fatalf("left column width not captured: %d", wNoDraft)
 	}
 
-	hasDraft = true
-	draftComments = []draftCommentVM{{Location: "general", Body: "x"}}
+	draftUI.Has = true
+	draftUI.Comments = []draftCommentVM{{Location: "general", Body: "x"}}
 	wDraft := render()
 
 	if wNoDraft != wDraft {

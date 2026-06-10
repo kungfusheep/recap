@@ -148,10 +148,10 @@ func readCommentOverlay() Component {
 				),
 				HBox(Text("comment").FG(&cBright).Bold(), Space(), Text("e edit · d delete · esc back").FG(&cMuted)),
 				SpaceH(1),
-				Text(&cvLocation).FG(&cSubtle),
-				If(&cvSnippet).Then(Text(&cvSnippet).FG(&cMuted)),
+				Text(&draftUI.ViewLoc).FG(&cSubtle),
+				If(&draftUI.ViewSnip).Then(Text(&draftUI.ViewSnip).FG(&cMuted)),
 				SpaceH(1),
-				ForEach(&cvBodyLines, func(s *string) Component { return Text(s).FG(&cBright) }),
+				ForEach(&draftUI.ViewBody, func(s *string) Component { return Text(s).FG(&cBright) }),
 			),
 		),
 	)
