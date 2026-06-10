@@ -159,3 +159,61 @@ func TestTodoEditorInTodoView(t *testing.T) {
 		t.Fatalf("prompt should float over the todo editor:\n%s", full)
 	}
 }
+
+// todo:1a80554a — newlines in text entry. True Shift+Enter is indistinguishable from
+// Enter without an enhanced keyboard protocol, so the working-today keys are
+// Alt/Option+Enter (riffkey parses ESC+CR as Alt+Enter) and Ctrl+J. Real path: with the
+// multiline prompt open, Alt+Enter inserts '\n' and the prompt STAYS open; plain Enter
+// still submits. The newline is gated to multiline fields (AllowNewlines), so a
+// single-line filter can't be corrupted.
+func TestPromptAltEnterInsertsNewline(t *testing.T) {
+	prevApp, prevStore, prevOmni := uiApp, uiStore, omni
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	t.Cleanup(func() {
+		uiApp, uiStore, omni = prevApp, prevStore, prevOmni
+		promptUI.Open = false
+		promptUI.Field = InputState{}
+		vmRows = nil
+	})
+	reloadTasks()
+
+	uiApp.SetView(buildMain())
+	uiApp.RenderNow()
+
+	var saved string
+	promptUI.open("add todo", "", "", "line one", func() { saved = promptUI.Field.Value })
+	uiApp.RenderNow() // overlay renders → its modal router is pushed
+
+	// Alt+Enter → newline appended at the cursor, prompt still open
+	if !uiApp.Input().Dispatch(riffkey.Key{Special: riffkey.SpecialEnter, Mod: riffkey.ModAlt}) {
+		t.Fatal("Alt+Enter was not handled")
+	}
+	if !promptUI.Open {
+		t.Fatal("prompt closed on Alt+Enter — should insert a newline and stay open")
+	}
+	if promptUI.Field.Value != "line one\n" {
+		t.Fatalf("Alt+Enter should insert a newline: got %q", promptUI.Field.Value)
+	}
+
+	// Ctrl+J does the same
+	if !uiApp.Input().Dispatch(riffkey.Key{Rune: 'j', Mod: riffkey.ModCtrl}) {
+		t.Fatal("Ctrl+J was not handled")
+	}
+	if promptUI.Field.Value != "line one\n\n" {
+		t.Fatalf("Ctrl+J should insert a newline: got %q", promptUI.Field.Value)
+	}
+
+	// plain Enter still SUBMITS (the modal router's binding wins over the field)
+	if !uiApp.Input().Dispatch(riffkey.Key{Special: riffkey.SpecialEnter}) {
+		t.Fatal("Enter was not handled")
+	}
+	if promptUI.Open {
+		t.Fatal("plain Enter should still submit and close the prompt")
+	}
+	if saved != "line one\n\n" {
+		t.Fatalf("submit should save the multiline body: got %q", saved)
+	}
+}
