@@ -131,8 +131,8 @@ func applyTheme(name string, t theme.Theme) {
 		// margins) — keep it in step with the palette.
 		uiApp.SetDefaultStyle(Style{FG: cFG, BG: cBG})
 		detailDirty = true
-		if diffLayer != nil {
-			diffLayer.Invalidate()
+		if diffUI.Layer != nil {
+			diffUI.Layer.Invalidate()
 		}
 		uiApp.RequestRender()
 	}

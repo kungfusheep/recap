@@ -16,12 +16,12 @@ import (
 
 // renderDiff drives the REAL compile-once path: set the model, prep the row VMs,
 // execute the single compiled template (no Build at render time — the cardinal rule).
-// Returns the buffer; diffMeta is populated as a side effect, like production.
+// Returns the buffer; diffUI.Meta is populated as a side effect, like production.
 func renderDiff(t *testing.T, files []diff.File, w, h int) *Buffer {
 	t.Helper()
-	prevFiles, prevBanner := diffFiles, diffBanner
-	t.Cleanup(func() { diffFiles, diffBanner = prevFiles, prevBanner })
-	diffFiles, diffBanner = files, nil
+	prevFiles, prevBanner := diffUI.Files, diffUI.Banner
+	t.Cleanup(func() { diffUI.Files, diffUI.Banner = prevFiles, prevBanner })
+	diffUI.Files, diffUI.Banner = files, nil
 	prepDiffRows(w)
 	buf := NewBuffer(w, h)
 	diffTemplate().Execute(buf, int16(w), int16(h))
@@ -32,7 +32,7 @@ func renderDiff(t *testing.T, files []diff.File, w, h int) *Buffer {
 // a full-width header band, the body lines (+/-/context) present, and a full-width wash
 // on a commented line. Asserted on the rendered buffer. (diff-renderer-as-components)
 func TestBuildDiffViewRenders(t *testing.T) {
-	defer func() { clear(commentedLines) }()
+	defer func() { clear(diffUI.Commented) }()
 	files := []diff.File{{
 		Path:   "main.go",
 		Status: "modified",
@@ -46,10 +46,10 @@ func TestBuildDiffViewRenders(t *testing.T) {
 		}},
 	}}
 	start := hunkNewStart("@@ -1,3 +1,3 @@") // new-side start = the added line's number
-	commentedLines[lineKey("main.go", start)] = true
+	diffUI.Commented[lineKey("main.go", start)] = true
 
 	buf := renderDiff(t, files, 40, 30)
-	meta := diffMeta
+	meta := diffUI.Meta
 	w, h := 40, len(meta)+2
 	_ = w
 
@@ -113,14 +113,14 @@ func TestBuildDiffViewRenders(t *testing.T) {
 // a folded file collapses to its header only (no body rows in meta); an open file keeps
 // its body. (per-file fold)
 func TestBuildDiffViewFold(t *testing.T) {
-	defer func() { clear(fileFolded) }()
+	defer func() { clear(diffUI.Folded) }()
 	files := []diff.File{{
 		Path:   "main.go",
 		Status: "modified",
 		Hunks:  []diff.Hunk{{Header: "@@ -1,2 +1,2 @@", Lines: []diff.Line{{Kind: diff.LineAdd, Text: "x"}, {Kind: diff.LineDel, Text: "y"}}}},
 	}}
 	renderDiff(t, files, 40, 4)
-	openMeta := append([]diffLineMeta(nil), diffMeta...)
+	openMeta := append([]diffLineMeta(nil), diffUI.Meta...)
 	openBody := 0
 	for _, m := range openMeta {
 		if m.Commentable {
@@ -131,9 +131,9 @@ func TestBuildDiffViewFold(t *testing.T) {
 		t.Fatalf("open file: want 2 commentable body rows, got %d", openBody)
 	}
 
-	fileFolded["main.go"] = true
+	diffUI.Folded["main.go"] = true
 	renderDiff(t, files, 40, 4)
-	foldMeta := append([]diffLineMeta(nil), diffMeta...)
+	foldMeta := append([]diffLineMeta(nil), diffUI.Meta...)
 	for _, m := range foldMeta {
 		if m.Commentable {
 			t.Fatal("folded file should have no commentable body rows")
@@ -150,20 +150,20 @@ func TestBuildDiffViewFold(t *testing.T) {
 	}
 }
 
-// toggleFileFold flips a file's fold state and clears fold-pick mode. (diffLayer nil →
+// toggleFileFold flips a file's fold state and clears fold-pick mode. (diffUI.Layer nil →
 // setDiff is a no-op, so this exercises the state flip alone.)
 func TestToggleFileFold(t *testing.T) {
-	defer func() { clear(fileFolded); pickHeaders = false }()
-	pickHeaders = true
+	defer func() { clear(diffUI.Folded); diffUI.PickHeaders = false }()
+	diffUI.PickHeaders = true
 	toggleFileFold(diffLineMeta{File: "x.go"})
-	if !fileFolded["x.go"] {
+	if !diffUI.Folded["x.go"] {
 		t.Fatal("toggle should fold the file")
 	}
-	if pickHeaders {
+	if diffUI.PickHeaders {
 		t.Fatal("toggle should clear fold-pick mode")
 	}
 	toggleFileFold(diffLineMeta{File: "x.go"})
-	if fileFolded["x.go"] {
+	if diffUI.Folded["x.go"] {
 		t.Fatal("toggle again should unfold")
 	}
 }
@@ -177,7 +177,7 @@ func TestBuildDiffViewPreservesIndent(t *testing.T) {
 		Hunks:  []diff.Hunk{{Header: "@@ -a,b +c,d @@", Lines: []diff.Line{{Kind: diff.LineAdd, Text: "        deeplyIndented()"}}}},
 	}}
 	buf := renderDiff(t, files, 60, 30)
-	meta := diffMeta
+	meta := diffUI.Meta
 
 	found := false
 	for y := 0; y < len(meta)+2; y++ {
@@ -208,7 +208,7 @@ func TestDiffAddedLineHighlighted(t *testing.T) {
 		}}},
 	}}
 	buf := renderDiff(t, files, 60, 30)
-	meta := diffMeta
+	meta := diffUI.Meta
 
 	addY, delY := -1, -1
 	for y := 0; y < len(meta)+2; y++ {
@@ -259,32 +259,32 @@ func TestDiffScrollPreservedOnReload(t *testing.T) {
 	sha, _ := git(dir, "rev-parse", "--short", "HEAD")
 
 	st := testStore(t)
-	prevStore, prevApp, prevLayer := uiStore, uiApp, diffLayer
+	prevStore, prevApp, prevLayer := uiStore, uiApp, diffUI.Layer
 	uiStore = st
 	uiApp = NewApp()
-	diffLayer = NewLayer()
-	diffLayer.Render = renderDiffLayer
+	diffUI.Layer = NewLayer()
+	diffUI.Layer.Render = renderDiffLayer
 	expandedTasks = map[int64]bool{}
 	t.Cleanup(func() {
 		uiStore = prevStore
 		uiApp = prevApp
-		diffLayer = prevLayer
-		vmRows, diffMeta, diffFiles = nil, nil, nil
+		diffUI.Layer = prevLayer
+		vmRows, diffUI.Meta, diffUI.Files = nil, nil, nil
 		sel, lastSel, lastLen, lastDiffKey, detailDirty = 0, 0, 0, "", false
 	})
 	st.Add(db.Task{Repo: "r", RepoPath: dir, SHA: sha, Title: "t1", Status: db.StatusPending})
 	reloadTasks()
 	sel = 0
 	uiApp.SetView(VBox.Width(80).Height(8)(
-		HBox.Grow(1).NodeRef(&diffViewRef)(LayerView(diffLayer).Grow(1)),
+		HBox.Grow(1).NodeRef(&diffUI.ViewRef)(LayerView(diffUI.Layer).Grow(1)),
 	))
 	detailDirty = true
 	refreshDetail()
 	uiApp.RenderNow()
 
-	diffLayer.ScrollTo(5)
+	diffUI.Layer.ScrollTo(5)
 	uiApp.RenderNow()
-	scrolled := diffLayer.ScrollY()
+	scrolled := diffUI.Layer.ScrollY()
 	if scrolled == 0 {
 		t.Fatal("could not scroll the diff (setup)")
 	}
@@ -296,8 +296,8 @@ func TestDiffScrollPreservedOnReload(t *testing.T) {
 	detailDirty = true
 	refreshDetail()
 	uiApp.RenderNow()
-	if diffLayer.ScrollY() != scrolled {
-		t.Fatalf("scroll reset on same-task reload: was %d, now %d", scrolled, diffLayer.ScrollY())
+	if diffUI.Layer.ScrollY() != scrolled {
+		t.Fatalf("scroll reset on same-task reload: was %d, now %d", scrolled, diffUI.Layer.ScrollY())
 	}
 
 	// switching to a different task DOES reset scroll to the top
@@ -305,53 +305,53 @@ func TestDiffScrollPreservedOnReload(t *testing.T) {
 	detailDirty = true
 	refreshDetail()
 	uiApp.RenderNow()
-	if diffLayer.ScrollY() != 0 {
-		t.Fatalf("switching tasks should reset scroll, got %d", diffLayer.ScrollY())
+	if diffUI.Layer.ScrollY() != 0 {
+		t.Fatalf("switching tasks should reset scroll, got %d", diffUI.Layer.ScrollY())
 	}
 }
 
 // foldAllFiles toggles every file between folded and open. (close all files)
 func TestFoldAllFiles(t *testing.T) {
-	defer func() { clear(fileFolded); diffFiles = nil }()
-	diffFiles = []diff.File{{Path: "a.go"}, {Path: "b.go"}}
+	defer func() { clear(diffUI.Folded); diffUI.Files = nil }()
+	diffUI.Files = []diff.File{{Path: "a.go"}, {Path: "b.go"}}
 	foldAllFiles() // none folded → fold all
-	if !fileFolded["a.go"] || !fileFolded["b.go"] {
+	if !diffUI.Folded["a.go"] || !diffUI.Folded["b.go"] {
 		t.Fatal("foldAllFiles should fold every file")
 	}
 	foldAllFiles() // all folded → unfold all
-	if fileFolded["a.go"] || fileFolded["b.go"] {
+	if diffUI.Folded["a.go"] || diffUI.Folded["b.go"] {
 		t.Fatal("foldAllFiles again should unfold every file")
 	}
 }
 
 // nextFile / prevFile scroll to the next / previous file header. (file navigation)
 func TestNextPrevFile(t *testing.T) {
-	prev := diffLayer
-	t.Cleanup(func() { diffLayer = prev; diffMeta = nil })
-	diffLayer = NewLayer()
-	diffLayer.SetViewport(80, 5)
-	diffLayer.SetBuffer(NewBuffer(80, 30)) // maxScroll = 25
-	diffMeta = make([]diffLineMeta, 30)
-	diffMeta[2].FileHeader = true
-	diffMeta[12].FileHeader = true
-	diffMeta[20].FileHeader = true
+	prev := diffUI.Layer
+	t.Cleanup(func() { diffUI.Layer = prev; diffUI.Meta = nil })
+	diffUI.Layer = NewLayer()
+	diffUI.Layer.SetViewport(80, 5)
+	diffUI.Layer.SetBuffer(NewBuffer(80, 30)) // maxScroll = 25
+	diffUI.Meta = make([]diffLineMeta, 30)
+	diffUI.Meta[2].FileHeader = true
+	diffUI.Meta[12].FileHeader = true
+	diffUI.Meta[20].FileHeader = true
 
-	diffLayer.ScrollTo(0)
+	diffUI.Layer.ScrollTo(0)
 	nextFile()
-	if diffLayer.ScrollY() != 2 {
-		t.Fatalf("nextFile from 0 → %d, want 2", diffLayer.ScrollY())
+	if diffUI.Layer.ScrollY() != 2 {
+		t.Fatalf("nextFile from 0 → %d, want 2", diffUI.Layer.ScrollY())
 	}
 	nextFile()
-	if diffLayer.ScrollY() != 12 {
-		t.Fatalf("nextFile from 2 → %d, want 12", diffLayer.ScrollY())
+	if diffUI.Layer.ScrollY() != 12 {
+		t.Fatalf("nextFile from 2 → %d, want 12", diffUI.Layer.ScrollY())
 	}
 	prevFile()
-	if diffLayer.ScrollY() != 2 {
-		t.Fatalf("prevFile from 12 → %d, want 2", diffLayer.ScrollY())
+	if diffUI.Layer.ScrollY() != 2 {
+		t.Fatalf("prevFile from 12 → %d, want 2", diffUI.Layer.ScrollY())
 	}
 	prevFile() // before the first header → top
-	if diffLayer.ScrollY() != 0 {
-		t.Fatalf("prevFile from 2 → %d, want 0 (top)", diffLayer.ScrollY())
+	if diffUI.Layer.ScrollY() != 0 {
+		t.Fatalf("prevFile from 2 → %d, want 0 (top)", diffUI.Layer.ScrollY())
 	}
 }
 

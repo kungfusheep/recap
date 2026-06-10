@@ -13,21 +13,21 @@ import (
 
 // selecting a draft comment scrolls the diff layer to the line it's anchored to.
 func TestSyncDiffToDraft(t *testing.T) {
-	diffLayer = NewLayer()
-	diffLayer.Render = func() {}
-	t.Cleanup(func() { diffLayer = nil; diffMeta = nil; draftUI.Comments = nil; draftUI.Sel = 0 })
+	diffUI.Layer = NewLayer()
+	diffUI.Layer.Render = func() {}
+	t.Cleanup(func() { diffUI.Layer = nil; diffUI.Meta = nil; draftUI.Comments = nil; draftUI.Sel = 0 })
 
 	// a diff buffer tall enough to scroll, with known anchor rows.
-	diffMeta = []diffLineMeta{
+	diffUI.Meta = []diffLineMeta{
 		{}, // 0 file header
 		{File: "a.go", Line: 1, Commentable: true},  // 1
 		{File: "a.go", Line: 2, Commentable: true},  // 2
 		{File: "b.go", Line: 10, Commentable: true}, // 3
 		{File: "b.go", Line: 11, Commentable: true}, // 4
 	}
-	buf := NewBuffer(40, len(diffMeta)+50) // taller than viewport so maxScroll>0
-	diffLayer.SetBuffer(buf)
-	diffLayer.SetViewport(40, 3)
+	buf := NewBuffer(40, len(diffUI.Meta)+50) // taller than viewport so maxScroll>0
+	diffUI.Layer.SetBuffer(buf)
+	diffUI.Layer.SetViewport(40, 3)
 
 	draftUI.Comments = []draftCommentVM{
 		{File: "b.go", Line: 11},
@@ -36,22 +36,22 @@ func TestSyncDiffToDraft(t *testing.T) {
 
 	draftUI.Sel = 0
 	syncDiffToDraft()
-	if got := diffLayer.ScrollY(); got != 4 {
+	if got := diffUI.Layer.ScrollY(); got != 4 {
 		t.Fatalf("b.go:11 should scroll to row 4, got %d", got)
 	}
 
 	draftUI.Sel = 1
 	syncDiffToDraft()
-	if got := diffLayer.ScrollY(); got != 2 {
+	if got := diffUI.Layer.ScrollY(); got != 2 {
 		t.Fatalf("a.go:2 should scroll to row 2, got %d", got)
 	}
 
 	// a general (unanchored) comment leaves scroll untouched
 	draftUI.Comments = []draftCommentVM{{File: ""}}
 	draftUI.Sel = 0
-	before := diffLayer.ScrollY()
+	before := diffUI.Layer.ScrollY()
 	syncDiffToDraft()
-	if diffLayer.ScrollY() != before {
+	if diffUI.Layer.ScrollY() != before {
 		t.Fatalf("general comment should not scroll the diff")
 	}
 }
@@ -134,18 +134,18 @@ func TestLoadDraftPane(t *testing.T) {
 func TestCommentedLinesCue(t *testing.T) {
 	st := testStore(t)
 	uiStore = st
-	t.Cleanup(func() { uiStore = nil; clear(commentedLines); draftUI.Comments = nil })
+	t.Cleanup(func() { uiStore = nil; clear(diffUI.Commented); draftUI.Comments = nil })
 
 	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	cid, _ := st.AddReviewComment(id, "you", "note", "main.go", 12, "@@", "x := 1")
 	st.AddReviewComment(id, "you", "general note", "", 0, "", "")
 
 	loadDraftPane(id)
-	if !commentedLines[lineKey("main.go", 12)] {
-		t.Fatalf("expected main.go:12 marked as commented, got %v", commentedLines)
+	if !diffUI.Commented[lineKey("main.go", 12)] {
+		t.Fatalf("expected main.go:12 marked as commented, got %v", diffUI.Commented)
 	}
-	if len(commentedLines) != 1 {
-		t.Fatalf("only anchored comments should mark lines, got %d", len(commentedLines))
+	if len(diffUI.Commented) != 1 {
+		t.Fatalf("only anchored comments should mark lines, got %d", len(diffUI.Commented))
 	}
 	// general sorts first, so the anchored comment (cid) is row 1; assert the VM
 	// carries the right id regardless of position.
@@ -165,7 +165,7 @@ func TestCommentedLinesCue(t *testing.T) {
 func TestDraftPaneOrdering(t *testing.T) {
 	st := testStore(t)
 	uiStore = st
-	t.Cleanup(func() { uiStore = nil; clear(commentedLines); draftUI.Comments = nil; draftUI.Sel = 0 })
+	t.Cleanup(func() { uiStore = nil; clear(diffUI.Commented); draftUI.Comments = nil; draftUI.Sel = 0 })
 
 	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	// add deliberately out of order
@@ -731,18 +731,18 @@ func TestReplyRowRenders(t *testing.T) {
 // "lost" (it's in the db, just not displayed).
 func TestGeneralCommentAppearsAfterSave(t *testing.T) {
 	prev := uiStore
-	prevLayer := diffLayer
+	prevLayer := diffUI.Layer
 	st := testStore(t)
 	uiStore = st
 	uiApp = NewApp()
 	omni = newOmniBox(uiApp, omniCommands())
-	diffLayer = NewLayer()
-	diffLayer.Render = func() {}
+	diffUI.Layer = NewLayer()
+	diffUI.Layer.Render = func() {}
 	t.Cleanup(func() {
 		uiStore = prev
 		uiApp = nil
 		omni = nil
-		diffLayer = prevLayer
+		diffUI.Layer = prevLayer
 		promptUI.Field = InputState{}
 		draftUI.Comments = nil
 		detailDirty = false
@@ -777,18 +777,18 @@ func TestGeneralCommentAppearsAfterSave(t *testing.T) {
 // older revision child shows that revision's own summary in full — not the
 // original task summary, and not the truncated left-column label.
 func TestSummaryFollowsSelectedRevision(t *testing.T) {
-	prev, prevLayer := uiStore, diffLayer
+	prev, prevLayer := uiStore, diffUI.Layer
 	st := testStore(t)
 	uiStore = st
 	uiApp = NewApp()
 	omni = newOmniBox(uiApp, omniCommands())
-	diffLayer = NewLayer()
-	diffLayer.Render = func() {}
+	diffUI.Layer = NewLayer()
+	diffUI.Layer.Render = func() {}
 	t.Cleanup(func() {
 		uiStore = prev
 		uiApp = nil
 		omni = nil
-		diffLayer = prevLayer
+		diffUI.Layer = prevLayer
 		clear(expandedTasks)
 		detailDirty = false
 	})
@@ -816,14 +816,14 @@ func TestSummaryFollowsSelectedRevision(t *testing.T) {
 	sel = hdr
 	detailDirty = true
 	refreshDetail()
-	if b := flattenSpans(diffBanner); !contains2(b, "revised briefing") {
+	if b := flattenSpans(diffUI.Banner); !contains2(b, "revised briefing") {
 		t.Fatalf("header should show the latest revision summary, banner=%q", b)
 	}
 
 	sel = origChild
 	detailDirty = true
 	refreshDetail()
-	if b := flattenSpans(diffBanner); !contains2(b, "original briefing") {
+	if b := flattenSpans(diffUI.Banner); !contains2(b, "original briefing") {
 		t.Fatalf("selecting rev 0 should show its own summary, banner=%q", b)
 	}
 }
@@ -1057,7 +1057,7 @@ func TestDiffShowsDanglingShaWarning(t *testing.T) {
 	omni = newOmniBox(uiApp, omniCommands())
 	t.Cleanup(func() {
 		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
-		vmRows, diffBanner, diffFiles = nil, nil, nil
+		vmRows, diffUI.Banner, diffUI.Files = nil, nil, nil
 	})
 	st.Add(db.Task{Repo: "r", RepoPath: dir, SHA: "deadbeef1", Title: "t", Status: db.StatusPending})
 	reloadTasks()
@@ -1067,7 +1067,7 @@ func TestDiffShowsDanglingShaWarning(t *testing.T) {
 	refreshDetail()
 
 	found := false
-	for _, row := range diffBanner {
+	for _, row := range diffUI.Banner {
 		for _, sp := range row {
 			if strings.Contains(sp.Text, "not found") {
 				found = true
@@ -1075,10 +1075,10 @@ func TestDiffShowsDanglingShaWarning(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("dangling sha should produce a 'commit not found' banner, got banner=%v filesText=%q", diffBanner, filesText)
+		t.Fatalf("dangling sha should produce a 'commit not found' banner, got banner=%v diffUI.FilesText=%q", diffUI.Banner, diffUI.FilesText)
 	}
-	if filesText != "commit not found" {
-		t.Fatalf("filesText = %q, want 'commit not found'", filesText)
+	if diffUI.FilesText != "commit not found" {
+		t.Fatalf("diffUI.FilesText = %q, want 'commit not found'", diffUI.FilesText)
 	}
 }
 

@@ -49,7 +49,7 @@ func runEditorAt(repo, file string, line int) {
 	}
 }
 
-// editDiffLine opens the picked diff line in $EDITOR (the pickAction for the editor
+// editDiffLine opens the picked diff line in $EDITOR (the diffUI.PickAction for the editor
 // jump flow).
 func editDiffLine(m diffLineMeta) {
 	t, ok := selectedTask()
@@ -67,7 +67,7 @@ func openEditorPick() {
 		statusMsg = "(no diff lines to open)"
 		return
 	}
-	pickHeaders = false
-	pickAction = editDiffLine
+	diffUI.PickHeaders = false
+	diffUI.PickAction = editDiffLine
 	uiApp.EnterJumpMode()
 }

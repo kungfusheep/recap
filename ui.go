@@ -195,46 +195,7 @@ var (
 	// reloadTasks). Rows carry only a task ID; this maps back to the full db.Task.
 	taskByID = map[int64]db.Task{}
 
-	// diff pane: a native-scroll Layer. renderDiffLayer builds a component tree from
-	// diffFiles/diffBanner into the buffer on content/size change (see prepDiffRows),
-	// then the framework blits the visible window each frame — scroll is free.
-	diffLayer  *Layer
-	diffMeta   []diffLineMeta // one entry per rendered row (render order): anchor info
-	diffBanner [][]Span       // optional context rows prepended to the diff
-
-	// line-comment "pick a line" mode rides glyph's jump-label engine: while
-	// uiApp.JumpModeActive(), renderDiffLayer registers one jump target per visible
-	// commentable row at its on-screen position. glyph assigns the labels (home-row,
-	// multi-char automatically when there are many), paints them onto the frame, and
-	// routes the keystrokes (including multi-char prefixes + Esc). The diff is a
-	// scrolled layer so the row→screen mapping is ours (diffViewRef = the LayerView's
-	// screen rect); only the label engine is glyph's.
-	diffViewRef NodeRef // screen rect of the diff LayerView, for jump-target coords
-	// pickAction is what to do with the picked diff line (comment on it, or open it in
-	// $EDITOR). Set before EnterJumpMode; the picked target's onSelect calls it.
-	pickAction func(diffLineMeta)
-	// pickHeaders switches jump-pick from commentable body rows to file-header rows
-	// (the fold-pick mode); fileFolded collapses a file to its header in the diff.
-	pickHeaders bool
-	fileFolded  = map[string]bool{}
-
-	// commentedLines marks diff rows that already carry a draft comment, keyed by
-	// "file:line", so renderDiffLayer can draw a visual cue in the gutter.
-	commentedLines = map[string]bool{}
-
-	// diffFocused mirrors pane=="diff" as a 0/1 opacity target so the diff
-	// scrollbar fades in only when the diff column has focus (mail's cue).
-	diffFocused = 0.0
-
 	helpOpen bool // ? cheatsheet overlay
-
-	// the anchor of the line currently being commented on (set when picked).
-	pcFile, pcAnchor, pcSnippet string
-	pcLine                      int
-
-	// display strings for the line-comment prompt
-	pcLocation    string
-	pcSnippetView string
 
 	countText, filterText string
 	spinFrame             int // animation frame for the in-flight spinner flare
@@ -243,8 +204,6 @@ var (
 	metaRepo, metaWhen    string
 	metaResult            string
 	metaResultColor       = cSubtle
-	filesText             string
-	diffFiles             []diff.File
 	statusMsg             string
 
 	lastSel, lastLen int
@@ -278,8 +237,8 @@ func runUI() error {
 	// so the compiled templates bake the right palette.
 	initTheme()
 
-	diffLayer = NewLayer()
-	diffLayer.Render = renderDiffLayer
+	diffUI.Layer = NewLayer()
+	diffUI.Layer.Render = renderDiffLayer
 
 	omni = newOmniBox(uiApp, omniCommands())
 
@@ -698,9 +657,9 @@ func refreshDetail() {
 	}
 	// fade the diff scrollbar in only while the diff column has focus
 	if pane == paneDiff {
-		diffFocused = 1.0
+		diffUI.Focused = 1.0
 	} else {
-		diffFocused = 0.0
+		diffUI.Focused = 0.0
 	}
 	// …and the comments scrollbar only while the draft column has focus
 	if pane == paneDraft {
@@ -741,7 +700,7 @@ func refreshDetail() {
 	lastDiffKey = diffKey
 	if !ok || row == nil {
 		detailTitle, metaRepo, metaWhen, metaResult = "no tasks", "", "", ""
-		filesText, diffFiles, draftUI.Note = "", nil, ""
+		diffUI.FilesText, diffUI.Files, draftUI.Note = "", nil, ""
 		draftUI.Has, draftUI.Comments = false, nil
 		setDiff(resetScroll)
 		return
@@ -760,31 +719,31 @@ func refreshDetail() {
 	t.Summary = row.Summary
 	// the review-context banner (amends summary / re-review header) sits above the
 	// task's own diff, which still shows for context.
-	diffBanner = buildBanner(t)
+	diffUI.Banner = buildBanner(t)
 
 	// the diff shown follows the selected row: a header shows the latest revision,
 	// a revision child shows its own commit.
 	sha := row.DiffSHA
 	if sha == "" || t.RepoPath == "" {
-		filesText, diffFiles = "no diff — task has no sha", nil
+		diffUI.FilesText, diffUI.Files = "no diff — task has no sha", nil
 		setDiff(resetScroll)
 		return
 	}
-	filesText = changedFiles(t.RepoPath, sha)
+	diffUI.FilesText = changedFiles(t.RepoPath, sha)
 	full, err := git(t.RepoPath, "show", "--format=", sha)
 	if err != nil {
 		// a sha this checkout can't resolve must SAY so — silently rendering
 		// "no changes" hid a real data problem (agents recording shas from a
 		// different clone/sandbox, so the commit never existed here).
-		diffFiles = nil
-		filesText = "commit not found"
-		diffBanner = append(diffBanner,
+		diffUI.Files = nil
+		diffUI.FilesText = "commit not found"
+		diffUI.Banner = append(diffUI.Banner,
 			[]Span{span(fmt.Sprintf("⚠ commit %s not found in %s", sha, t.RepoPath), cDel, true)},
 			[]Span{span("  the work may have been recorded from a different checkout (clone/sandbox),", cSubtle, false)},
 			[]Span{span("  or this repo's history was rewritten after recording", cSubtle, false)},
 			[]Span{})
 	} else {
-		diffFiles = diff.Parse(full)
+		diffUI.Files = diff.Parse(full)
 	}
 	setDiff(resetScroll)
 }
@@ -896,8 +855,8 @@ func reviewBanner(title string, rv db.Review, withComments bool) [][]Span {
 // the conditional pane's comment rows, sourced from the open draft review.
 func loadDraftPane(taskID int64) {
 	draftUI.Comments = nil
-	for k := range commentedLines {
-		delete(commentedLines, k)
+	for k := range diffUI.Commented {
+		delete(diffUI.Commented, k)
 	}
 	// show ALL review comments on the task — not just the open draft — so feedback
 	// stays visible after submit. Each row knows if it's still an editable draft.
@@ -926,7 +885,7 @@ func loadDraftPane(taskID int64) {
 			if c.Line > 0 {
 				vm.Location += fmt.Sprintf(" · line %d", c.Line)
 			}
-			commentedLines[lineKey(c.File, c.Line)] = true
+			diffUI.Commented[lineKey(c.File, c.Line)] = true
 		} else {
 			vm.Location = "general"
 		}
@@ -1058,16 +1017,16 @@ type diffLineMeta struct {
 // setDiff rebuilds the diff content and resets scroll. Invalidate tells the
 // layer to re-run renderDiffLayer on the next display pass (content changed).
 func setDiff(resetScroll bool) {
-	// renderDiffLayer rebuilds the component tree + diffMeta from diffFiles/diffBanner each
+	// renderDiffLayer rebuilds the component tree + diffUI.Meta from diffUI.Files/diffUI.Banner each
 	// render, so setDiff only (optionally) resets scroll + invalidates. resetScroll is false
 	// when the shown diff is unchanged (an inbox reload that didn't change the selected task,
 	// or a fold toggle) so the reader's scroll is kept. jump mode (line-picking) is owned by
-	// glyph, not reset here — the next render re-registers targets from the rebuilt diffMeta.
-	if diffLayer != nil {
+	// glyph, not reset here — the next render re-registers targets from the rebuilt diffUI.Meta.
+	if diffUI.Layer != nil {
 		if resetScroll {
-			diffLayer.ScrollToTop()
+			diffUI.Layer.ScrollToTop()
 		}
-		diffLayer.Invalidate()
+		diffUI.Layer.Invalidate()
 	}
 }
 
@@ -1101,45 +1060,12 @@ func span(text string, fg Color, bold bool) Span {
 
 // The diff pane follows glyph's cardinal rule — compile once, mutate state. The
 // template below is compiled a single time (lazily) and re-executed into the layer
-// buffer whenever the content or width changes; per-row content lives in diffRows
+// buffer whenever the content or width changes; per-row content lives in diffUI.Rows
 // (a []Span per visual row, a sanctioned derived field rebuilt by prepDiffRows),
 // which Rich(&r.Spans) re-reads every execute. No component trees are constructed
 // or compiled at render time.
-type diffRowVM struct {
-	Spans []Span
-}
-
-var (
-	diffRows []diffRowVM
-	diffTmpl *Template
-)
-
-// diffTemplate returns the diff pane's single compiled template (built on first use:
-// one ForEach over the row VMs, one Rich per row).
-func diffTemplate() *Template {
-	if diffTmpl == nil {
-		diffTmpl = Build(VBox.Fill(&cBG).Gap(0)(
-			ForEach(&diffRows, func(r *diffRowVM) Component { return Rich(&r.Spans).CharWrap() }),
-		))
-	}
-	return diffTmpl
-}
-
-// padTo right-pads a row's spans with background-coloured spaces to width w, so a
-// banded row (file header, comment wash) paints its colour edge to edge.
-func padTo(spans []Span, w int, bg Color) []Span {
-	used := 0
-	for _, sp := range spans {
-		used += len([]rune(sp.Text))
-	}
-	if used < w {
-		spans = append(spans, Span{Text: strings.Repeat(" ", w-used), Style: Style{BG: bg}})
-	}
-	return spans
-}
-
-// prepDiffRows flattens the banner + parsed diff into diffRows (one []Span per visual
-// row) and the parallel diffMeta (jump/anchor coordinates by row). Pure data prep —
+// prepDiffRows flattens the banner + parsed diff into diffUI.Rows (one []Span per visual
+// row) and the parallel diffUI.Meta (jump/anchor coordinates by row). Pure data prep —
 // runs only when content or width changes, never per frame.
 func prepDiffRows(w int) {
 	clipN := func(s string, max int) string {
@@ -1150,24 +1076,24 @@ func prepDiffRows(w int) {
 	}
 	clip := func(s string) string { return clipN(s, w) }
 
-	diffRows = diffRows[:0]
-	diffMeta = diffMeta[:0]
+	diffUI.Rows = diffUI.Rows[:0]
+	diffUI.Meta = diffUI.Meta[:0]
 	row := func(m diffLineMeta, spans ...Span) {
-		diffRows = append(diffRows, diffRowVM{Spans: spans})
-		diffMeta = append(diffMeta, m)
+		diffUI.Rows = append(diffUI.Rows, diffRowVM{Spans: spans})
+		diffUI.Meta = append(diffUI.Meta, m)
 	}
 
-	for _, brow := range diffBanner {
-		diffRows = append(diffRows, diffRowVM{Spans: append([]Span(nil), brow...)})
-		diffMeta = append(diffMeta, diffLineMeta{})
+	for _, brow := range diffUI.Banner {
+		diffUI.Rows = append(diffUI.Rows, diffRowVM{Spans: append([]Span(nil), brow...)})
+		diffUI.Meta = append(diffUI.Meta, diffLineMeta{})
 	}
 
-	if len(diffFiles) == 0 {
+	if len(diffUI.Files) == 0 {
 		row(diffLineMeta{}, span("no changes", cSubtle, false))
 		return
 	}
 
-	for fi, f := range diffFiles {
+	for fi, f := range diffUI.Files {
 		if fi > 0 {
 			row(diffLineMeta{}, span(" ", cFG, false)) // blank spacer row between files
 		}
@@ -1182,7 +1108,7 @@ func prepDiffRows(w int) {
 		}
 		// header band: fold caret (▾ open / ▸ folded) + status + path, padded so the
 		// band colour reaches the right edge. Renames show both ends of the move.
-		folded := fileFolded[f.Path]
+		folded := diffUI.Folded[f.Path]
 		caret := "▾ "
 		if folded {
 			caret = "▸ "
@@ -1223,7 +1149,7 @@ func prepDiffRows(w int) {
 				}
 				// a commented line gets a full-width wash: every span takes the wash
 				// background, padded to the edge.
-				if commentedLines[lineKey(m.File, m.Line)] {
+				if diffUI.Commented[lineKey(m.File, m.Line)] {
 					for i := range spans {
 						spans[i].Style.BG = cCommentBG
 					}
@@ -1240,47 +1166,47 @@ func prepDiffRows(w int) {
 // Invalidate — never per-frame. prepDiffRows rebuilds the row data (content and
 // width are inputs to the spans); the template itself is never rebuilt.
 func renderDiffLayer() {
-	w := diffLayer.ViewportWidth()
+	w := diffUI.Layer.ViewportWidth()
 	if w <= 0 {
 		return
 	}
 	prepDiffRows(w - 2)
 
-	h := len(diffMeta)
-	if vh := diffLayer.ViewportHeight(); h < vh {
+	h := len(diffUI.Meta)
+	if vh := diffUI.Layer.ViewportHeight(); h < vh {
 		h = vh // pad to viewport so the themed fill covers the whole pane
 	}
 	buf := NewBuffer(w, h)
 	diffTemplate().Execute(buf, int16(w), int16(h))
 
 	// while glyph's jump mode is active, register one jump target per visible commentable
-	// row at its screen position (screenY = diffViewRef.Y + row − scroll) — same manual
+	// row at its screen position (screenY = diffUI.ViewRef.Y + row − scroll) — same manual
 	// mapping as before, since the diff is a scrolled layer rendered off-screen.
 	if uiApp != nil && uiApp.JumpModeActive() {
-		top, vh := diffLayer.ScrollY(), diffLayer.ViewportHeight()
+		top, vh := diffUI.Layer.ScrollY(), diffUI.Layer.ViewportHeight()
 		lblStyle := Style{FG: cBG, BG: cHunk, Attr: AttrBold}
-		for y := top; y < top+vh && y < len(diffMeta); y++ {
+		for y := top; y < top+vh && y < len(diffUI.Meta); y++ {
 			// fold-pick targets file headers; the normal pick targets commentable lines.
-			target := diffMeta[y].Commentable
-			if pickHeaders {
-				target = diffMeta[y].FileHeader
+			target := diffUI.Meta[y].Commentable
+			if diffUI.PickHeaders {
+				target = diffUI.Meta[y].FileHeader
 			}
 			if !target {
 				continue
 			}
 			row := y // capture per target so each onSelect picks its own row
-			sx, sy := diffViewRef.X, diffViewRef.Y+(y-top)
+			sx, sy := diffUI.ViewRef.X, diffUI.ViewRef.Y+(y-top)
 			uiApp.AddJumpTarget(int16(sx), int16(sy), func() {
-				if pickAction != nil && row < len(diffMeta) {
-					pickAction(diffMeta[row])
+				if diffUI.PickAction != nil && row < len(diffUI.Meta) {
+					diffUI.PickAction(diffUI.Meta[row])
 				}
 			}, lblStyle)
 		}
 	}
 
-	scrollY := diffLayer.ScrollY()
-	diffLayer.SetBuffer(buf)    // resets scrollY to 0…
-	diffLayer.ScrollTo(scrollY) // …so restore it (preserves scroll across re-render)
+	scrollY := diffUI.Layer.ScrollY()
+	diffUI.Layer.SetBuffer(buf)    // resets scrollY to 0…
+	diffUI.Layer.ScrollTo(scrollY) // …so restore it (preserves scroll across re-render)
 }
 
 func dash(s string) string {
@@ -1415,12 +1341,12 @@ func buildMain() Component {
 				// NodeRef on this HBox gives the diff LayerView's screen rect (it's
 				// the first child at x=0): renderDiffLayer maps commentable rows to
 				// screen coords from it when registering glyph jump targets.
-				HBox.Grow(1).NodeRef(&diffViewRef)(
-					LayerView(diffLayer).Grow(1),
-					ScrollbarForLayer(diffLayer).
+				HBox.Grow(1).NodeRef(&diffUI.ViewRef)(
+					LayerView(diffUI.Layer).Grow(1),
+					ScrollbarForLayer(diffUI.Layer).
 						TrackStyle(&scrollTrackStyle).
 						ThumbStyle(&scrollThumbStyle).
-						Opacity(Animate(&diffFocused)),
+						Opacity(Animate(&diffUI.Focused)),
 				),
 				// diff-focused keys. During a line-pick glyph's jump router is
 				// pushed on top and intercepts the label keystrokes, so these stay
@@ -1764,9 +1690,9 @@ func syncDiffToDraft() {
 	if c.File == "" {
 		return
 	}
-	for y, m := range diffMeta {
+	for y, m := range diffUI.Meta {
 		if m.File == c.File && (c.Line == 0 || m.Line == c.Line) && m.Commentable {
-			diffLayer.ScrollTo(y)
+			diffUI.Layer.ScrollTo(y)
 			return
 		}
 	}
@@ -2005,12 +1931,12 @@ func saveGeneralComment() {
 
 // diff scroll is native: adjust the layer's scrollY (clamped internally) and
 // the framework re-blits the visible window next frame — no re-render.
-func diffDown()     { diffLayer.ScrollDown(1) }
-func diffUp()       { diffLayer.ScrollUp(1) }
-func diffHalfDown() { diffLayer.HalfPageDown() }
-func diffHalfUp()   { diffLayer.HalfPageUp() }
-func diffTop()      { diffLayer.ScrollToTop() }
-func diffBottom()   { diffLayer.ScrollToEnd() }
+func diffDown()     { diffUI.Layer.ScrollDown(1) }
+func diffUp()       { diffUI.Layer.ScrollUp(1) }
+func diffHalfDown() { diffUI.Layer.HalfPageDown() }
+func diffHalfUp()   { diffUI.Layer.HalfPageUp() }
+func diffTop()      { diffUI.Layer.ScrollToTop() }
+func diffBottom()   { diffUI.Layer.ScrollToEnd() }
 
 func moveSel(d int) {
 	sel += d
@@ -2207,7 +2133,7 @@ func isRecent(stamp string) bool {
 }
 
 func anyCommentableRow() bool {
-	for _, m := range diffMeta {
+	for _, m := range diffUI.Meta {
 		if m.Commentable {
 			return true
 		}
@@ -2217,7 +2143,7 @@ func anyCommentableRow() bool {
 
 // openDiffLineComment starts a line-pick over the on-screen diff using glyph's
 // jump labels (no view switch): EnterJumpMode renders, renderDiffLayer registers a
-// target per visible commentable row, and picking a label runs pickAction on it.
+// target per visible commentable row, and picking a label runs diffUI.PickAction on it.
 func openDiffLineComment() {
 	if len(tasks) == 0 {
 		return
@@ -2226,8 +2152,8 @@ func openDiffLineComment() {
 		statusMsg = "(no diff lines to comment on)"
 		return
 	}
-	pickHeaders = false
-	pickAction = commentOnDiffLine
+	diffUI.PickHeaders = false
+	diffUI.PickAction = commentOnDiffLine
 	uiApp.EnterJumpMode()
 }
 
@@ -2236,7 +2162,7 @@ func openDiffLineComment() {
 // jump engine as line-picking, just targeting FileHeader rows.
 func openFoldPick() {
 	hasHeader := false
-	for _, m := range diffMeta {
+	for _, m := range diffUI.Meta {
 		if m.FileHeader {
 			hasHeader = true
 			break
@@ -2246,73 +2172,73 @@ func openFoldPick() {
 		statusMsg = "(no files to fold)"
 		return
 	}
-	pickHeaders = true
-	pickAction = toggleFileFold
+	diffUI.PickHeaders = true
+	diffUI.PickAction = toggleFileFold
 	uiApp.EnterJumpMode()
 }
 
 // toggleFileFold collapses/expands the picked file in the diff, then rebuilds so the
 // next render reflects it. Clears the fold-pick mode so the normal line-pick resumes.
 func toggleFileFold(m diffLineMeta) {
-	fileFolded[m.File] = !fileFolded[m.File]
-	pickHeaders = false
+	diffUI.Folded[m.File] = !diffUI.Folded[m.File]
+	diffUI.PickHeaders = false
 	setDiff(false)
 }
 
 // foldAllFiles closes every file in the diff (collapse to headers); if they're already all
 // folded it opens them all — so one key toggles the whole diff between overview and detail.
 func foldAllFiles() {
-	allFolded := len(diffFiles) > 0
-	for _, f := range diffFiles {
-		if !fileFolded[f.Path] {
+	allFolded := len(diffUI.Files) > 0
+	for _, f := range diffUI.Files {
+		if !diffUI.Folded[f.Path] {
 			allFolded = false
 			break
 		}
 	}
-	for _, f := range diffFiles {
-		fileFolded[f.Path] = !allFolded
+	for _, f := range diffUI.Files {
+		diffUI.Folded[f.Path] = !allFolded
 	}
 	setDiff(false)
 }
 
 // nextFile / prevFile scroll the diff so the next / previous file header sits at the top —
-// quick movement through a multi-file diff. They read diffMeta's FileHeader rows (buffer Y
+// quick movement through a multi-file diff. They read diffUI.Meta's FileHeader rows (buffer Y
 // == row index) against the current scroll.
 func nextFile() { scrollToFileHeader(1) }
 func prevFile() { scrollToFileHeader(-1) }
 
 func scrollToFileHeader(dir int) {
-	if diffLayer == nil {
+	if diffUI.Layer == nil {
 		return
 	}
-	cur := diffLayer.ScrollY()
+	cur := diffUI.Layer.ScrollY()
 	if dir > 0 {
-		for y, m := range diffMeta {
+		for y, m := range diffUI.Meta {
 			if m.FileHeader && y > cur {
-				diffLayer.ScrollTo(y)
+				diffUI.Layer.ScrollTo(y)
 				return
 			}
 		}
 		return // already at/past the last file
 	}
 	target := 0 // before the first file header → top
-	for y, m := range diffMeta {
+	for y, m := range diffUI.Meta {
 		if m.FileHeader && y < cur {
 			target = y
 		}
 	}
-	diffLayer.ScrollTo(target)
+	diffUI.Layer.ScrollTo(target)
 }
 
 // commentOnDiffLine captures the picked line's anchor and opens the body prompt.
 func commentOnDiffLine(m diffLineMeta) {
-	pcFile, pcAnchor, pcSnippet, pcLine = m.File, m.Anchor, m.Text, m.Line
-	pcLocation = fmt.Sprintf("%s · line %d", m.File, m.Line)
-	pcSnippetView = "  " + m.Text
-	if len(pcSnippetView) > 68 {
-		pcSnippetView = pcSnippetView[:67] + "…"
+	diffUI.PickFile, diffUI.PickAnchor, diffUI.PickSnippet, diffUI.PickLine = m.File, m.Anchor, m.Text, m.Line
+	loc := fmt.Sprintf("%s · line %d", m.File, m.Line)
+	snip := "  " + m.Text
+	if len(snip) > 68 {
+		snip = snip[:67] + "…"
 	}
-	promptUI.open("line comment", pcLocation, pcSnippetView, "", saveLineComment)
+	promptUI.open("line comment", loc, snip, "", saveLineComment)
 }
 
 func saveLineComment() {
@@ -2321,11 +2247,11 @@ func saveLineComment() {
 	if body == "" || !ok {
 		return
 	}
-	if _, err := uiStore.AddReviewComment(t.ID, "you", body, pcFile, pcLine, pcAnchor, pcSnippet); err != nil {
+	if _, err := uiStore.AddReviewComment(t.ID, "you", body, diffUI.PickFile, diffUI.PickLine, diffUI.PickAnchor, diffUI.PickSnippet); err != nil {
 		statusMsg = "error: " + err.Error()
 		return
 	}
-	statusMsg = fmt.Sprintf("commented on %s:%d", pcFile, pcLine)
+	statusMsg = fmt.Sprintf("commented on %s:%d", diffUI.PickFile, diffUI.PickLine)
 	detailDirty = true
 }
 

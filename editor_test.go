@@ -30,37 +30,37 @@ func TestEditorArgs(t *testing.T) {
 }
 
 // the line-picker rides glyph's jump engine: openEditorPick sets the editor
-// pickAction and enters jump mode; rendering the diff registers one jump target per
+// diffUI.PickAction and enters jump mode; rendering the diff registers one jump target per
 // visible commentable row (glyph assigns the labels), and firing a target's
-// OnSelect runs pickAction with THAT row's meta. We assert the wiring end to end:
+// OnSelect runs diffUI.PickAction with THAT row's meta. We assert the wiring end to end:
 // target count == commentable rows, labels assigned, and OnSelect picks the right
 // line (a spy, so no editor launches).
 func TestJumpPickFlow(t *testing.T) {
-	prevLayer, prevAction, prevFiles := diffLayer, pickAction, diffFiles
+	prevLayer, prevAction, prevFiles := diffUI.Layer, diffUI.PickAction, diffUI.Files
 	uiApp = NewApp()
-	diffLayer = NewLayer()
-	diffLayer.Render = renderDiffLayer
+	diffUI.Layer = NewLayer()
+	diffUI.Layer.Render = renderDiffLayer
 	t.Cleanup(func() {
 		if uiApp.JumpModeActive() {
 			uiApp.ExitJumpMode()
 		}
 		uiApp = nil
-		diffLayer = prevLayer
-		pickAction = prevAction
-		diffFiles = prevFiles
-		diffMeta = nil
+		diffUI.Layer = prevLayer
+		diffUI.PickAction = prevAction
+		diffUI.Files = prevFiles
+		diffUI.Meta = nil
 	})
 
-	// two files, each with one commentable code row — renderDiffLayer builds diffMeta from
-	// diffFiles (the source of truth). new-side line numbers come from the hunk headers
+	// two files, each with one commentable code row — renderDiffLayer builds diffUI.Meta from
+	// diffUI.Files (the source of truth). new-side line numbers come from the hunk headers
 	// (+42, +7), so the commentable rows are main.go:42 then util.go:7.
-	diffFiles = []diff.File{
+	diffUI.Files = []diff.File{
 		{Path: "main.go", Status: "modified", Hunks: []diff.Hunk{{Header: "@@ -1,1 +42,1 @@", Lines: []diff.Line{{Kind: diff.LineAdd, Text: "a := 1"}}}}},
 		{Path: "util.go", Status: "modified", Hunks: []diff.Hunk{{Header: "@@ -1,1 +7,1 @@", Lines: []diff.Line{{Kind: diff.LineAdd, Text: "b := 2"}}}}},
 	}
 	// put the diff on screen so renderDiffLayer has a real viewport + screen rect
 	uiApp.SetView(VBox.Width(80).Height(20)(
-		HBox.Grow(1).NodeRef(&diffViewRef)(LayerView(diffLayer).Grow(1)),
+		HBox.Grow(1).NodeRef(&diffUI.ViewRef)(LayerView(diffUI.Layer).Grow(1)),
 	))
 	uiApp.RenderNow()
 
@@ -78,9 +78,9 @@ func TestJumpPickFlow(t *testing.T) {
 		}
 	}
 
-	// firing the second target's OnSelect should pick util.go:7 via pickAction
+	// firing the second target's OnSelect should pick util.go:7 via diffUI.PickAction
 	var got diffLineMeta
-	pickAction = func(m diffLineMeta) { got = m }
+	diffUI.PickAction = func(m diffLineMeta) { got = m }
 	targets[1].OnSelect()
 	if got.File != "util.go" || got.Line != 7 {
 		t.Fatalf("OnSelect picked the wrong line: %+v", got)
