@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/alecthomas/chroma/v2"
+	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/kungfusheep/recap/theme"
 )
 
@@ -58,10 +59,26 @@ func TestSetThemeMapsPalette(t *testing.T) {
 		t.Fatal("numbers should not be bold")
 	}
 
-	// switching themes switches the ramp
+	// NON-mono themes use a stock multi-hue style: dark → nord (c319)
 	dark := theme.Dark
+	if dark.Mono {
+		t.Fatal("the default dark theme must not be marked Mono")
+	}
 	SetTheme(dark)
-	if c := colour(chroma.Keyword); !rgb(c, dark.Bright.R, dark.Bright.G, dark.Bright.B) {
-		t.Fatalf("after switch, keyword colour %v, want dark Bright", c)
+	nord := styles.Get("nord")
+	want := nord.Get(chroma.Keyword).Colour
+	if c := colour(chroma.Keyword); !rgb(c, want.Red(), want.Green(), want.Blue()) {
+		t.Fatalf("non-mono dark should use nord: keyword %v, want %v", c, want)
+	}
+
+	// light non-mono themes get monokailight (nord is a dark scheme)
+	light := theme.Light
+	if light.Mono {
+		t.Fatal("the default light theme must not be marked Mono")
+	}
+	SetTheme(light)
+	ml := styles.Get("monokailight").Get(chroma.Keyword).Colour
+	if c := colour(chroma.Keyword); !rgb(c, ml.Red(), ml.Green(), ml.Blue()) {
+		t.Fatalf("light should use monokailight: keyword %v, want %v", c, ml)
 	}
 }

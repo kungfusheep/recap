@@ -83,6 +83,19 @@ func Parts(code string, lexer chroma.Lexer, fallback Color) []any {
 // plain fg. Applied uniformly to every theme so code always matches the palette.
 // Falls back to monokai if the style can't build (it shouldn't).
 func SetTheme(t theme.Theme) {
+	// non-mono themes (dark/light) read better with a stock multi-hue style:
+	// nord on dark backgrounds, monokailight on light ones (nord is a dark
+	// scheme). The decoration model below is the mfd pack's identity.
+	if !t.Mono {
+		name := "nord"
+		if int(t.BG.R)+int(t.BG.G)+int(t.BG.B) > int(t.FG.R)+int(t.FG.G)+int(t.FG.B) {
+			name = "monokailight"
+		}
+		if st := styles.Get(name); st != nil {
+			syntaxStyle = st
+			return
+		}
+	}
 	hex := func(c Color) string { return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B) }
 	st, err := chroma.NewStyle("recap-theme", chroma.StyleEntries{
 		chroma.Text:            hex(t.FG),

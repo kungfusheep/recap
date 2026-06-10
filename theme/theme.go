@@ -30,6 +30,12 @@ type Theme struct {
 	DiffAdd  Color
 	DiffDel  Color
 	DiffHunk Color
+
+	// Mono marks a monotone-with-decoration palette (the mfd pack): syntax
+	// highlighting derives from the theme ramp + bold/italic/underline. Non-mono
+	// themes (dark/light) use a stock multi-hue chroma style instead (nord /
+	// monokailight).
+	Mono bool
 }
 
 // Named is a Theme with its id (for persistence/lookup) and display label.
@@ -137,6 +143,7 @@ func mfdTheme(name, label string, p mfdPalette) Named {
 		Name:  name,
 		Label: label,
 		Palette: Theme{
+			Mono:     true,
 			BG:       MfdColor(p.bg),
 			Bright:   MfdColor(p.bright),
 			FG:       MfdColor(p.fg),

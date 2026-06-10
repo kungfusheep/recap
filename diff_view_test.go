@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"github.com/alecthomas/chroma/v2"
+	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/kungfusheep/recap/db"
 	"github.com/kungfusheep/recap/diff"
 	"github.com/kungfusheep/recap/theme"
@@ -388,20 +390,15 @@ func TestSyntaxColoursFollowTheme(t *testing.T) {
 		return Cell{}, false
 	}
 
+	// dark is NON-mono → nord (multi-hue): keyword takes nord's blue, not the ramp
 	setThemeVars(theme.Dark)
 	kw, ok := cellAt('r') // 'return'
 	if !ok {
 		t.Fatal("keyword not rendered")
 	}
-	if kw.Style.FG != theme.Dark.Bright || kw.Style.Attr&AttrBold == 0 {
-		t.Fatalf("dark keyword: fg=%v attr=%v, want Bright+bold", kw.Style.FG, kw.Style.Attr)
-	}
-	str, ok := cellAt('h') // "hi"
-	if !ok {
-		t.Fatal("string not rendered")
-	}
-	if str.Style.FG != theme.Dark.FG || str.Style.Attr&AttrItalic == 0 {
-		t.Fatalf("dark string: fg=%v attr=%v, want FG+italic", str.Style.FG, str.Style.Attr)
+	nordKW := styles.Get("nord").Get(chroma.Keyword).Colour
+	if kw.Style.FG != RGB(nordKW.Red(), nordKW.Green(), nordKW.Blue()) {
+		t.Fatalf("dark keyword: fg=%v, want nord %v", kw.Style.FG, nordKW)
 	}
 
 	amber, _ := theme.ByName("mfd-amber")
