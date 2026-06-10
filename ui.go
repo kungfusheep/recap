@@ -314,6 +314,7 @@ func runUI() error {
 	// their prompts instead of buffering vim counts.
 	uiApp.View("main", buildMain()).NoCounts()
 	uiApp.View("todo", buildTodoView()).NoCounts()
+	uiApp.View("messages", buildMessagesView()).NoCounts()
 	uiApp.OnBeforeRender(refreshDetail)
 	// diff line-picking uses glyph's jump engine (EnterJumpMode pushes its own
 	// router for the label keystrokes), so no root unmatched handler is needed.
@@ -1497,6 +1498,7 @@ var helpNavRows = []helpRow{
 var helpActionRows = []helpRow{
 	{"o", "expand revisions"},
 	{"p", "pin / unpin"},
+	{"m", "agent messages"},
 	{"t", "edit TODO"},
 	{"e", "open in $EDITOR"},
 	{"c", "comment"},

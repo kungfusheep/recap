@@ -1081,3 +1081,55 @@ func TestDiffShowsDanglingShaWarning(t *testing.T) {
 		t.Fatalf("filesText = %q, want 'commit not found'", filesText)
 	}
 }
+
+// the agent-message ledger is visible from the TUI (#d5a1bb8b): 'm' opens a named
+// "messages" view showing every message (sender@repo → target, body, agent read-dot),
+// and opening it stamps the USER read-receipt on what was shown.
+func TestMessagesViewShowsLedger(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RECAP_DB", filepath.Join(dir, "recap.db"))
+	st := testStore(t)
+	prevStore, prevApp, prevOmni := uiStore, uiApp, omni
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	t.Cleanup(func() {
+		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
+		msgUI = msgView{}
+		vmRows = nil
+	})
+	reloadTasks()
+	m1, _ := st.SendMessage("recap", "Kestrel", "tui", 0, 0, "need a second pair of eyes on the layout pass")
+	st.SendMessage("tui", "Glyph Smith", "recap", m1, 0, "looking now")
+
+	uiApp.View("main", buildMain()).NoCounts()
+	uiApp.View("messages", buildMessagesView()).NoCounts()
+	uiApp.Go("main")
+	uiApp.RenderNow()
+
+	openMessages()
+	uiApp.RenderNow()
+	if v := uiApp.CurrentView(); v != "messages" {
+		t.Fatalf("openMessages should switch to the messages view, got %q", v)
+	}
+
+	buf := NewBuffer(120, 30)
+	Build(buildMessagesView()).Execute(buf, 120, 30)
+	full := ""
+	for y := 0; y < 30; y++ {
+		full += buf.GetLine(y) + "\n"
+	}
+	for _, want := range []string{"Kestrel@recap → tui", "second pair of eyes", "Glyph Smith@tui → recap", "↳m1", "agent messages"} {
+		if !strings.Contains(full, want) {
+			t.Fatalf("ledger missing %q:\n%s", want, full)
+		}
+	}
+
+	// opening stamped the USER read-receipt on everything shown
+	ms, _ := st.Messages("")
+	for _, m := range ms {
+		if m.ReadUser == "" {
+			t.Fatalf("m%d not marked user-read after viewing", m.ID)
+		}
+	}
+}
