@@ -60,9 +60,14 @@ Ordered low-risk → high-risk so the reviewer can stop/redirect at any boundary
       `snooze.Record`/`snooze.TTL`/`snooze.Now`); current.go → `cursor` (`cursor.Load`/
       `cursor.Save`/`cursor.Title`). Both import `db` for `db.Path()` (one-way), callers
       (next.go/upcoming.go/main.go) qualified. Build + suite green.
-- [ ] **Slice 4 — render/theme utilities.** `theme` (`Theme`, palettes, `applyTheme`),
-      `contrast`, `highlight`, `links`, `focus_shade` — stateless helpers the TUI calls.
-      Group into a small number of flat packages (likely `theme` + `render`).
+- [x] **Slice 4 — `theme` + `highlight` + `links` packages.** `theme` owns the palette
+      data (Theme, Dark/Light, the mfd pack, All/ByName) + the WCAG helpers (EnsureContrast,
+      WCAGAA) — and contrast.go SHRANK in the move: its ratio maths + lerp search duplicated
+      glyph (`ContrastRatio`/`LerpToContrast`), now one thin auto-target wrapper. `highlight`
+      (chroma: LexerFor/Parts) and `links` ([[path]] refs: Extract/Open/PasteImage) extracted
+      as leaves. `setThemeVars`/`applyTheme`/settings stay in main — they mutate the UI colour
+      globals (slice 5 territory). focus_shade + the view files stay top-level per the article
+      (UI templates at the top). Build + suite green.
 - [ ] **Slice 5 — decouple the TUI globals into cohesive concrete structs.** *Shape agreed
       (#170 c257/c260): NO dependency injection, NO interfaces — concrete types only; and
       NOT one big `ui.Model` (a god-struct only grows). Instead group ui.go's ~50 globals

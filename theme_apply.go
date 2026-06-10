@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"github.com/kungfusheep/recap/db"
+	"github.com/kungfusheep/recap/theme"
 	"os"
 	"path/filepath"
 
@@ -63,7 +64,7 @@ func diffColour(override, base, fg Color) Color {
 	return Lerp(base, fg, 0.25)
 }
 
-func setThemeVars(t Theme) {
+func setThemeVars(t theme.Theme) {
 	cBG = t.BG
 	cPaneBG = t.ThreadBG
 	cBright = t.Bright
@@ -84,9 +85,9 @@ func setThemeVars(t Theme) {
 	// diff colours: use the theme's explicit diff hues if it sets them (e.g. lumon's
 	// terminal ANSI colours, which read better), otherwise blend the canonical hues
 	// toward the theme tone for sympathy. Either way enforce WCAG AA against the bg.
-	cAdd = ensureContrast(diffColour(t.DiffAdd, diffAddBase, t.FG), t.BG, wcagAA)
-	cDel = ensureContrast(diffColour(t.DiffDel, diffDelBase, t.FG), t.BG, wcagAA)
-	cHunk = ensureContrast(diffColour(t.DiffHunk, diffHunkBase, t.FG), t.BG, wcagAA)
+	cAdd = theme.EnsureContrast(diffColour(t.DiffAdd, diffAddBase, t.FG), t.BG, theme.WCAGAA)
+	cDel = theme.EnsureContrast(diffColour(t.DiffDel, diffDelBase, t.FG), t.BG, theme.WCAGAA)
+	cHunk = theme.EnsureContrast(diffColour(t.DiffHunk, diffHunkBase, t.FG), t.BG, theme.WCAGAA)
 	cCommentBG = Lerp(t.BG, t.Info, 0.18) // faint wash of the accent over the bg
 	listBaseStyle = Style{BG: cPaneBG}
 	paneStyle = Style{Fill: cPaneBG, BG: cPaneBG, FG: cFG}
@@ -107,9 +108,9 @@ func initTheme() {
 	if name == "" {
 		name = "dark"
 	}
-	t, ok := themeByName(name)
+	t, ok := theme.ByName(name)
 	if !ok {
-		name, t = "dark", themeDark
+		name, t = "dark", theme.Dark
 	}
 	currentThemeName = name
 	setThemeVars(t)
@@ -120,7 +121,7 @@ func initTheme() {
 // place, so the build-once templates repaint on the next render — NO view rebuild
 // (mail's pattern). Only the diff Layer, which bakes its spans into a pre-rendered
 // buffer, needs an explicit Invalidate to re-render with the new palette.
-func applyTheme(name string, t Theme) {
+func applyTheme(name string, t theme.Theme) {
 	currentThemeName = name
 	setThemeVars(t)
 	if uiApp != nil {

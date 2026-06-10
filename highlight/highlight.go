@@ -1,4 +1,4 @@
-package main
+package highlight
 
 import (
 	"strings"
@@ -16,10 +16,10 @@ import (
 // follow-up — for now one good dark style.
 var syntaxStyle = styles.Get("monokai")
 
-// lexerFor resolves a chroma lexer for a file path (by name/extension), coalesced so
+// LexerFor resolves a chroma lexer for a file path (by name/extension), coalesced so
 // adjacent same-type tokens merge into one span. Returns nil when the language is unknown
 // (the caller then renders the line unhighlighted).
-func lexerFor(path string) chroma.Lexer {
+func LexerFor(path string) chroma.Lexer {
 	l := lexers.Match(path)
 	if l == nil {
 		return nil
@@ -27,12 +27,12 @@ func lexerFor(path string) chroma.Lexer {
 	return chroma.Coalesce(l)
 }
 
-// highlightParts tokenises a single line of code with the given lexer and returns Textf
+// Parts tokenises a single line of code with the given lexer and returns Textf
 // parts (one FG span per token), each token coloured by syntaxStyle. Tokens without a
 // style colour use fallback. With no lexer / empty code / a tokenise error it returns a
 // single fallback-coloured span, so the line still renders. The input must NOT carry
 // leading whitespace (render that separately — Rich trims it) or a newline.
-func highlightParts(code string, lexer chroma.Lexer, fallback Color) []any {
+func Parts(code string, lexer chroma.Lexer, fallback Color) []any {
 	if lexer == nil || code == "" {
 		return []any{FG(code, fallback)}
 	}

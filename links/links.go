@@ -1,4 +1,4 @@
-package main
+package links
 
 import (
 	"fmt"
@@ -11,12 +11,12 @@ import (
 
 // linkRe matches a [[target]] reference embedded in a comment — the lightweight
 // way to attach a screenshot or any file to feedback (e.g. [[/tmp/shot.png]]).
-// The text box accepts these verbatim; openLinks resolves them on demand.
+// The text box accepts these verbatim; Open resolves them on demand.
 var linkRe = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
 
-// extractLinks returns the [[target]] references in a comment body, in order,
+// Extract returns the [[target]] references in a comment body, in order,
 // de-whitespaced. Empty targets are skipped.
-func extractLinks(body string) []string {
+func Extract(body string) []string {
 	var out []string
 	for _, m := range linkRe.FindAllStringSubmatch(body, -1) {
 		if t := strings.TrimSpace(m[1]); t != "" {
@@ -26,11 +26,11 @@ func extractLinks(body string) []string {
 	return out
 }
 
-// pasteClipboardImage writes the clipboard's image to a temp PNG and returns its
+// PasteImage writes the clipboard's image to a temp PNG and returns its
 // path, so a pasted screenshot can be referenced from a comment with [[path]].
 // macOS has no pngpaste, so it asks osascript for the clipboard as PNG; if the
 // clipboard holds no image that errors and the empty temp file is cleaned up.
-func pasteClipboardImage() (string, error) {
+func PasteImage() (string, error) {
 	if runtime.GOOS != "darwin" {
 		return "", fmt.Errorf("clipboard image paste is macOS-only")
 	}
@@ -66,16 +66,16 @@ func pasteClipboardImage() (string, error) {
 	return path, nil
 }
 
-// openLinks opens each [[target]] reference with the OS opener (open on macOS,
+// Open opens each [[target]] reference with the OS opener (open on macOS,
 // xdg-open elsewhere). Returns how many it launched. Best-effort: a failed open
 // is skipped, not fatal.
-func openLinks(body string) int {
+func Open(body string) int {
 	opener := "open"
 	if runtime.GOOS == "linux" {
 		opener = "xdg-open"
 	}
 	n := 0
-	for _, target := range extractLinks(body) {
+	for _, target := range Extract(body) {
 		if err := exec.Command(opener, target).Start(); err == nil {
 			n++
 		}

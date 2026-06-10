@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>What moves the finish line?</title>
+  <style>
+    @font-face {
+      font-family: 'Jost';
+      src: url('https://kungfusheep.com/assets/fonts/Jost-wght.ttf') format('truetype');
+      font-weight: 100 900;
+      font-display: block;
+    }
+    :root {
+      --bg: #E3E3DC;
+      --brand-fg: #111111;
+      --code-bg: #D6D6CF;
+      --fg: #2D2D29;
+      --footer-fg: #686860;
+      --hover-bg: #D6D6CF;
+      --link-bg: #D4DCE1;
+      --link-fg: #314D5F;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #090908;
+        --brand-fg: #F7F0DE;
+        --code-bg: #171511;
+        --fg: #D7CFBE;
+        --footer-fg: #756E60;
+        --hover-bg: #201D17;
+        --link-bg: #1D1A13;
+        --link-fg: #D9C68F;
+      }
+    }
+    html {
+      background: var(--bg);
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
+    }
+    body {
+      background: var(--bg);
+      color: var(--fg);
+      font-family: 'Jost', sans-serif;
+      font-size: 15px;
+      font-style: normal;
+      font-weight: 500;
+      line-height: 1.5;
+      margin: 0 auto;
+      max-width: 59ch;
+      padding: 4rem 1rem 3rem 1rem;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    ::selection {
+      background: var(--fg);
+      color: var(--bg);
+    }
+    * {
+      font-size: inherit;
+      font-style: normal;
+      font-weight: 500;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+    h1 {
+      text-transform: uppercase;
+    }
+    .site-branding {
+      display: flex;
+      gap: 2ch;
+      justify-content: space-between;
+      margin: 0 0 5em 0;
+    }
+    .site-name {
+      color: var(--brand-fg);
+      font-weight: 675;
+      letter-spacing: 2px;
+      text-decoration: none;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .site-links {
+      display: flex;
+      gap: 1ch;
+    }
+    .site-links a {
+      border-radius: 0.32em;
+      color: var(--fg);
+      padding: 0.08em 0.36em;
+      text-decoration: none;
+      text-transform: lowercase;
+    }
+    .site-links a:hover {
+      background: var(--hover-bg);
+      color: var(--brand-fg);
+    }
+    .article-title {
+      display: inline;
+      letter-spacing: 2px;
+      margin: 0;
+    }
+    .article-title-wrap {
+      margin: 0 0 3.25em 0;
+    }
+    p {
+      margin: 0.65em 0;
+    }
+    b {
+      color: var(--brand-fg);
+      font-weight: 675;
+    }
+    ul {
+      list-style: none;
+      margin: 0.65em 0;
+      padding-left: 2.5ch;
+    }
+    li {
+      position: relative;
+    }
+    ul > li::before {
+      color: var(--footer-fg);
+      content: "-";
+      left: -2ch;
+      position: absolute;
+    }
+
+    /* the chart: chips on the page, fills only, one type size */
+    .chart-scroll {
+      margin: 1.35em -1.1em;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .chart {
+      align-items: center;
+      display: grid;
+      font-variant-numeric: tabular-nums;
+      gap: 0.3em 0.5ch;
+      grid-template-columns: 8ch repeat(6, minmax(0, 1fr));
+      padding: 0 1.1em;
+    }
+    .axis {
+      border-bottom: 1px solid var(--code-bg);
+      color: var(--footer-fg);
+      display: flex;
+      grid-column: 2 / 8;
+      justify-content: space-between;
+      padding-bottom: 0.2em;
+    }
+    .flow-head {
+      align-items: baseline;
+      display: flex;
+      gap: 1ch;
+      grid-column: 1 / 8;
+      margin-top: 1.1em;
+    }
+    .flow-head b {
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+    .flow-head .sub {
+      color: var(--footer-fg);
+    }
+    .flow-head .cycles {
+      color: var(--footer-fg);
+      margin-left: auto;
+      white-space: nowrap;
+    }
+    .role {
+      color: var(--footer-fg);
+      grid-column: 1;
+      padding-right: 1ch;
+      text-align: right;
+    }
+    .seg {
+      border-radius: 0.32em;
+      padding: 0.08em 0.36em;
+      text-align: center;
+    }
+    .work {
+      background: var(--code-bg);
+      color: var(--fg);
+    }
+    .rev {
+      background: var(--code-bg);
+      color: var(--footer-fg);
+    }
+    .fix {
+      background: var(--link-bg);
+      color: var(--link-fg);
+    }
+    .idle {
+      color: var(--footer-fg);
+    }
+    .stack {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3em;
+    }
+    .done {
+      color: var(--brand-fg);
+      font-weight: 675;
+      padding: 0.08em 0.36em;
+    }
+    .caption {
+      color: var(--footer-fg);
+      grid-column: 2 / 8;
+    }
+    @media (max-width: 560px) {
+      .chart-scroll {
+        margin-left: -0.35em;
+        margin-right: -0.35em;
+      }
+      .chart {
+        padding: 0 0.35em;
+      }
+    }
+  </style>
+</head>
+<body>
+  <nav class="site-branding" aria-label="site">
+    <a class="site-name" href="https://kungfusheep.com/">Unpopular Opinions</a>
+    <div class="site-links">
+      <a href="https://kungfusheep.com/about">about</a>
+      <a href="https://kungfusheep.com/archive">archive</a>
+    </div>
+  </nav>
+  <main>
+    <article>
+      <header class="article-title-wrap">
+        <h1 class="article-title">What moves the finish line?</h1>
+      </header>
+
+      <p>The same two tasks - <b>task 1 takes a fix and a re-review, task 2 passes first time</b> - run three ways, on one clock, with one reviewer. Watch what actually moves the finish, and what doesn't.</p>
+
+      <div class="chart-scroll" role="img" aria-label="three review flows on one clock: stop and wait takes six cycles, async takes four, worktrees takes five">
+        <div class="chart">
+          <div class="axis"><span>start</span><span>wall time &rarr;</span></div>
+
+          <div class="flow-head"><b>Stop &amp; wait</b><span class="sub">they take turns</span><span class="cycles">6 cycles</span></div>
+          <div class="role">agent</div>
+          <div class="seg work">task 1</div>
+          <div class="seg idle">waiting</div>
+          <div class="seg fix">fix 1</div>
+          <div class="seg idle">waiting</div>
+          <div class="seg work">task 2</div>
+          <div class="seg idle">waiting</div>
+          <div class="role">reviewer</div>
+          <div class="seg rev" style="grid-column:3">rev 1</div>
+          <div class="seg rev" style="grid-column:5">rev fix 1</div>
+          <div class="seg rev" style="grid-column:7">rev 2</div>
+
+          <div class="flow-head"><b>Async</b><span class="sub">one agent, never waits</span><span class="cycles">4 cycles</span></div>
+          <div class="role">agent</div>
+          <div class="seg work" style="grid-column:2">task 1</div>
+          <div class="seg work" style="grid-column:3">task 2</div>
+          <div class="seg fix" style="grid-column:4">fix 1</div>
+          <div class="done" style="grid-column:6/8">done</div>
+          <div class="role">reviewer</div>
+          <div class="seg rev" style="grid-column:3">rev 1</div>
+          <div class="seg rev" style="grid-column:4">rev 2</div>
+          <div class="seg rev" style="grid-column:5">rev fix 1</div>
+          <div class="caption">agent and reviewer overlap from the second cycle; done while stop &amp; wait still has a review to go</div>
+
+          <div class="flow-head"><b>Worktrees</b><span class="sub">parallel build, then merge back</span><span class="cycles">5 cycles</span></div>
+          <div class="role">agent</div>
+          <div class="stack" style="grid-column:2"><div class="seg work">task 1</div><div class="seg work">task 2</div></div>
+          <div class="seg idle" style="grid-column:3">waiting</div>
+          <div class="seg fix" style="grid-column:4">fix 1</div>
+          <div class="seg idle" style="grid-column:5">waiting</div>
+          <div class="seg fix" style="grid-column:6">merge</div>
+          <div class="done" style="grid-column:7">done</div>
+          <div class="role">reviewer</div>
+          <div class="seg rev" style="grid-column:3">rev 1</div>
+          <div class="seg rev" style="grid-column:4">rev 2</div>
+          <div class="seg rev" style="grid-column:5">rev fix 1</div>
+          <div class="caption">the reviewer never sped up, and now there is a merge to pay for - a cycle behind async</div>
+        </div>
+      </div>
+
+      <p>Six cycles, then four, then five. Stop-and-wait to async is <b>a third faster</b> - and when async finishes, stop-and-wait still has a whole review to go. Async to worktrees gives a cycle back. Parallel building collapses the agent's time, but the reviewer reads the same things in the same order, so review stays the bottleneck. More agents just buys <b>more idle agents and a merge</b>.</p>
+
+      <p><b>And that's the optimistic read.</b> Off the clock, worktrees add cost the diagram can't time:</p>
+      <ul>
+        <li><b>drift</b> - trees diverge from main and from each other while they run</li>
+        <li><b>merge conflicts</b> - reconciling them is serial, error-prone work, and can force a re-review</li>
+        <li><b>cross-tree dependencies</b> - when task 2 leans on task 1, you hold the coupling in your own head</li>
+      </ul>
+    </article>
+  </main>
+</body>
+</html>

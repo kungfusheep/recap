@@ -2,6 +2,7 @@ package main
 
 import (
 	. "github.com/kungfusheep/glyph"
+	"github.com/kungfusheep/recap/theme"
 )
 
 // omniItem is one command in the omnibox palette. Preview (optional) runs as the
@@ -42,7 +43,7 @@ func omniCommands() []omniItem {
 	}
 	// theme commands — one per palette. Selecting applies + persists it. Applied on
 	// Enter (the omnibox closes first), since applyTheme rebuilds the view tree.
-	for _, nt := range allThemes() {
+	for _, nt := range theme.All() {
 		nt := nt // capture per iteration
 		cmds = append(cmds, omniItem{
 			Label:       "theme: " + nt.Label,

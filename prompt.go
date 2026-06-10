@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/kungfusheep/recap/links"
 	"strings"
 
 	. "github.com/kungfusheep/glyph"
@@ -104,7 +105,7 @@ func insertCommentLink(path string) {
 // pasteImageIntoComment grabs a clipboard screenshot to a persistent PNG and
 // inserts a [[path]] link (recap can't render images inline; open with O).
 func pasteImageIntoComment() {
-	path, err := pasteClipboardImage()
+	path, err := links.PasteImage()
 	if err != nil {
 		statusMsg = "paste: " + err.Error()
 		uiApp.RequestRender()

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"github.com/kungfusheep/recap/db"
 	"github.com/kungfusheep/recap/diff"
+	"github.com/kungfusheep/recap/highlight"
+	"github.com/kungfusheep/recap/links"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -1098,7 +1100,7 @@ func buildDiffView(files []diff.File, w int) (Component, []diffLineMeta) {
 			fileBoxes = append(fileBoxes, VBox.Gap(0)(rows...))
 			continue
 		}
-		lexer := lexerFor(f.Path) // nil for unknown languages → added lines render unhighlighted
+		lexer := highlight.LexerFor(f.Path) // nil for unknown languages → added lines render unhighlighted
 		for _, hk := range f.Hunks {
 			rows = append(rows, Text(clip("  "+cleanLine(hk.Header))).FG(&cMuted))
 			meta = append(meta, diffLineMeta{})
@@ -1117,7 +1119,7 @@ func buildDiffView(files []diff.File, w int) (Component, []diffLineMeta) {
 					code := clipN(txt, w-2) // leave room for the 2-char gutter
 					indent := code[:len(code)-len(strings.TrimLeft(code, " "))]
 					rest := code[len(indent):]
-					row = HBox(Text("+ "+indent).FG(&cAdd), Textf(highlightParts(rest, lexer, cFG)...))
+					row = HBox(Text("+ "+indent).FG(&cAdd), Textf(highlight.Parts(rest, lexer, cFG)...))
 				case diff.LineDel:
 					row = Text(clip("- " + txt)).FG(&cDel) // removed: stays red, not highlighted
 				default:
@@ -1890,13 +1892,13 @@ func openDraftLinks() {
 	if c == nil {
 		return
 	}
-	links := extractLinks(c.Body)
-	if len(links) == 0 {
+	refs := links.Extract(c.Body)
+	if len(refs) == 0 {
 		statusMsg = "no [[file]] links in this comment"
 		return
 	}
-	n := openLinks(c.Body)
-	statusMsg = fmt.Sprintf("opened %d/%d link(s)", n, len(links))
+	n := links.Open(c.Body)
+	statusMsg = fmt.Sprintf("opened %d/%d link(s)", n, len(refs))
 }
 
 func openComment() {

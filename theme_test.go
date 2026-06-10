@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/kungfusheep/recap/db"
+	"github.com/kungfusheep/recap/theme"
 	"os"
 	"testing"
 
@@ -35,10 +36,10 @@ func TestThemeRepaintsDiffLayer(t *testing.T) {
 		uiApp = nil
 		omni = nil
 		vmRows = nil
-		setThemeVars(themeDark)
+		setThemeVars(theme.Dark)
 	})
 	st.Add(db.Task{Repo: "r", RepoPath: dir, SHA: sha, Title: "t", Status: db.StatusPending})
-	setThemeVars(themeDark)
+	setThemeVars(theme.Dark)
 	reloadTasks()
 	sel = 0
 
@@ -68,7 +69,7 @@ func TestThemeRepaintsDiffLayer(t *testing.T) {
 		t.Fatalf("dark add-line colour = %v, want %v", darkFG, wantDark)
 	}
 
-	amber, _ := themeByName("mfd-amber")
+	amber, _ := theme.ByName("mfd-amber")
 	applyTheme("mfd-amber", amber)
 	wantAmber := cAdd // derived add colour for amber
 	amberFG, ok := addLineFG()
@@ -86,7 +87,7 @@ func TestThemeRepaintsDiffLayer(t *testing.T) {
 // the theme pack is the full set (dark, light, + the mfd pack), every theme has a
 // unique name + non-empty label, lookups work, and unknown names fail cleanly.
 func TestThemePack(t *testing.T) {
-	themes := allThemes()
+	themes := theme.All()
 	if len(themes) != 20 { // dark + light + 18 mfd
 		t.Fatalf("want 20 themes, got %d", len(themes))
 	}
@@ -115,18 +116,18 @@ func TestThemePack(t *testing.T) {
 	}
 
 	// known lookups resolve; unknown fails
-	if _, ok := themeByName("mfd-nerv"); !ok {
+	if _, ok := theme.ByName("mfd-nerv"); !ok {
 		t.Fatal("mfd-nerv should resolve")
 	}
-	if got, ok := themeByName("dark"); !ok || got != themeDark {
-		t.Fatal("dark should resolve to themeDark")
+	if got, ok := theme.ByName("dark"); !ok || got != theme.Dark {
+		t.Fatal("dark should resolve to theme.Dark")
 	}
-	if _, ok := themeByName("nope"); ok {
+	if _, ok := theme.ByName("nope"); ok {
 		t.Fatal("unknown theme should not resolve")
 	}
 
 	// mfdColor unpacks hex channels correctly
-	c := mfdColor(0x102030)
+	c := theme.MfdColor(0x102030)
 	if c.Mode != ColorRGB || c.R != 0x10 || c.G != 0x20 || c.B != 0x30 {
 		t.Fatalf("mfdColor unpack wrong: %+v", c)
 	}
@@ -138,7 +139,7 @@ func TestThemePersistence(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("RECAP_DB", dir+"/recap.db")
 	prevName := currentThemeName
-	t.Cleanup(func() { currentThemeName = prevName; setThemeVars(themeDark) })
+	t.Cleanup(func() { currentThemeName = prevName; setThemeVars(theme.Dark) })
 
 	// nothing saved yet → initTheme falls back to dark
 	initTheme()
@@ -157,7 +158,7 @@ func TestThemePersistence(t *testing.T) {
 	if currentThemeName != "mfd-nerv" {
 		t.Fatalf("after restore: want mfd-nerv, got %q", currentThemeName)
 	}
-	nerv, _ := themeByName("mfd-nerv")
+	nerv, _ := theme.ByName("mfd-nerv")
 	if cBG != nerv.BG {
 		t.Fatalf("initTheme did not apply the palette: cBG=%v want %v", cBG, nerv.BG)
 	}
@@ -179,7 +180,7 @@ func TestThemeCommandsInPalette(t *testing.T) {
 	t.Setenv("RECAP_DB", dir+"/recap.db")
 	prevApp, prevName := uiApp, currentThemeName
 	uiApp = nil
-	t.Cleanup(func() { uiApp = prevApp; currentThemeName = prevName; setThemeVars(themeDark) })
+	t.Cleanup(func() { uiApp = prevApp; currentThemeName = prevName; setThemeVars(theme.Dark) })
 
 	cmds := omniCommands()
 	var amberCmd *omniItem
@@ -200,7 +201,7 @@ func TestThemeCommandsInPalette(t *testing.T) {
 	}
 
 	amberCmd.Action()
-	amber, _ := themeByName("mfd-amber")
+	amber, _ := theme.ByName("mfd-amber")
 	if currentThemeName != "mfd-amber" {
 		t.Fatalf("selecting the theme command did not switch: %q", currentThemeName)
 	}
@@ -229,13 +230,13 @@ func TestApplyThemeRepaintsWithoutRebuild(t *testing.T) {
 		uiApp = prevApp
 		omni = prevOmni
 		currentThemeName = prevName
-		setThemeVars(themeDark) // restore the default palette for other tests
+		setThemeVars(theme.Dark) // restore the default palette for other tests
 	})
 	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	reloadTasks()
 
 	// compile ONCE
-	setThemeVars(themeDark)
+	setThemeVars(theme.Dark)
 	tmpl := Build(buildMain())
 	render := func() Color {
 		buf := NewBuffer(100, 30)
@@ -245,12 +246,12 @@ func TestApplyThemeRepaintsWithoutRebuild(t *testing.T) {
 	}
 
 	darkBG := render()
-	if darkBG != themeDark.BG {
-		t.Fatalf("dark: bg cell = %v, want %v", darkBG, themeDark.BG)
+	if darkBG != theme.Dark.BG {
+		t.Fatalf("dark: bg cell = %v, want %v", darkBG, theme.Dark.BG)
 	}
 
 	// switch palette WITHOUT recompiling — only mutate the vars the template points at
-	amber, _ := themeByName("mfd-amber")
+	amber, _ := theme.ByName("mfd-amber")
 	setThemeVars(amber)
 	amberBG := render() // same tmpl, second Execute
 	if amberBG != amber.BG {
@@ -292,7 +293,7 @@ func TestThemeChangeNoOrphanedModalRouter(t *testing.T) {
 	// overlay does — on the next render (glyph's exiting-overlay router release), not via
 	// a view rebuild. Render once to let that happen.
 	omni.Close()
-	th := allThemes()[1]
+	th := theme.All()[1]
 	applyTheme(th.Name, th.Palette)
 	uiApp.RenderNow()
 
@@ -305,7 +306,7 @@ func TestThemeChangeNoOrphanedModalRouter(t *testing.T) {
 // themes (#169): the applied colour sits strictly between the raw border colour
 // and fg — closer to fg than the raw, but not all the way (still dimmer).
 func TestMutedNudgedTowardFG(t *testing.T) {
-	th, _ := themeByName("dark")
+	th, _ := theme.ByName("dark")
 	setThemeVars(th)
 	raw := th.Muted
 	fg := th.FG
@@ -330,7 +331,7 @@ func TestMutedNudgedTowardFG(t *testing.T) {
 // the mfd themes used to map +/@@ to the same fg, making the diff unreadable. They
 // must differ from each other and not collapse onto the plain fg.
 func TestDiffColoursDistinctPerTheme(t *testing.T) {
-	for _, nt := range allThemes() {
+	for _, nt := range theme.All() {
 		setThemeVars(nt.Palette)
 		if cAdd == cDel || cAdd == cHunk || cDel == cHunk {
 			t.Fatalf("%s: diff colours not distinct: add=%v del=%v hunk=%v", nt.Name, cAdd, cDel, cHunk)
@@ -344,11 +345,11 @@ func TestDiffColoursDistinctPerTheme(t *testing.T) {
 // every theme's diff colours must meet WCAG AA contrast (4.5:1) against the
 // background so the diff stays readable, and remain distinct from each other.
 func TestDiffColoursMeetWCAG_AA(t *testing.T) {
-	for _, nt := range allThemes() {
+	for _, nt := range theme.All() {
 		setThemeVars(nt.Palette)
 		for name, c := range map[string]Color{"add": cAdd, "del": cDel, "hunk": cHunk} {
-			if r := contrastRatio(c, cBG); r < wcagAA-0.01 {
-				t.Errorf("%s: %s contrast %.2f < AA %.1f", nt.Name, name, r, wcagAA)
+			if r := ContrastRatio(c, cBG); r < theme.WCAGAA-0.01 {
+				t.Errorf("%s: %s contrast %.2f < AA %.1f", nt.Name, name, r, theme.WCAGAA)
 			}
 		}
 		if cAdd == cDel || cAdd == cHunk || cDel == cHunk {
@@ -360,7 +361,7 @@ func TestDiffColoursMeetWCAG_AA(t *testing.T) {
 // the lumon theme uses its own terminal-ANSI diff hues (from the mfd.nvim lua) for
 // add/del/hunk, not the generic blend — and they still pass AA contrast.
 func TestLumonDiffColours(t *testing.T) {
-	lumon, ok := themeByName("mfd-lumon")
+	lumon, ok := theme.ByName("mfd-lumon")
 	if !ok {
 		t.Fatal("mfd-lumon should resolve")
 	}
@@ -374,12 +375,12 @@ func TestLumonDiffColours(t *testing.T) {
 		t.Fatal("lumon diff colours not distinct")
 	}
 	for n, c := range map[string]Color{"add": cAdd, "del": cDel, "hunk": cHunk} {
-		if contrastRatio(c, cBG) < wcagAA-0.01 {
-			t.Errorf("lumon %s below AA: %.2f", n, contrastRatio(c, cBG))
+		if ContrastRatio(c, cBG) < theme.WCAGAA-0.01 {
+			t.Errorf("lumon %s below AA: %.2f", n, ContrastRatio(c, cBG))
 		}
 	}
 	// a theme WITHOUT overrides still derives (dark theme has no DiffAdd)
-	if d, _ := themeByName("dark"); d.DiffAdd.Mode != 0 {
+	if d, _ := theme.ByName("dark"); d.DiffAdd.Mode != 0 {
 		t.Fatal("dark theme should not set explicit diff hues")
 	}
 }

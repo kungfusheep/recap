@@ -1,4 +1,4 @@
-package main
+package theme
 
 import . "github.com/kungfusheep/glyph"
 
@@ -32,14 +32,14 @@ type Theme struct {
 	DiffHunk Color
 }
 
-// NamedTheme is a Theme with its id (for persistence/lookup) and display label.
-type NamedTheme struct {
+// Named is a Theme with its id (for persistence/lookup) and display label.
+type Named struct {
 	Name    string
 	Label   string
 	Palette Theme
 }
 
-var themeDark = Theme{
+var Dark = Theme{
 	BG:       Hex(0x1c1c1c),
 	Bright:   Hex(0xe8e6e3),
 	FG:       Hex(0xb8b5b0),
@@ -56,7 +56,7 @@ var themeDark = Theme{
 	ThreadBG: Hex(0x191918),
 }
 
-var themeLight = Theme{
+var Light = Theme{
 	BG:       Hex(0xf6f6f6),
 	Bright:   Hex(0x111111),
 	FG:       Hex(0x333333),
@@ -92,7 +92,7 @@ type mfdPalette struct {
 	diffHunk uint32
 }
 
-var mfdPalettes = []NamedTheme{
+var mfdPalettes = []Named{
 	mfdTheme("mfd", "MFD", mfdPalette{bg: 0x7A8B69, fg: 0x1E2D1E, dim: 0x5A6B49, bright: 0x0D1D0D, subtle: 0x687858, visual: 0x6A7B59, cursor: 0x848F72, border: 0x5A6B4A, floatBG: 0x5A6B4A}),
 	mfdTheme("mfd-dark", "MFD Dark", mfdPalette{bg: 0x1E2D1E, fg: 0x8A9B70, dim: 0x3A4A3A, bright: 0xA0B180, subtle: 0x2E3E2E, visual: 0x2A3D2A, cursor: 0x253525, border: 0x3A4B2A, floatBG: 0x253525}),
 	mfdTheme("mfd-stealth", "MFD Stealth", mfdPalette{bg: 0x0D1410, fg: 0x7A9A7A, dim: 0x253828, bright: 0x9ABB9A, subtle: 0x2A3A2A, visual: 0x1A2A1A, cursor: 0x151F18, border: 0x2A3A2A, floatBG: 0x101810}),
@@ -113,18 +113,18 @@ var mfdPalettes = []NamedTheme{
 	mfdTheme("mfd-flir-fusion", "MFD FLIR Fusion", mfdPalette{bg: 0x1A0A20, fg: 0xC08840, dim: 0x503060, bright: 0xE8C050, subtle: 0x2A1830, visual: 0x241430, cursor: 0x201028, border: 0x2A1830, floatBG: 0x1C0C22}),
 }
 
-// allThemes returns every selectable theme: dark, light, then the mfd pack.
-func allThemes() []NamedTheme {
-	out := []NamedTheme{
-		{Name: "dark", Label: "Dark", Palette: themeDark},
-		{Name: "light", Label: "Light", Palette: themeLight},
+// All returns every selectable theme: dark, light, then the mfd pack.
+func All() []Named {
+	out := []Named{
+		{Name: "dark", Label: "Dark", Palette: Dark},
+		{Name: "light", Label: "Light", Palette: Light},
 	}
 	return append(out, mfdPalettes...)
 }
 
-// themeByName looks up a palette by its id; ok is false if unknown.
-func themeByName(name string) (Theme, bool) {
-	for _, n := range allThemes() {
+// ByName looks up a palette by its id; ok is false if unknown.
+func ByName(name string) (Theme, bool) {
+	for _, n := range All() {
 		if n.Name == name {
 			return n.Palette, true
 		}
@@ -132,25 +132,25 @@ func themeByName(name string) (Theme, bool) {
 	return Theme{}, false
 }
 
-func mfdTheme(name, label string, p mfdPalette) NamedTheme {
-	return NamedTheme{
+func mfdTheme(name, label string, p mfdPalette) Named {
+	return Named{
 		Name:  name,
 		Label: label,
 		Palette: Theme{
-			BG:       mfdColor(p.bg),
-			Bright:   mfdColor(p.bright),
-			FG:       mfdColor(p.fg),
-			Subtle:   mfdColor(p.dim),
-			Dim:      mfdColor(p.subtle),
-			Muted:    mfdColor(p.border),
-			Accent:   mfdColor(p.bright),
-			Info:     mfdColor(p.fg),
-			Success:  mfdColor(p.fg),
-			Warning:  mfdColor(p.bright),
-			Error:    mfdColor(p.bright),
-			SelBG:    mfdColor(p.visual),
-			GroupBG:  mfdColor(p.cursor),
-			ThreadBG: mfdColor(p.floatBG),
+			BG:       MfdColor(p.bg),
+			Bright:   MfdColor(p.bright),
+			FG:       MfdColor(p.fg),
+			Subtle:   MfdColor(p.dim),
+			Dim:      MfdColor(p.subtle),
+			Muted:    MfdColor(p.border),
+			Accent:   MfdColor(p.bright),
+			Info:     MfdColor(p.fg),
+			Success:  MfdColor(p.fg),
+			Warning:  MfdColor(p.bright),
+			Error:    MfdColor(p.bright),
+			SelBG:    MfdColor(p.visual),
+			GroupBG:  MfdColor(p.cursor),
+			ThreadBG: MfdColor(p.floatBG),
 			DiffAdd:  optColor(p.diffAdd),
 			DiffDel:  optColor(p.diffDel),
 			DiffHunk: optColor(p.diffHunk),
@@ -164,10 +164,10 @@ func optColor(hex uint32) Color {
 	if hex == 0 {
 		return Color{}
 	}
-	return mfdColor(hex)
+	return MfdColor(hex)
 }
 
-func mfdColor(hex uint32) Color {
+func MfdColor(hex uint32) Color {
 	return Color{
 		Mode: ColorRGB,
 		R:    uint8((hex >> 16) & 0xFF),

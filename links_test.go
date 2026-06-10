@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/kungfusheep/recap/links"
 	"reflect"
 	"strings"
 	"testing"
@@ -24,7 +25,7 @@ func TestInsertCommentLink(t *testing.T) {
 		t.Fatalf("append spacing: %q", commentField.Value)
 	}
 	// the extractor round-trips what was inserted
-	links := extractLinks(commentField.Value)
+	links := links.Extract(commentField.Value)
 	if len(links) != 2 || links[0] != "/tmp/recap-1.png" {
 		t.Fatalf("extract after insert: %v", links)
 	}
@@ -50,8 +51,8 @@ func TestExtractLinks(t *testing.T) {
 		{"[[~/Desktop/Screenshot 2026.png]]", []string{"~/Desktop/Screenshot 2026.png"}},
 	}
 	for _, tc := range cases {
-		if got := extractLinks(tc.body); !reflect.DeepEqual(got, tc.want) {
-			t.Fatalf("extractLinks(%q) = %v, want %v", tc.body, got, tc.want)
+		if got := links.Extract(tc.body); !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("links.Extract(%q) = %v, want %v", tc.body, got, tc.want)
 		}
 	}
 }
