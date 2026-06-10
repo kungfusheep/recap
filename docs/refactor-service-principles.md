@@ -84,6 +84,10 @@ Ordered low-risk → high-risk so the reviewer can stop/redirect at any boundary
         pointer-bound into the compiled view; methods for prep/move/save/toggle/add/
         edit; openTodoFor → todoUI.openFor). Outside todo_view.go the old globals were
         referenced ONLY by tests — zero production coupling, ideal first seam.
+      - [x] 5b: prompt overlays → `promptView` struct, one instance `promptUI` (input
+        prompt Open/Title/Loc/Snip/OnSave/Field + read-overlay flag + both NodeRefs;
+        methods open/close/submit/openRead/insertLink/pasteImage). The cv* read-overlay
+        CONTENT stays global for 5c — it belongs to the draft pane that sets it.
 - [ ] **Slice 6 — root cleanup.** Rename `main.go` → `recap.go` (service-named entry),
       keep `func main` + command dispatch composing the pipeline; command bodies can move
       to a flat `cli` package if dispatch grows. Per-struct file naming pass.

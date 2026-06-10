@@ -12,28 +12,28 @@ import (
 // pasting a screenshot inserts a [[path]] link into the prompt field at the
 // cursor, space-separated from existing text.
 func TestInsertCommentLink(t *testing.T) {
-	prev := commentField
-	t.Cleanup(func() { commentField = prev })
+	prev := promptUI.Field
+	t.Cleanup(func() { promptUI.Field = prev })
 
-	commentField = InputState{}
-	insertCommentLink("/tmp/recap-1.png")
-	if commentField.Value != "[[/tmp/recap-1.png]]" {
-		t.Fatalf("into empty: %q", commentField.Value)
+	promptUI.Field = InputState{}
+	promptUI.insertLink("/tmp/recap-1.png")
+	if promptUI.Field.Value != "[[/tmp/recap-1.png]]" {
+		t.Fatalf("into empty: %q", promptUI.Field.Value)
 	}
-	insertCommentLink("/tmp/recap-2.png")
-	if commentField.Value != "[[/tmp/recap-1.png]] [[/tmp/recap-2.png]]" {
-		t.Fatalf("append spacing: %q", commentField.Value)
+	promptUI.insertLink("/tmp/recap-2.png")
+	if promptUI.Field.Value != "[[/tmp/recap-1.png]] [[/tmp/recap-2.png]]" {
+		t.Fatalf("append spacing: %q", promptUI.Field.Value)
 	}
 	// the extractor round-trips what was inserted
-	links := links.Extract(commentField.Value)
+	links := links.Extract(promptUI.Field.Value)
 	if len(links) != 2 || links[0] != "/tmp/recap-1.png" {
 		t.Fatalf("extract after insert: %v", links)
 	}
 	// when text already ends in a space, no extra space is added
-	commentField = InputState{Value: "see this ", Cursor: len("see this ")}
-	insertCommentLink("/tmp/x.png")
-	if commentField.Value != "see this [[/tmp/x.png]]" || strings.Contains(commentField.Value, "  ") {
-		t.Fatalf("trailing-space handling: %q", commentField.Value)
+	promptUI.Field = InputState{Value: "see this ", Cursor: len("see this ")}
+	promptUI.insertLink("/tmp/x.png")
+	if promptUI.Field.Value != "see this [[/tmp/x.png]]" || strings.Contains(promptUI.Field.Value, "  ") {
+		t.Fatalf("trailing-space handling: %q", promptUI.Field.Value)
 	}
 }
 

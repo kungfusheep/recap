@@ -156,7 +156,7 @@ func (tv *todoView) toggle() {
 
 func (tv *todoView) add() {
 	tv.EditingIdx = -1
-	openInputPrompt("add todo", "", "", "", func() { tv.applyPromptText(commentField.Value) })
+	promptUI.open("add todo", "", "", "", func() { tv.applyPromptText(promptUI.Field.Value) })
 }
 
 // applyPromptText commits the prompt text: in edit mode it rewrites the line being
@@ -193,7 +193,7 @@ func (tv *todoView) editLine() {
 	if it.IsTask {
 		prefill = it.Text
 	}
-	openInputPrompt("edit todo", "", "", prefill, func() { tv.applyPromptText(commentField.Value) })
+	promptUI.open("edit todo", "", "", prefill, func() { tv.applyPromptText(promptUI.Field.Value) })
 }
 
 // todoRow renders one TODO line. The checkbox/branch is pointer-bound (If(&...))

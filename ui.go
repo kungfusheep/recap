@@ -1465,7 +1465,7 @@ func columnShades() Component {
 	mk := func(ref *NodeRef) FocusShade {
 		return NewFocusShade(ref).
 			Strength(In(fade(0.28)).Out(fade(0))).
-			Dodge(&helpRef, &promptRef, &readRef, omni.Ref())
+			Dodge(&helpRef, &promptUI.Ref, &promptUI.ReadRef, omni.Ref())
 	}
 	return VBox(
 		If(&pane).Ne(paneList).Then(ScreenEffect(mk(&listPaneRef))),
@@ -1781,7 +1781,7 @@ func openCommentView() {
 	cvLocation = c.Location
 	cvSnippet = c.Snippet
 	cvBodyLines = wrapText(c.Body, 66)
-	openReadComment()
+	promptUI.openRead()
 }
 
 // wrapText word-wraps s to width columns, returning the lines.
@@ -1816,11 +1816,11 @@ func replyToComment() {
 		return
 	}
 	replyingToID = c.ID
-	openInputPrompt("reply", c.Location, "  "+c.Body, "", saveReply)
+	promptUI.open("reply", c.Location, "  "+c.Body, "", saveReply)
 }
 
 func saveReply() {
-	body := strings.TrimSpace(commentField.Value)
+	body := strings.TrimSpace(promptUI.Field.Value)
 	if replyingToID == 0 || body == "" {
 		return
 	}
@@ -1844,11 +1844,11 @@ func editDraftComment() {
 		return
 	}
 	editingCommentID = c.ID
-	openInputPrompt("edit comment", "", "", c.Body, saveEditedComment)
+	promptUI.open("edit comment", "", "", c.Body, saveEditedComment)
 }
 
 func saveEditedComment() {
-	body := strings.TrimSpace(commentField.Value)
+	body := strings.TrimSpace(promptUI.Field.Value)
 	if editingCommentID == 0 {
 		return
 	}
@@ -1903,14 +1903,14 @@ func openDraftLinks() {
 
 func openComment() {
 	if _, ok := selectedTask(); ok {
-		openInputPrompt("comment", "", "", "", saveGeneralComment)
+		promptUI.open("comment", "", "", "", saveGeneralComment)
 	}
 }
 
 // saveGeneralComment records an unanchored review comment on the selected task —
 // same draft as line comments, so it shows in the pane and submits with the review.
 func saveGeneralComment() {
-	body := strings.TrimSpace(commentField.Value)
+	body := strings.TrimSpace(promptUI.Field.Value)
 	t, ok := selectedTask()
 	if body == "" || !ok {
 		return
@@ -2232,11 +2232,11 @@ func commentOnDiffLine(m diffLineMeta) {
 	if len(pcSnippetView) > 68 {
 		pcSnippetView = pcSnippetView[:67] + "…"
 	}
-	openInputPrompt("line comment", pcLocation, pcSnippetView, "", saveLineComment)
+	promptUI.open("line comment", pcLocation, pcSnippetView, "", saveLineComment)
 }
 
 func saveLineComment() {
-	body := strings.TrimSpace(commentField.Value)
+	body := strings.TrimSpace(promptUI.Field.Value)
 	t, ok := selectedTask()
 	if body == "" || !ok {
 		return

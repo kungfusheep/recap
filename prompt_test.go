@@ -21,16 +21,16 @@ func TestPromptIsOverlay(t *testing.T) {
 	omni = newOmniBox(uiApp, omniCommands())
 	t.Cleanup(func() {
 		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
-		promptOpen = false
+		promptUI.Open = false
 		vmRows = nil
-		commentField = InputState{}
+		promptUI.Field = InputState{}
 	})
 	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "a task", Status: db.StatusPending})
 	reloadTasks()
 	sel = 0
 
 	openComment()
-	if !promptOpen {
+	if !promptUI.Open {
 		t.Fatal("openComment should open the prompt overlay")
 	}
 
@@ -50,33 +50,33 @@ func TestPromptIsOverlay(t *testing.T) {
 }
 
 // openInputPrompt arms the overlay (prefilled field, open); submitPrompt runs the
-// save action reading commentField.Value, then closes+clears; closePrompt cancels.
+// save action reading promptUI.Field.Value, then closes+clears; closePrompt cancels.
 func TestPromptOpenSubmitClose(t *testing.T) {
 	prevApp := uiApp
 	uiApp = NewApp()
-	t.Cleanup(func() { uiApp = prevApp; promptOpen = false; promptOnSave = nil; commentField = InputState{} })
+	t.Cleanup(func() { uiApp = prevApp; promptUI.Open = false; promptUI.OnSave = nil; promptUI.Field = InputState{} })
 
 	var saved string
-	openInputPrompt("edit comment", "", "", "prefilled", func() { saved = commentField.Value })
-	if !promptOpen || promptTitle != "edit comment" || commentField.Value != "prefilled" {
-		t.Fatalf("openInputPrompt state wrong: open=%v title=%q val=%q", promptOpen, promptTitle, commentField.Value)
+	promptUI.open("edit comment", "", "", "prefilled", func() { saved = promptUI.Field.Value })
+	if !promptUI.Open || promptUI.Title != "edit comment" || promptUI.Field.Value != "prefilled" {
+		t.Fatalf("openInputPrompt state wrong: open=%v title=%q val=%q", promptUI.Open, promptUI.Title, promptUI.Field.Value)
 	}
 
-	commentField.Value = "edited body"
-	submitPrompt()
+	promptUI.Field.Value = "edited body"
+	promptUI.submit()
 	if saved != "edited body" {
-		t.Fatalf("submit should pass commentField.Value to save, got %q", saved)
+		t.Fatalf("submit should pass promptUI.Field.Value to save, got %q", saved)
 	}
-	if promptOpen || commentField.Value != "" {
-		t.Fatalf("submit should close + clear, open=%v val=%q", promptOpen, commentField.Value)
+	if promptUI.Open || promptUI.Field.Value != "" {
+		t.Fatalf("submit should close + clear, open=%v val=%q", promptUI.Open, promptUI.Field.Value)
 	}
 
 	saved = ""
-	openInputPrompt("comment", "", "", "", func() { saved = "SHOULD-NOT-RUN" })
-	commentField.Value = "discard me"
-	closePrompt()
-	if promptOpen || commentField.Value != "" || saved != "" {
-		t.Fatalf("close should cancel without saving: open=%v val=%q saved=%q", promptOpen, commentField.Value, saved)
+	promptUI.open("comment", "", "", "", func() { saved = "SHOULD-NOT-RUN" })
+	promptUI.Field.Value = "discard me"
+	promptUI.close()
+	if promptUI.Open || promptUI.Field.Value != "" || saved != "" {
+		t.Fatalf("close should cancel without saving: open=%v val=%q saved=%q", promptUI.Open, promptUI.Field.Value, saved)
 	}
 }
 
@@ -93,8 +93,8 @@ func TestPromptAltBackspaceEditsNotCloses(t *testing.T) {
 	omni = newOmniBox(uiApp, omniCommands())
 	t.Cleanup(func() {
 		uiApp, uiStore, omni = prevApp, prevStore, prevOmni
-		promptOpen = false
-		commentField = InputState{}
+		promptUI.Open = false
+		promptUI.Field = InputState{}
 		vmRows = nil
 	})
 	reloadTasks()
@@ -102,17 +102,17 @@ func TestPromptAltBackspaceEditsNotCloses(t *testing.T) {
 	uiApp.SetView(buildMain())
 	uiApp.RenderNow()
 
-	openInputPrompt("add todo", "", "", "hello world", func() {})
+	promptUI.open("add todo", "", "", "hello world", func() {})
 	uiApp.RenderNow() // prompt overlay renders → its modal router is pushed
 
 	if !uiApp.Input().Dispatch(riffkey.Key{Special: riffkey.SpecialBackspace, Mod: riffkey.ModAlt}) {
 		t.Fatal("Alt+Backspace was not handled by the prompt — would fall through")
 	}
-	if !promptOpen {
+	if !promptUI.Open {
 		t.Fatal("prompt closed on Alt+Backspace — text lost (the reported bug)")
 	}
-	if commentField.Value != "hello " {
-		t.Fatalf("Alt+Backspace should delete the last word: got %q, want %q", commentField.Value, "hello ")
+	if promptUI.Field.Value != "hello " {
+		t.Fatalf("Alt+Backspace should delete the last word: got %q, want %q", promptUI.Field.Value, "hello ")
 	}
 }
 
@@ -127,9 +127,9 @@ func TestTodoEditorInTodoView(t *testing.T) {
 	omni = newOmniBox(uiApp, omniCommands())
 	t.Cleanup(func() {
 		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
-		promptOpen = false
+		promptUI.Open = false
 		vmRows, todoUI.Items, todoUI.Data = nil, nil, nil
-		commentField = InputState{}
+		promptUI.Field = InputState{}
 	})
 
 	todoUI.Title = "TODO · r"
@@ -153,7 +153,7 @@ func TestTodoEditorInTodoView(t *testing.T) {
 	}
 
 	// the prompt floats over the editor (same view)
-	openInputPrompt("add todo", "", "", "", func() {})
+	promptUI.open("add todo", "", "", "", func() {})
 	full = render()
 	if !strings.Contains(full, "add todo") || !strings.Contains(full, "buy milk") {
 		t.Fatalf("prompt should float over the todo editor:\n%s", full)

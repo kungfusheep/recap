@@ -741,7 +741,7 @@ func TestGeneralCommentAppearsAfterSave(t *testing.T) {
 		uiApp = nil
 		omni = nil
 		diffLayer = prevLayer
-		commentField = InputState{}
+		promptUI.Field = InputState{}
 		draftComments = nil
 		detailDirty = false
 	})
@@ -755,7 +755,7 @@ func TestGeneralCommentAppearsAfterSave(t *testing.T) {
 		t.Fatalf("precondition: expected 0 comments, got %d", len(draftComments))
 	}
 
-	commentField.Value = "a general note"
+	promptUI.Field.Value = "a general note"
 	saveGeneralComment()
 	refreshDetail() // selection unchanged → refreshes only if saveGeneralComment marked it dirty
 
@@ -862,7 +862,7 @@ func TestReplyToCommentFromPane(t *testing.T) {
 		uiApp = nil
 		draftComments = nil
 		draftSel = 0
-		commentField = InputState{}
+		promptUI.Field = InputState{}
 		replyingToID = 0
 	})
 
@@ -878,7 +878,7 @@ func TestReplyToCommentFromPane(t *testing.T) {
 	if replyingToID != parent {
 		t.Fatalf("replyToComment should target the selected comment %d, got %d", parent, replyingToID)
 	}
-	commentField.Value = "my reply"
+	promptUI.Field.Value = "my reply"
 	saveReply()
 
 	cs, _ := st.Comments(id)

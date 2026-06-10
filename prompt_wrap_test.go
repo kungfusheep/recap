@@ -12,13 +12,13 @@ import (
 // vertical markers are the title and a long body; we assert the body text appears on
 // several rows and keeps its tail.
 func TestPromptWrapsLongBody(t *testing.T) {
-	prev, prevOpen := commentField, promptOpen
-	t.Cleanup(func() { commentField = prev; promptOpen = prevOpen })
-	promptOpen = true
+	prev, prevOpen := promptUI.Field, promptUI.Open
+	t.Cleanup(func() { promptUI.Field = prev; promptUI.Open = prevOpen })
+	promptUI.Open = true
 
 	body := "this is a deliberately long comment body that must wrap across several lines inside the prompt overlay instead of scrolling horizontally on one single line"
-	commentField = InputState{Value: body, Cursor: len(body)}
-	promptTitle, promptLoc, promptSnip = "comment", "", ""
+	promptUI.Field = InputState{Value: body, Cursor: len(body)}
+	promptUI.Title, promptUI.Loc, promptUI.Snip = "comment", "", ""
 
 	tmpl := Build(inputPromptOverlay())
 	buf := NewBuffer(90, 24)
