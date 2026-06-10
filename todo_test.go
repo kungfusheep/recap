@@ -10,40 +10,40 @@ import (
 // vim nav for the TODO list: g/G jump to top/bottom, C-d/C-u half-page, all
 // clamped to the list bounds.
 func TestTodoVimNav(t *testing.T) {
-	prevData, prevItems := todoData, todoItems
-	t.Cleanup(func() { todoData = prevData; todoItems = prevItems; todoSel = 0 })
-	todoData = make([]todo.Item, 20)
-	for i := range todoData {
-		todoData[i] = todo.Item{IsTask: true, Text: "x"}
+	prevData, prevItems := todoUI.Data, todoUI.Items
+	t.Cleanup(func() { todoUI.Data = prevData; todoUI.Items = prevItems; todoUI.Sel = 0 })
+	todoUI.Data = make([]todo.Item, 20)
+	for i := range todoUI.Data {
+		todoUI.Data[i] = todo.Item{IsTask: true, Text: "x"}
 	}
-	todoPrep() // build the render VMs from the data
+	todoUI.prep() // build the render VMs from the data
 
-	todoSel = 5
-	todoBottom()
-	if todoSel != 19 {
-		t.Fatalf("G should jump to last (19), got %d", todoSel)
+	todoUI.Sel = 5
+	todoUI.bottom()
+	if todoUI.Sel != 19 {
+		t.Fatalf("G should jump to last (19), got %d", todoUI.Sel)
 	}
-	todoTop()
-	if todoSel != 0 {
-		t.Fatalf("g should jump to first (0), got %d", todoSel)
+	todoUI.top()
+	if todoUI.Sel != 0 {
+		t.Fatalf("g should jump to first (0), got %d", todoUI.Sel)
 	}
-	todoHalfDown()
-	if todoSel != todoHalfPage {
-		t.Fatalf("C-d should move down a half-page to %d, got %d", todoHalfPage, todoSel)
+	todoUI.halfDown()
+	if todoUI.Sel != todoHalfPage {
+		t.Fatalf("C-d should move down a half-page to %d, got %d", todoHalfPage, todoUI.Sel)
 	}
-	todoHalfUp()
-	if todoSel != 0 {
-		t.Fatalf("C-u should move back to 0, got %d", todoSel)
+	todoUI.halfUp()
+	if todoUI.Sel != 0 {
+		t.Fatalf("C-u should move back to 0, got %d", todoUI.Sel)
 	}
 	// clamping past the ends
-	todoHalfUp()
-	if todoSel != 0 {
-		t.Fatalf("C-u at top should clamp to 0, got %d", todoSel)
+	todoUI.halfUp()
+	if todoUI.Sel != 0 {
+		t.Fatalf("C-u at top should clamp to 0, got %d", todoUI.Sel)
 	}
-	todoSel = 18
-	todoHalfDown()
-	if todoSel != 19 {
-		t.Fatalf("C-d near bottom should clamp to 19, got %d", todoSel)
+	todoUI.Sel = 18
+	todoUI.halfDown()
+	if todoUI.Sel != 19 {
+		t.Fatalf("C-d near bottom should clamp to 19, got %d", todoUI.Sel)
 	}
 }
 
@@ -52,13 +52,13 @@ func TestTodoVimNav(t *testing.T) {
 // invisible until the selected repo changed).
 func TestTodoEditRefreshesUpcoming(t *testing.T) {
 	dir := t.TempDir()
-	prevPath, prevData := todoPath, todoData
+	prevPath, prevData := todoUI.Path, todoUI.Data
 	uiApp = NewApp()
-	t.Cleanup(func() { todoPath = prevPath; todoData = prevData; uiApp = nil; upcomingRepo = "" })
-	todoPath = dir + "/TODO.md"
-	todoData = []todo.Item{{IsTask: true, Text: "a", Raw: "- [ ] a"}}
+	t.Cleanup(func() { todoUI.Path = prevPath; todoUI.Data = prevData; uiApp = nil; upcomingRepo = "" })
+	todoUI.Path = dir + "/TODO.md"
+	todoUI.Data = []todo.Item{{IsTask: true, Text: "a", Raw: "- [ ] a"}}
 	upcomingRepo = "/some/repo" // pretend the upcoming list is loaded for a repo
-	todoSave()
+	todoUI.save()
 	if upcomingRepo != "" {
 		t.Fatalf("todoSave should reset upcomingRepo to force an upcoming reload, got %q", upcomingRepo)
 	}

@@ -128,13 +128,13 @@ func TestTodoEditorInTodoView(t *testing.T) {
 	t.Cleanup(func() {
 		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
 		promptOpen = false
-		vmRows, todoItems, todoData = nil, nil, nil
+		vmRows, todoUI.Items, todoUI.Data = nil, nil, nil
 		commentField = InputState{}
 	})
 
-	todoTitle = "TODO · r"
-	todoData = []todo.Item{{IsTask: true, Text: "buy milk"}}
-	todoPrep()
+	todoUI.Title = "TODO · r"
+	todoUI.Data = []todo.Item{{IsTask: true, Text: "buy milk"}}
+	todoUI.prep()
 
 	render := func() string {
 		tmpl := Build(buildTodoView())

@@ -119,7 +119,7 @@ func TestOmniTodoItemSwitchesToTodoViewCleanly(t *testing.T) {
 	// Action (openTodoFor) — exactly what selecting `todo: r` does. openTodoFor calls
 	// app.Go("todo").
 	omni.Close()
-	openTodoFor("r", home+"/r")
+	todoUI.openFor("r", home+"/r")
 	uiApp.RenderNow()
 
 	if v := uiApp.CurrentView(); v != "todo" {
@@ -131,16 +131,16 @@ func TestOmniTodoItemSwitchesToTodoViewCleanly(t *testing.T) {
 	}
 
 	// the heart of the bug was DEAD KEYS — prove a todo key actually fires now. openTodoFor
-	// opened scrolled to the bottom (todoSel = last); 'k' must move the selection up. If the
-	// omnibox router were orphaned it would swallow this and todoSel wouldn't budge.
-	if todoSel != len(todoItems)-1 {
-		t.Fatalf("setup: todo should open at the last item, got sel=%d of %d", todoSel, len(todoItems))
+	// opened scrolled to the bottom (todoUI.Sel = last); 'k' must move the selection up. If the
+	// omnibox router were orphaned it would swallow this and todoUI.Sel wouldn't budge.
+	if todoUI.Sel != len(todoUI.Items)-1 {
+		t.Fatalf("setup: todo should open at the last item, got sel=%d of %d", todoUI.Sel, len(todoUI.Items))
 	}
 	if !uiApp.Input().Dispatch(riffkey.Key{Rune: 'k'}) {
 		t.Fatal("'k' was not handled by the active router — todo keys are dead")
 	}
-	if todoSel != len(todoItems)-2 {
-		t.Fatalf("'k' should move the todo selection up to %d, got %d (keys not live in the todo view)", len(todoItems)-2, todoSel)
+	if todoUI.Sel != len(todoUI.Items)-2 {
+		t.Fatalf("'k' should move the todo selection up to %d, got %d (keys not live in the todo view)", len(todoUI.Items)-2, todoUI.Sel)
 	}
 
 	// 'q' closes the editor → app.Go("main"); we must land back on the inbox view with a

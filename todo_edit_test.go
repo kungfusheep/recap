@@ -12,18 +12,18 @@ import (
 // the TODO editor rows render each item's own checkbox state — the branch is
 // pointer-bound (If(&it.Done)), so a done task shows [x] and an undone one [ ],
 // rather than the List's single compiled template baking one placeholder branch.
-// The rows are todoVM (UI), built by todoPrep from todoData (todo.Item, data).
+// The rows are todoVM (UI), built by todoPrep from todoUI.Data (todo.Item, data).
 func TestTodoRowRendersPerItem(t *testing.T) {
-	prevData, prevItems, prevSel := todoData, todoItems, todoSel
-	t.Cleanup(func() { todoData = prevData; todoItems = prevItems; todoSel = prevSel })
-	todoData = []todo.Item{
+	prevData, prevItems, prevSel := todoUI.Data, todoUI.Items, todoUI.Sel
+	t.Cleanup(func() { todoUI.Data = prevData; todoUI.Items = prevItems; todoUI.Sel = prevSel })
+	todoUI.Data = []todo.Item{
 		{IsTask: false, Raw: "# Heading"},
 		{IsTask: true, Done: false, Text: "undone task line that is long enough to reveal truncation bugs"},
 		{IsTask: true, Done: true, Text: "done two"},
 	}
-	todoSel = 0
-	todoPrep() // builds todoItems (VMs) from todoData, precomputing Display/FGColor/Selected
-	node := List(&todoItems).Selection(&todoSel).Marker("  ").
+	todoUI.Sel = 0
+	todoUI.prep() // builds todoUI.Items (VMs) from todoUI.Data, precomputing Display/FGColor/Selected
+	node := List(&todoUI.Items).Selection(&todoUI.Sel).Marker("  ").
 		SelectedStyle(Style{}).Render(todoRow)
 	tmpl := Build(node)
 	buf := NewBuffer(80, 12)
@@ -43,52 +43,52 @@ func TestTodoRowRendersPerItem(t *testing.T) {
 }
 
 // the editor can add new tasks and edit existing lines, writing back to disk: add
-// appends, edit rewrites the targeted line. Operates on todoData (data), and the disk
+// appends, edit rewrites the targeted line. Operates on todoUI.Data (data), and the disk
 // round-trip proves the data layer is wired through.
 func TestTodoAddAndEdit(t *testing.T) {
 	dir := t.TempDir()
-	prevPath, prevData, prevSel, prevIdx := todoPath, todoData, todoSel, editingTodoIdx
-	todoPath = dir + "/TODO.md"
-	todoData = []todo.Item{
+	prevPath, prevData, prevSel, prevIdx := todoUI.Path, todoUI.Data, todoUI.Sel, todoUI.EditingIdx
+	todoUI.Path = dir + "/TODO.md"
+	todoUI.Data = []todo.Item{
 		{IsTask: false, Raw: "# TODO"},
 		{IsTask: true, Done: false, Text: "first"},
 	}
-	todoSel = 1
-	todoPrep()
+	todoUI.Sel = 1
+	todoUI.prep()
 	t.Cleanup(func() {
-		todoPath, todoData, todoSel, editingTodoIdx = prevPath, prevData, prevSel, prevIdx
+		todoUI.Path, todoUI.Data, todoUI.Sel, todoUI.EditingIdx = prevPath, prevData, prevSel, prevIdx
 	})
 
 	// add mode: append a new task
-	editingTodoIdx = -1
-	applyTodoPromptText("second task")
-	if len(todoData) != 3 || !todoData[2].IsTask || todoData[2].Text != "second task" {
-		t.Fatalf("add failed: %+v", todoData)
+	todoUI.EditingIdx = -1
+	todoUI.applyPromptText("second task")
+	if len(todoUI.Data) != 3 || !todoUI.Data[2].IsTask || todoUI.Data[2].Text != "second task" {
+		t.Fatalf("add failed: %+v", todoUI.Data)
 	}
 
 	// edit mode: rewrite the first task's body
-	editingTodoIdx = 1
-	applyTodoPromptText("first (edited)")
-	if todoData[1].Text != "first (edited)" {
-		t.Fatalf("edit task failed: %q", todoData[1].Text)
+	todoUI.EditingIdx = 1
+	todoUI.applyPromptText("first (edited)")
+	if todoUI.Data[1].Text != "first (edited)" {
+		t.Fatalf("edit task failed: %q", todoUI.Data[1].Text)
 	}
 
 	// edit a non-task line rewrites its Raw
-	editingTodoIdx = 0
-	applyTodoPromptText("# TASKS")
-	if todoData[0].IsTask || todoData[0].Raw != "# TASKS" {
-		t.Fatalf("edit header failed: %+v", todoData[0])
+	todoUI.EditingIdx = 0
+	todoUI.applyPromptText("# TASKS")
+	if todoUI.Data[0].IsTask || todoUI.Data[0].Raw != "# TASKS" {
+		t.Fatalf("edit header failed: %+v", todoUI.Data[0])
 	}
 
 	// empty input is a no-op
-	editingTodoIdx = 1
-	applyTodoPromptText("   ")
-	if todoData[1].Text != "first (edited)" {
-		t.Fatalf("empty edit should be ignored: %q", todoData[1].Text)
+	todoUI.EditingIdx = 1
+	todoUI.applyPromptText("   ")
+	if todoUI.Data[1].Text != "first (edited)" {
+		t.Fatalf("empty edit should be ignored: %q", todoUI.Data[1].Text)
 	}
 
 	// it all persisted to disk
-	got, _ := os.ReadFile(todoPath)
+	got, _ := os.ReadFile(todoUI.Path)
 	want := "# TASKS\n- [ ] first (edited)\n- [ ] second task\n"
 	if string(got) != want {
 		t.Fatalf("disk mismatch:\n got %q\nwant %q", string(got), want)

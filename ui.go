@@ -2067,7 +2067,7 @@ func todoOmniItems() []omniItem {
 			Label:       "todo: " + repo,
 			Description: "open " + repo + "'s TODO list",
 			Section:     "todo",
-			Action:      func() { openTodoFor(repo, path) },
+			Action:      func() { todoUI.openFor(repo, path) },
 		})
 	}
 	return items

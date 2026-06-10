@@ -80,6 +80,10 @@ Ordered low-risk → high-risk so the reviewer can stop/redirect at any boundary
       by the right place" — not "one struct". Lands as smaller sub-slices (one struct group
       at a time), each its own review cycle, matching how we've been going. The grouping
       (deciding the seams) is the actual work.
+      - [x] 5a: todo view → `todoView` struct, one package instance `todoUI` (fields
+        pointer-bound into the compiled view; methods for prep/move/save/toggle/add/
+        edit; openTodoFor → todoUI.openFor). Outside todo_view.go the old globals were
+        referenced ONLY by tests — zero production coupling, ideal first seam.
 - [ ] **Slice 6 — root cleanup.** Rename `main.go` → `recap.go` (service-named entry),
       keep `func main` + command dispatch composing the pipeline; command bodies can move
       to a flat `cli` package if dispatch grows. Per-struct file naming pass.
