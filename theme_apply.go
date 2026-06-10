@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"github.com/kungfusheep/recap/db"
+	"github.com/kungfusheep/recap/highlight"
 	"github.com/kungfusheep/recap/theme"
 	"os"
 	"path/filepath"
@@ -65,6 +66,7 @@ func diffColour(override, base, fg Color) Color {
 }
 
 func setThemeVars(t theme.Theme) {
+	highlight.SetTheme(t) // code colours follow the palette (diff layer invalidates on switch)
 	cBG = t.BG
 	cPaneBG = t.ThreadBG
 	cBright = t.Bright

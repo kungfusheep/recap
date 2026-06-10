@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/kungfusheep/recap/db"
 	"github.com/kungfusheep/recap/diff"
+	"github.com/kungfusheep/recap/theme"
 	"os"
 	"strings"
 	"testing"
@@ -155,7 +156,7 @@ func TestBuildDiffViewPreservesIndent(t *testing.T) {
 	files := []diff.File{{
 		Path:   "main.go",
 		Status: "modified",
-		Hunks:  []diff.Hunk{{Header: "@@ -1,1 +1,1 @@", Lines: []diff.Line{{Kind: diff.LineAdd, Text: "        deeplyIndented()"}}}},
+		Hunks:  []diff.Hunk{{Header: "@@ -a,b +c,d @@", Lines: []diff.Line{{Kind: diff.LineAdd, Text: "        deeplyIndented()"}}}},
 	}}
 	tree, meta := buildDiffView(files, 60)
 	buf := NewBuffer(60, len(meta)+2)
@@ -358,5 +359,53 @@ func TestDiffViewShowsRenames(t *testing.T) {
 	}
 	if !strings.Contains(full, "»") {
 		t.Fatalf("rename header should keep the » marker:\n%s", full)
+	}
+}
+
+// syntax colours FOLLOW THE THEME (todo:810c70a9): the same added Go line renders its
+// number token with each theme's mapped hue (numbers → Bright), not fixed monokai —
+// and the hue changes when the theme does.
+func TestSyntaxColoursFollowTheme(t *testing.T) {
+	t.Cleanup(func() { setThemeVars(theme.Dark) })
+
+	files := []diff.File{{Path: "main.go", Status: "modified", Hunks: []diff.Hunk{{
+		Header: "@@ -a,b +c,d @@",
+		Lines:  []diff.Line{{Kind: diff.LineAdd, Text: "x := 1"}},
+	}}}}
+
+	numberFG := func() (Color, bool) {
+		tree, _ := buildDiffView(files, 60)
+		buf := NewBuffer(60, 8)
+		Build(tree).Execute(buf, 60, 8)
+		for y := 0; y < 8; y++ {
+			for x := 0; x < 60; x++ {
+				if buf.Get(x, y).Rune == '1' {
+					return buf.Get(x, y).Style.FG, true
+				}
+			}
+		}
+		return Color{}, false
+	}
+
+	setThemeVars(theme.Dark)
+	darkFG, ok := numberFG()
+	if !ok {
+		t.Fatal("number token not rendered (dark)")
+	}
+	if darkFG != theme.Dark.Bright {
+		t.Fatalf("dark: number = %v, want theme Bright %v", darkFG, theme.Dark.Bright)
+	}
+
+	amber, _ := theme.ByName("mfd-amber")
+	setThemeVars(amber)
+	amberFG, ok := numberFG()
+	if !ok {
+		t.Fatal("number token not rendered (amber)")
+	}
+	if amberFG != amber.Bright {
+		t.Fatalf("amber: number = %v, want theme Bright %v", amberFG, amber.Bright)
+	}
+	if amberFG == darkFG {
+		t.Fatal("syntax colour did not follow the theme switch")
 	}
 }
