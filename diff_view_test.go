@@ -362,50 +362,58 @@ func TestDiffViewShowsRenames(t *testing.T) {
 	}
 }
 
-// syntax colours FOLLOW THE THEME (todo:810c70a9): the same added Go line renders its
-// number token with each theme's mapped hue (numbers → Bright), not fixed monokai —
-// and the hue changes when the theme does.
+// syntax colours FOLLOW THE THEME (todo:810c70a9 + c307): the mfd vim scheme is
+// monotone-with-decoration, so the rendered cells must carry it — 'return' keyword =
+// theme Bright + BOLD, the string literal = theme FG + ITALIC — and the ramp re-hues
+// on theme switch.
 func TestSyntaxColoursFollowTheme(t *testing.T) {
 	t.Cleanup(func() { setThemeVars(theme.Dark) })
 
 	files := []diff.File{{Path: "main.go", Status: "modified", Hunks: []diff.Hunk{{
 		Header: "@@ -a,b +c,d @@",
-		Lines:  []diff.Line{{Kind: diff.LineAdd, Text: "x := 1"}},
+		Lines:  []diff.Line{{Kind: diff.LineAdd, Text: `return "hi"`}},
 	}}}}
 
-	numberFG := func() (Color, bool) {
+	cellAt := func(needle rune) (Cell, bool) {
 		tree, _ := buildDiffView(files, 60)
 		buf := NewBuffer(60, 8)
 		Build(tree).Execute(buf, 60, 8)
 		for y := 0; y < 8; y++ {
 			for x := 0; x < 60; x++ {
-				if buf.Get(x, y).Rune == '1' {
-					return buf.Get(x, y).Style.FG, true
+				if buf.Get(x, y).Rune == needle {
+					return buf.Get(x, y), true
 				}
 			}
 		}
-		return Color{}, false
+		return Cell{}, false
 	}
 
 	setThemeVars(theme.Dark)
-	darkFG, ok := numberFG()
+	kw, ok := cellAt('r') // 'return'
 	if !ok {
-		t.Fatal("number token not rendered (dark)")
+		t.Fatal("keyword not rendered")
 	}
-	if darkFG != theme.Dark.Bright {
-		t.Fatalf("dark: number = %v, want theme Bright %v", darkFG, theme.Dark.Bright)
+	if kw.Style.FG != theme.Dark.Bright || kw.Style.Attr&AttrBold == 0 {
+		t.Fatalf("dark keyword: fg=%v attr=%v, want Bright+bold", kw.Style.FG, kw.Style.Attr)
+	}
+	str, ok := cellAt('h') // "hi"
+	if !ok {
+		t.Fatal("string not rendered")
+	}
+	if str.Style.FG != theme.Dark.FG || str.Style.Attr&AttrItalic == 0 {
+		t.Fatalf("dark string: fg=%v attr=%v, want FG+italic", str.Style.FG, str.Style.Attr)
 	}
 
 	amber, _ := theme.ByName("mfd-amber")
 	setThemeVars(amber)
-	amberFG, ok := numberFG()
+	kw2, ok := cellAt('r')
 	if !ok {
-		t.Fatal("number token not rendered (amber)")
+		t.Fatal("keyword not rendered (amber)")
 	}
-	if amberFG != amber.Bright {
-		t.Fatalf("amber: number = %v, want theme Bright %v", amberFG, amber.Bright)
+	if kw2.Style.FG != amber.Bright || kw2.Style.Attr&AttrBold == 0 {
+		t.Fatalf("amber keyword: fg=%v attr=%v, want amber Bright+bold", kw2.Style.FG, kw2.Style.Attr)
 	}
-	if amberFG == darkFG {
-		t.Fatal("syntax colour did not follow the theme switch")
+	if kw2.Style.FG == kw.Style.FG {
+		t.Fatal("keyword colour did not follow the theme switch")
 	}
 }

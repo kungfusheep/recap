@@ -7,9 +7,9 @@ import (
 	"github.com/kungfusheep/recap/theme"
 )
 
-// SetTheme derives the chroma style from the palette: keywords take Info, strings
-// Success, comments Muted (italic), errors Error — so highlighted code matches the
-// active recap theme instead of fixed monokai. Falsifiable per token class.
+// SetTheme mirrors the mfd vim scheme's "monotone with decoration": keywords are
+// Bright+bold, functions bold, strings italic, types underlined, comments Muted
+// italic, numbers/operators plain FG. Falsifiable per token class.
 func TestSetThemeMapsPalette(t *testing.T) {
 	amber, ok := theme.ByName("mfd-amber")
 	if !ok {
@@ -17,29 +17,51 @@ func TestSetThemeMapsPalette(t *testing.T) {
 	}
 	SetTheme(amber)
 
-	check := func(tok chroma.TokenType, want [3]uint8, label string) {
+	colour := func(tok chroma.TokenType) [3]uint8 {
 		e := syntaxStyle.Get(tok)
 		if !e.Colour.IsSet() {
-			t.Fatalf("%s: no colour set", label)
+			t.Fatalf("%v: no colour set", tok)
 		}
-		got := [3]uint8{e.Colour.Red(), e.Colour.Green(), e.Colour.Blue()}
-		if got != want {
-			t.Fatalf("%s: colour %v, want %v", label, got, want)
-		}
+		return [3]uint8{e.Colour.Red(), e.Colour.Green(), e.Colour.Blue()}
 	}
-	check(chroma.Keyword, [3]uint8{amber.Info.R, amber.Info.G, amber.Info.B}, "keyword→Info")
-	check(chroma.LiteralString, [3]uint8{amber.Success.R, amber.Success.G, amber.Success.B}, "string→Success")
-	check(chroma.Comment, [3]uint8{amber.Muted.R, amber.Muted.G, amber.Muted.B}, "comment→Muted")
-	check(chroma.Error, [3]uint8{amber.Error.R, amber.Error.G, amber.Error.B}, "error→Error")
+	rgb := func(c [3]uint8, r, g, b uint8) bool { return c == [3]uint8{r, g, b} }
+
+	if c := colour(chroma.Keyword); !rgb(c, amber.Bright.R, amber.Bright.G, amber.Bright.B) {
+		t.Fatalf("keyword colour %v, want Bright", c)
+	}
+	if syntaxStyle.Get(chroma.Keyword).Bold != chroma.Yes {
+		t.Fatal("keywords should be bold")
+	}
+	if c := colour(chroma.LiteralString); !rgb(c, amber.FG.R, amber.FG.G, amber.FG.B) {
+		t.Fatalf("string colour %v, want FG", c)
+	}
+	if syntaxStyle.Get(chroma.LiteralString).Italic != chroma.Yes {
+		t.Fatal("strings should be italic")
+	}
+	if syntaxStyle.Get(chroma.NameFunction).Bold != chroma.Yes {
+		t.Fatal("function names should be bold")
+	}
+	if syntaxStyle.Get(chroma.KeywordType).Underline != chroma.Yes {
+		t.Fatal("types should be underlined (vim Type)")
+	}
+	if c := colour(chroma.Comment); !rgb(c, amber.Muted.R, amber.Muted.G, amber.Muted.B) {
+		t.Fatalf("comment colour %v, want Muted", c)
+	}
 	if syntaxStyle.Get(chroma.Comment).Italic != chroma.Yes {
 		t.Fatal("comments should be italic")
 	}
+	// numbers/operators stay plain fg — the monotone body
+	if c := colour(chroma.LiteralNumber); !rgb(c, amber.FG.R, amber.FG.G, amber.FG.B) {
+		t.Fatalf("number colour %v, want plain FG", c)
+	}
+	if syntaxStyle.Get(chroma.LiteralNumber).Bold == chroma.Yes {
+		t.Fatal("numbers should not be bold")
+	}
 
-	// sub-token inheritance: KeywordType (Go's int/string/etc.) falls back to Keyword
-	check(chroma.KeywordType, [3]uint8{amber.Info.R, amber.Info.G, amber.Info.B}, "keyword-type inherits")
-
-	// switching themes switches the style
+	// switching themes switches the ramp
 	dark := theme.Dark
 	SetTheme(dark)
-	check(chroma.Keyword, [3]uint8{dark.Info.R, dark.Info.G, dark.Info.B}, "after switch, keyword→dark Info")
+	if c := colour(chroma.Keyword); !rgb(c, dark.Bright.R, dark.Bright.G, dark.Bright.B) {
+		t.Fatalf("after switch, keyword colour %v, want dark Bright", c)
+	}
 }

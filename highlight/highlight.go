@@ -52,11 +52,23 @@ func Parts(code string, lexer chroma.Lexer, fallback Color) []any {
 		if val == "" {
 			continue
 		}
-		col := fallback
-		if e := st.Get(tok.Type); e.Colour.IsSet() {
-			col = RGB(e.Colour.Red(), e.Colour.Green(), e.Colour.Blue())
+		e := st.Get(tok.Type)
+		style := Style{FG: fallback}
+		if e.Colour.IsSet() {
+			style.FG = RGB(e.Colour.Red(), e.Colour.Green(), e.Colour.Blue())
 		}
-		parts = append(parts, FG(val, col))
+		// decoration carries the mfd hierarchy (bold keywords, italic strings,
+		// underlined types) — colour alone is nearly monotone by design.
+		if e.Bold == chroma.Yes {
+			style.Attr |= AttrBold
+		}
+		if e.Italic == chroma.Yes {
+			style.Attr |= AttrItalic
+		}
+		if e.Underline == chroma.Yes {
+			style.Attr |= AttrUnderline
+		}
+		parts = append(parts, Styled(val, style))
 	}
 	if len(parts) == 0 {
 		return []any{FG(code, fallback)}
@@ -64,26 +76,28 @@ func Parts(code string, lexer chroma.Lexer, fallback Color) []any {
 	return parts
 }
 
-// SetTheme rebuilds the syntax style from a recap theme, so highlighted code uses
-// the palette's own hues instead of a fixed monokai — the mfd themes were scraped
-// from a vim colourscheme, so their slots map naturally onto token classes. The
-// mapping is ONE table below; tweak freely. Falls back to monokai if the style
-// can't build (it shouldn't).
+// SetTheme rebuilds the syntax style from a recap theme. The mfd vim scheme this
+// mirrors is "monotone with decoration": hierarchy comes from the brightness ramp
+// (Bright/FG/Muted) plus bold/italic/underline, NOT from hues — keywords bright+bold,
+// functions bold, strings italic, types underlined, comments dim italic, the rest
+// plain fg. Applied uniformly to every theme so code always matches the palette.
+// Falls back to monokai if the style can't build (it shouldn't).
 func SetTheme(t theme.Theme) {
 	hex := func(c Color) string { return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B) }
 	st, err := chroma.NewStyle("recap-theme", chroma.StyleEntries{
-		chroma.Text:          hex(t.FG),
-		chroma.Name:          hex(t.FG),
-		chroma.Comment:       "italic " + hex(t.Muted),
-		chroma.Keyword:       hex(t.Info),
-		chroma.NameClass:     hex(t.Info),
-		chroma.NameBuiltin:   hex(t.Info),
-		chroma.NameFunction:  hex(t.Bright),
-		chroma.LiteralString: hex(t.Success),
-		chroma.LiteralNumber: hex(t.Bright),
-		chroma.Operator:      hex(t.Subtle),
-		chroma.Punctuation:   hex(t.Subtle),
-		chroma.Error:         hex(t.Error),
+		chroma.Text:            hex(t.FG),
+		chroma.Name:            hex(t.FG),
+		chroma.Comment:         "italic " + hex(t.Muted),
+		chroma.LiteralString:   "italic " + hex(t.FG),
+		chroma.NameFunction:    "bold " + hex(t.FG),
+		chroma.Keyword:         "bold " + hex(t.Bright),
+		chroma.KeywordType:     "underline " + hex(t.FG), // vim Type: int/string/…
+		chroma.KeywordConstant: "bold " + hex(t.FG),      // vim Boolean: true/false/nil
+		chroma.NameClass:       "underline " + hex(t.FG),
+		chroma.LiteralNumber:   hex(t.FG),
+		chroma.Operator:        hex(t.FG),
+		chroma.Punctuation:     hex(t.FG),
+		chroma.Error:           "bold underline " + hex(t.FG),
 	})
 	if err != nil {
 		syntaxStyle = styles.Get("monokai")
