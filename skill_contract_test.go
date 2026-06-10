@@ -76,7 +76,7 @@ func TestSkillContract_HelpListsLoopVerbs(t *testing.T) {
 func TestSkillContract_AddWithSummary(t *testing.T) {
 	db := contractDB(t)
 	mustRun(t, db, "add", "--repo", "demo", "--repo-path", "/tmp/demo",
-		"--title", "t", "--sha", "abc", "--summary", "streaming parser; watch EOF")
+		"--title", "t", "--sha", "abc", "--force", "--summary", "streaming parser; watch EOF")
 	out := mustRun(t, db, "show", "1")
 	if !strings.Contains(out, "streaming parser; watch EOF") {
 		t.Fatalf("recap show omits the summary briefing:\n%s", out)
@@ -106,7 +106,7 @@ func TestSkillContract_AddWithSHA(t *testing.T) {
 	out := mustRun(t, db, "add",
 		"--repo", "demo", "--repo-path", "/tmp/demo",
 		"--title", "task one", "--criterion", "builds",
-		"--check", "go build ./...", "--result", "PASS", "--sha", "abc1234")
+		"--check", "go build ./...", "--result", "PASS", "--sha", "abc1234", "--force")
 	if !strings.Contains(out, "recorded #1") {
 		t.Fatalf("add --sha did not record task 1:\n%s", out)
 	}
@@ -118,9 +118,9 @@ func TestSkillContract_AddWithSHA(t *testing.T) {
 // fix-forward lineage verb: a fix task links back to the task it fixes.
 func TestSkillContract_AddWithParent(t *testing.T) {
 	db := contractDB(t)
-	mustRun(t, db, "add", "--repo", "demo", "--repo-path", "/tmp/demo", "--title", "orig", "--sha", "aaa")
+	mustRun(t, db, "add", "--repo", "demo", "--repo-path", "/tmp/demo", "--title", "orig", "--sha", "aaa", "--force")
 	out := mustRun(t, db, "add", "--repo", "demo", "--repo-path", "/tmp/demo",
-		"--title", "fix", "--parent", "1", "--sha", "bbb")
+		"--title", "fix", "--parent", "1", "--sha", "bbb", "--force")
 	if !strings.Contains(out, "fixes #1") {
 		t.Fatalf("add --parent did not link to #1:\n%s", out)
 	}
@@ -131,7 +131,7 @@ func TestSkillContract_AddWithParent(t *testing.T) {
 func TestSkillContract_ReviewDrainAndResolve(t *testing.T) {
 	db := contractDB(t)
 	mustRun(t, db, "add", "--repo", "demo", "--repo-path", "/tmp/demo",
-		"--title", "reviewable", "--criterion", "builds", "--sha", "abc1234")
+		"--title", "reviewable", "--criterion", "builds", "--sha", "abc1234", "--force")
 
 	// a human submits a review (TUI/CLI) — the loop does NOT do this, but we
 	// simulate it so we can assert the loop's read/resolve path.
@@ -165,8 +165,8 @@ func TestSkillContract_ReviewDrainAndResolve(t *testing.T) {
 // review ls scopes to a repo via --repo, so the loop only drains its own work.
 func TestSkillContract_ReviewLsRepoScope(t *testing.T) {
 	db := contractDB(t)
-	mustRun(t, db, "add", "--repo", "alpha", "--repo-path", "/tmp/alpha", "--title", "a", "--sha", "a1")
-	mustRun(t, db, "add", "--repo", "beta", "--repo-path", "/tmp/beta", "--title", "b", "--sha", "b1")
+	mustRun(t, db, "add", "--repo", "alpha", "--repo-path", "/tmp/alpha", "--title", "a", "--sha", "a1", "--force")
+	mustRun(t, db, "add", "--repo", "beta", "--repo-path", "/tmp/beta", "--title", "b", "--sha", "b1", "--force")
 	mustRun(t, db, "review", "comment", "1", "--body", "x")
 	mustRun(t, db, "review", "submit", "1", "--verdict", "request_changes")
 	mustRun(t, db, "review", "comment", "2", "--body", "y")
