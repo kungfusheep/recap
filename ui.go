@@ -1094,7 +1094,13 @@ func buildDiffView(files []diff.File, w int) (Component, []diffLineMeta) {
 		if folded {
 			caret = "▸ "
 		}
-		rows = append(rows, HBox.Fill(&cFileHdrBG)(Text(clip(caret+sym+" "+cleanLine(f.Path))).FG(c).Bold()))
+		// renames show both ends of the move (old → new), not just the new path —
+		// otherwise a pure rename (no hunks) reads like an untouched file.
+		label := cleanLine(f.Path)
+		if f.Status == "renamed" && f.OldPath != "" {
+			label = cleanLine(f.OldPath) + " → " + cleanLine(f.Path)
+		}
+		rows = append(rows, HBox.Fill(&cFileHdrBG)(Text(clip(caret+sym+" "+label)).FG(c).Bold()))
 		meta = append(meta, diffLineMeta{FileHeader: true, File: f.Path})
 		if folded {
 			fileBoxes = append(fileBoxes, VBox.Gap(0)(rows...))

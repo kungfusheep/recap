@@ -337,3 +337,26 @@ func TestNextPrevFile(t *testing.T) {
 		t.Fatalf("prevFile from 2 → %d, want 0 (top)", diffLayer.ScrollY())
 	}
 }
+
+// a renamed file's header shows BOTH ends of the move (old → new) — a pure rename
+// has no hunks, so without this the header read like an untouched file (#f6b4dfba).
+func TestDiffViewShowsRenames(t *testing.T) {
+	files := []diff.File{{
+		Path:    "new/place.go",
+		OldPath: "old/place.go",
+		Status:  "renamed",
+	}}
+	tree, _ := buildDiffView(files, 80)
+	buf := NewBuffer(80, 6)
+	Build(tree).Execute(buf, 80, 6)
+	full := ""
+	for y := 0; y < 6; y++ {
+		full += buf.GetLine(y) + "\n"
+	}
+	if !strings.Contains(full, "old/place.go → new/place.go") {
+		t.Fatalf("rename header should show old → new, got:\n%s", full)
+	}
+	if !strings.Contains(full, "»") {
+		t.Fatalf("rename header should keep the » marker:\n%s", full)
+	}
+}

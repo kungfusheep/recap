@@ -24,9 +24,10 @@ type Hunk struct {
 }
 
 type File struct {
-	Path   string
-	Status string // "new file" | "deleted" | "renamed" | "modified"
-	Hunks  []Hunk
+	Path    string
+	OldPath string // set for renames: the pre-move path (Path is the new one)
+	Status  string // "new file" | "deleted" | "renamed" | "modified"
+	Hunks   []Hunk
 }
 
 // Parse turns a `git show`/`git diff` patch into a model. It starts
@@ -49,6 +50,9 @@ func Parse(patch string) []File {
 			cur.Status = "new file"
 		case strings.HasPrefix(ln, "deleted file"):
 			cur.Status = "deleted"
+		case strings.HasPrefix(ln, "rename from "):
+			cur.Status = "renamed"
+			cur.OldPath = strings.TrimPrefix(ln, "rename from ")
 		case strings.HasPrefix(ln, "rename to "):
 			cur.Status = "renamed"
 			cur.Path = strings.TrimPrefix(ln, "rename to ")
@@ -57,7 +61,7 @@ func Parse(patch string) []File {
 		case strings.HasPrefix(ln, "index "), strings.HasPrefix(ln, "--- "),
 			strings.HasPrefix(ln, "+++ "), strings.HasPrefix(ln, "old mode "),
 			strings.HasPrefix(ln, "new mode "), strings.HasPrefix(ln, "similarity "),
-			strings.HasPrefix(ln, "rename from "), strings.HasPrefix(ln, "GIT binary"),
+			strings.HasPrefix(ln, "GIT binary"),
 			strings.HasPrefix(ln, "Binary files"):
 			// plumbing header noise — skip
 		case strings.HasPrefix(ln, "@@"):
