@@ -1356,6 +1356,7 @@ func buildMain() Component {
 			Key("S", submitSelected),
 			Key("U", unsubmitSelected),
 			Key("t", openTodoEditor),
+			Key("m", openMessages), // the agent↔agent message ledger
 		),
 		// the inbox columns. The TODO editor is no longer swapped in here — it's a
 		// separate named view (buildTodoView) reached via app.Go, so opening it cleanly
