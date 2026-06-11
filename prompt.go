@@ -81,7 +81,6 @@ func inputPromptOverlay() Component {
 			VBox.Width(72).Fill(&cFloat).CascadeStyle(&floatStyle).
 				PaddingVH(1, 2).NodeRef(&promptUI.Ref).Opacity(In(1).Out(Animate(0)))(
 				On.Modal(
-					Key("<CR>", func() { promptUI.submit() }),
 					Key("<Enter>", func() { promptUI.submit() }),
 					Key("<Esc>", func() { promptUI.close() }),
 					Key("<C-v>", func() { promptUI.pasteImage() }),
