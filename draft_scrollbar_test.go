@@ -31,7 +31,7 @@ func TestDraftPaneScrollbarWired(t *testing.T) {
 
 	draftUI.Comments = make([]draftCommentVM, 30)
 	for i := range draftUI.Comments {
-		draftUI.Comments[i] = draftCommentVM{Body: fmt.Sprintf("comment-%02d", i), Location: "general"}
+		draftUI.Comments[i] = draftCommentVM{Body: fmt.Sprintf("comment-%02d", i), Location: "general", Visible: true}
 	}
 	draftUI.Has = true
 	pane = paneDraft      // focused on the comments column
@@ -92,6 +92,7 @@ func TestDraftScrollbarThumbPartialAndPositioned(t *testing.T) {
 			Location: "general",
 			Indent:   indent,
 			Body:     fmt.Sprintf("comment %02d with a body long enough to wrap across more than one row in a narrow column", i),
+			Visible:  true,
 		}
 	}
 	draftUI.Sel = len(draftUI.Comments) - 1
@@ -166,6 +167,7 @@ func TestDraftPaneScrollbarGeometry(t *testing.T) {
 		draftUI.Comments[i] = draftCommentVM{
 			Location: "general",
 			Body:     fmt.Sprintf("comment %d — a multi-line body that wraps to several rows in this narrow comments column so the thread overflows the viewport and actually scrolls", i),
+			Visible:  true,
 		}
 	}
 
@@ -288,7 +290,7 @@ func TestDraftScrollbarTrackFullHeight(t *testing.T) {
 	// overflowing thread
 	draftUI.Comments = make([]draftCommentVM, 8)
 	for i := range draftUI.Comments {
-		draftUI.Comments[i] = draftCommentVM{Location: "general", Body: fmt.Sprintf("comment %d wraps across several rows in the narrow column overflowing it now", i)}
+		draftUI.Comments[i] = draftCommentVM{Location: "general", Body: fmt.Sprintf("comment %d wraps across several rows in the narrow column overflowing it now", i), Visible: true}
 	}
 	draftUI.Sel = 0
 	if n := trackRows(); n < H-6 {
@@ -296,7 +298,7 @@ func TestDraftScrollbarTrackFullHeight(t *testing.T) {
 	}
 
 	// short thread (does NOT overflow) — track must STILL be full
-	draftUI.Comments = []draftCommentVM{{Location: "general", Body: "short one"}, {Location: "general", Body: "short two"}}
+	draftUI.Comments = []draftCommentVM{{Location: "general", Body: "short one", Visible: true}, {Location: "general", Body: "short two", Visible: true}}
 	draftUI.Sel = 0
 	if n := trackRows(); n < H-6 {
 		t.Fatalf("short content: track only %d rows of a %d-row pane — collapsed track", n, H)

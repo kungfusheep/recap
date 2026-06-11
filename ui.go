@@ -141,6 +141,7 @@ type draftCommentVM struct {
 	Line     int
 	Draft    bool // on the open draft (editable); else submitted (read-only)
 	Selected bool // updated each frame like the inbox rows, drives the fill
+	Visible  bool // false while this row's thread root is collapsed — the template's If skips it
 }
 
 // draftView is the comments (draft) pane's state in one concrete struct (the
@@ -169,8 +170,7 @@ type draftView struct {
 	EditingID  int64 // comment being edited via the prompt
 	ReplyingTo int64 // parent comment for a reply in flight
 
-	TaskID int64            // the task whose comments are loaded (for in-place reloads)
-	Raw    []db.TaskComment // the loaded comments, pre-projection — fold/unfold re-projects from here without re-querying
+	TaskID int64 // the task whose comments are loaded (for in-place reloads)
 	// Collapsed thread roots ('o'): the root row stays with a "▸ N replies" cue,
 	// its reply rows are dropped from Comments. Keyed by comment id so it
 	// survives reloads while the task's pane stays open.
@@ -911,7 +911,6 @@ func loadDraftPane(taskID int64) {
 // an editable draft.
 func applyDraftComments(taskID int64, cs []db.TaskComment) {
 	draftUI.TaskID = taskID
-	draftUI.Raw = cs
 	draftUI.Comments = nil
 	for k := range diffUI.Commented {
 		delete(diffUI.Commented, k)
@@ -1015,14 +1014,6 @@ func threadComments(vms []draftCommentVM) []draftCommentVM {
 				v.LocColor = agentColor
 			}
 		}
-		// a collapsed root keeps its row (with a cue) and drops its reply rows ('o').
-		if depth == 0 && draftUI.Collapsed[v.ID] {
-			if n := countReplies(v.ID); n > 0 {
-				v.FoldCue = fmt.Sprintf("▸ %d repl%s", n, map[bool]string{true: "y", false: "ies"}[n == 1])
-				out = append(out, v)
-				return
-			}
-		}
 		out = append(out, v)
 		for _, r := range byParent[v.ID] {
 			walk(r, depth+1)
@@ -1031,12 +1022,51 @@ func threadComments(vms []draftCommentVM) []draftCommentVM {
 	for _, v := range top {
 		walk(v, 0)
 	}
+	// every row is ALWAYS in the slice — folding only flips per-row Visible
+	// flags; the template's If(&row.Visible) decides what renders.
+	setFoldFlags(out)
 	return out
+}
+
+// setFoldFlags syncs each row's Visible flag + the roots' "▸ N replies" cues to
+// draftUI.Collapsed, in place. Pure viewing state over an unchanged row set: the
+// template renders a row through If(&row.Visible), so collapsing a thread never
+// rebuilds or re-fetches anything.
+func setFoldFlags(vms []draftCommentVM) {
+	byID := make(map[int64]int, len(vms))
+	for i, v := range vms {
+		byID[v.ID] = i
+	}
+	rootOf := func(v draftCommentVM) int64 {
+		for v.ParentID != 0 {
+			i, ok := byID[v.ParentID]
+			if !ok {
+				break
+			}
+			v = vms[i]
+		}
+		return v.ID
+	}
+	replies := map[int64]int{} // root id → descendant count
+	for i := range vms {
+		root := rootOf(vms[i])
+		if vms[i].ID != root {
+			replies[root]++
+		}
+		vms[i].Visible = vms[i].ID == root || !draftUI.Collapsed[root]
+	}
+	for i := range vms {
+		vms[i].FoldCue = ""
+		if n := replies[vms[i].ID]; n > 0 && draftUI.Collapsed[vms[i].ID] {
+			vms[i].FoldCue = fmt.Sprintf("▸ %d repl%s", n, map[bool]string{true: "y", false: "ies"}[n == 1])
+		}
+	}
 }
 
 // toggleCommentThread ('o' in the comments pane) collapses/expands the selected
 // row's thread: the root stays with a "▸ N replies" cue, replies hide. Selecting
-// a reply folds its whole thread (selection lands back on the root).
+// a reply folds its whole thread (selection lands back on the root). Folding is
+// pure viewing state — it flips flags on the rows in place; the data never moves.
 func toggleCommentThread() {
 	if draftUI.Sel < 0 || draftUI.Sel >= len(draftUI.Comments) {
 		return
@@ -1055,9 +1085,7 @@ func toggleCommentThread() {
 		root = p
 	}
 	draftUI.Collapsed[root.ID] = !draftUI.Collapsed[root.ID]
-	// folding is a pure VIEWING change — re-project the comments we already hold
-	// (no db round-trip; the data didn't change, only how it's viewed).
-	applyDraftComments(draftUI.TaskID, draftUI.Raw)
+	setFoldFlags(draftUI.Comments)
 	for i, v := range draftUI.Comments {
 		if v.ID == root.ID {
 			draftUI.Sel = i
@@ -1646,8 +1674,13 @@ func toggleHelp() { helpOpen = !helpOpen }
 func draftRow(c *draftCommentVM) Component {
 	// per-row body fill = full-width flat band (no list marker), focus-aware.
 	itemBG := If(&c.Selected).Then(&draftUI.SelBG).Else(&cPaneBG)
+	// the row set never changes on fold — collapsing a thread flips Visible and
+	// the template chooses here, via control flow, whether to render the row.
+	// The If lives INSIDE a concrete root container: List measures/positions the
+	// row root directly, so an If at the root renders nothing; padding and fill
+	// ride the If branch so a hidden row truly occupies zero height.
 	// Indent (precomputed per row) nests replies; empty for top-level comments.
-	return VBox.Fill(itemBG).PaddingVH(1, 1)(
+	return VBox(If(&c.Visible).Then(VBox.Fill(itemBG).PaddingVH(1, 1)(
 		// one read-receipt dot: has the OTHER party read this? (● read / ○ unread)
 		HBox(Text(&c.Indent), Text(&c.ReadDot).FG(&cHunk), SpaceW(1), Text(&c.Location).FG(&c.LocColor),
 			If(&c.FoldCue).Then(HBox(SpaceW(2), Text(&c.FoldCue).FG(&cMuted))),
@@ -1660,7 +1693,7 @@ func draftRow(c *draftCommentVM) Component {
 		// the agent's reaction sits below the body, attributed to the agent's name in
 		// its personal colour (Text, not TextBlock, so the emoji renders cleanly).
 		If(&c.HasEmote).Then(HBox(Text(&c.Indent), Text(&c.Emote), SpaceW(1), Text(&agentLabel).FG(&agentColor))),
-	)
+	)))
 }
 
 // markInFlight re-syncs each inbox header row's in-flight flag to the current cursor
@@ -1857,12 +1890,13 @@ func stepFocus(d int) {
 }
 
 func moveDraft(d int) {
-	draftUI.Sel += d
-	if draftUI.Sel >= len(draftUI.Comments) {
-		draftUI.Sel = len(draftUI.Comments) - 1
-	}
-	if draftUI.Sel < 0 {
-		draftUI.Sel = 0
+	// step over rows hidden by a collapsed thread (Visible=false renders nothing);
+	// stay put if no visible row exists in that direction.
+	for i := draftUI.Sel + d; i >= 0 && i < len(draftUI.Comments); i += d {
+		if draftUI.Comments[i].Visible {
+			draftUI.Sel = i
+			return
+		}
 	}
 }
 

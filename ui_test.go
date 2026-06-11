@@ -363,7 +363,7 @@ func TestDraftCommentBodyWraps(t *testing.T) {
 	t.Cleanup(func() { draftUI.Comments = prev; draftUI.Sel = prevSel })
 
 	long := "this is a deliberately long top-level comment that should wrap across several lines inside the narrow draft column instead of truncating at a single line in the available space"
-	draftUI.Comments = []draftCommentVM{{ID: 1, Location: "general", Body: long, Selected: true}}
+	draftUI.Comments = []draftCommentVM{{ID: 1, Location: "general", Body: long, Selected: true, Visible: true}}
 	draftUI.Sel = 0
 	node := List(&draftUI.Comments).Selection(&draftUI.Sel).Style(&listBaseStyle).
 		SelectedStyle(Style{}).Marker("  ").Render(draftRow)
@@ -408,7 +408,7 @@ func TestColumnHeadersAlign(t *testing.T) {
 	detailTitle = "PREVIEWTITLE"
 	draftUI.Has = true
 	inboxUI.Rows = []taskVM{{ID: 1, Title: "a task", Repo: "recap", Glyph: "●", GlyphColor: cBright}}
-	draftUI.Comments = []draftCommentVM{{Location: "general", Body: "x"}}
+	draftUI.Comments = []draftCommentVM{{Location: "general", Body: "x", Visible: true}}
 
 	tmpl := Build(buildMain())
 	buf := NewBuffer(120, 40)
@@ -710,7 +710,7 @@ func TestThreadComments(t *testing.T) {
 
 // a reply row renders its "↳ who" label and body indented in the comments pane.
 func TestReplyRowRenders(t *testing.T) {
-	c := draftCommentVM{Location: "↳ agent", Indent: "  ", When: "10:20", Body: "renamed it"}
+	c := draftCommentVM{Location: "↳ agent", Indent: "  ", When: "10:20", Body: "renamed it", Visible: true}
 	tmpl := Build(VBox.Width(50)(draftRow(&c)))
 	buf := NewBuffer(50, 6)
 	tmpl.Execute(buf, 50, 6)
@@ -864,8 +864,9 @@ func TestReplyToCommentFromPane(t *testing.T) {
 		uiApp = nil
 		draftUI.Comments = nil
 		draftUI.Sel = 0
-		promptUI.Field = InputState{}
+		promptUI = promptView{} // replyToComment OPENED the prompt — close it or it floats over later renders
 		draftUI.ReplyingTo = 0
+		statusMsg = ""
 	})
 
 	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
@@ -963,7 +964,7 @@ func TestLeftColumnStableWhenDraftToggles(t *testing.T) {
 	}
 
 	draftUI.Has = true
-	draftUI.Comments = []draftCommentVM{{Location: "general", Body: "x"}}
+	draftUI.Comments = []draftCommentVM{{Location: "general", Body: "x", Visible: true}}
 	wDraft := render()
 
 	if wNoDraft != wDraft {
@@ -1163,14 +1164,24 @@ func TestToggleCommentThread(t *testing.T) {
 
 	loadDraftPane(id)
 	if len(draftUI.Comments) != 3 {
-		t.Fatalf("expanded rows = %d, want 3", len(draftUI.Comments))
+		t.Fatalf("rows = %d, want 3", len(draftUI.Comments))
+	}
+	for i, v := range draftUI.Comments {
+		if !v.Visible {
+			t.Fatalf("row %d should start visible", i)
+		}
 	}
 
-	// select the NESTED reply and fold: whole thread collapses, cursor on root
+	// select the NESTED reply and fold: the row set NEVER changes — collapsing
+	// flips Visible flags and the template's If decides what renders. Cursor on root.
 	draftUI.Sel = 2
 	toggleCommentThread()
-	if len(draftUI.Comments) != 1 {
-		t.Fatalf("collapsed rows = %d, want 1", len(draftUI.Comments))
+	if len(draftUI.Comments) != 3 {
+		t.Fatalf("fold must not change the row set: rows = %d, want 3", len(draftUI.Comments))
+	}
+	if !draftUI.Comments[0].Visible || draftUI.Comments[1].Visible || draftUI.Comments[2].Visible {
+		t.Fatalf("collapsed: want root visible + replies hidden, got %v/%v/%v",
+			draftUI.Comments[0].Visible, draftUI.Comments[1].Visible, draftUI.Comments[2].Visible)
 	}
 	if draftUI.Comments[0].ID != rootID || draftUI.Sel != 0 {
 		t.Fatalf("cursor not on root: sel=%d id=%d", draftUI.Sel, draftUI.Comments[0].ID)
@@ -1178,17 +1189,94 @@ func TestToggleCommentThread(t *testing.T) {
 	if draftUI.Comments[0].FoldCue != "▸ 2 replies" {
 		t.Fatalf("fold cue = %q, want \"▸ 2 replies\"", draftUI.Comments[0].FoldCue)
 	}
+	// j from the root steps over the hidden replies (stays put — nothing below)
+	moveDraft(1)
+	if draftUI.Sel != 0 {
+		t.Fatalf("j over hidden rows should stay on root, sel = %d", draftUI.Sel)
+	}
 
-	// o again expands, cue clears
+	// o again expands, cue clears, flags restore
 	toggleCommentThread()
-	if len(draftUI.Comments) != 3 || draftUI.Comments[0].FoldCue != "" {
-		t.Fatalf("expand failed: rows=%d cue=%q", len(draftUI.Comments), draftUI.Comments[0].FoldCue)
+	if draftUI.Comments[0].FoldCue != "" || !draftUI.Comments[1].Visible || !draftUI.Comments[2].Visible {
+		t.Fatalf("expand failed: cue=%q vis=%v/%v",
+			draftUI.Comments[0].FoldCue, draftUI.Comments[1].Visible, draftUI.Comments[2].Visible)
 	}
 
 	// a reload (e.g. new comment lands) keeps a collapsed thread collapsed
 	toggleCommentThread()
 	loadDraftPane(id)
-	if len(draftUI.Comments) != 1 {
-		t.Fatalf("collapse should survive reload, rows = %d", len(draftUI.Comments))
+	if len(draftUI.Comments) != 3 || draftUI.Comments[1].Visible {
+		t.Fatalf("collapse should survive reload: rows=%d reply visible=%v",
+			len(draftUI.Comments), draftUI.Comments[1].Visible)
+	}
+}
+
+// hidden rows must leave NO trace in the rendered pane — no blank bands, no gap
+// where the replies were. Renders the real pane (buildMain) before and after a fold.
+func TestFoldedRowsRenderNothing(t *testing.T) {
+	prevStore, prevApp, prevOmni := uiStore, uiApp, omni
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	t.Cleanup(func() {
+		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
+		inboxUI.Rows = nil
+		pane = paneList
+		draftUI = draftView{LastSel: -1, Collapsed: map[int64]bool{}}
+	})
+
+	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
+	rootID, _ := st.AddReviewComment(id, "you", "ROOTBODY", "calc.go", 3, "@@", "snip")
+	st.AddReply(rootID, "agent", "REPLYBODY")
+	st.AddReviewComment(id, "you", "SECONDBODY", "zz.go", 9, "@@", "snip2")
+	reloadTasks()
+	loadDraftPane(id)
+	draftUI.Has = true
+	pane = paneDraft
+
+	render := func() string {
+		tmpl := Build(buildMain())
+		buf := NewBuffer(140, 30)
+		tmpl.Execute(buf, 140, 30)
+		var out []string
+		for y := 0; y < 30; y++ {
+			out = append(out, strings.TrimRight(buf.GetLine(y), " "))
+		}
+		return strings.Join(out, "\n")
+	}
+
+	before := render()
+	if !strings.Contains(before, "REPLYBODY") || !strings.Contains(before, "SECONDBODY") {
+		t.Fatalf("expanded render missing rows:\n%s", before)
+	}
+
+	// fold the first thread
+	draftUI.Sel = 0
+	toggleCommentThread()
+	after := render()
+	if strings.Contains(after, "REPLYBODY") {
+		t.Fatalf("hidden reply still renders:\n%s", after)
+	}
+	if !strings.Contains(after, "▸ 1") {
+		t.Fatalf("fold cue missing from render:\n%s", after)
+	}
+	// no gap: the second thread must sit close under the folded root — the
+	// blank-line run between them can't exceed the rows' own vertical padding.
+	lines := strings.Split(after, "\n")
+	rootAt, secondAt := -1, -1
+	for i, l := range lines {
+		if strings.Contains(l, "ROOTBODY") {
+			rootAt = i
+		}
+		if strings.Contains(l, "SECONDBODY") {
+			secondAt = i
+		}
+	}
+	if rootAt < 0 || secondAt < 0 {
+		t.Fatalf("rows not rendered: root@%d second@%d\n%s", rootAt, secondAt, after)
+	}
+	if gap := secondAt - rootAt; gap > 6 {
+		t.Fatalf("hidden rows left a gap: ROOTBODY@%d -> SECONDBODY@%d (%d apart)\n%s", rootAt, secondAt, gap, after)
 	}
 }
