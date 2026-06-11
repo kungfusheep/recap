@@ -19,6 +19,7 @@ import (
 
 	"github.com/kungfusheep/recap/config"
 	"github.com/kungfusheep/recap/notify"
+	"github.com/kungfusheep/recap/todo"
 )
 
 // skillGuide is the agent loop guide, embedded so it ships (and versions) with
@@ -80,6 +81,8 @@ func main() {
 		err = cmdSend(args)
 	case "messages":
 		err = cmdMessages(args)
+	case "todo":
+		err = cmdTodo(args)
 	case "listeners":
 		err = cmdListeners(args)
 	case "skill":
@@ -157,6 +160,11 @@ usage:
                          (durable; its next recap next / parked --wait picks it up)
   recap send --listeners --body TEXT
                          broadcast to every ACTIVELY listening repo (ask the room)
+  recap todo "text" [--repo-path P]
+                         create work: append a task to a repo's TODO file
+                         (default: current repo). Enters recap next's todo tier;
+                         wakes a parked loop there.
+
   recap listeners        show repos with a live parked loop right now
   recap messages [--all] the message ledger, both directions (m-ids, read state)
   recap read m<id>       clear a peer message (read c<id> still clears comments)
@@ -1216,6 +1224,44 @@ func cmdSend(args []string) error {
 			fmt.Printf("(note: no tasks or named agent seen for %q yet — it will wait until a loop runs there)\n", to)
 		}
 	}
+	return nil
+}
+
+// cmdTodo appends a task to a repo's TODO file from the CLI — the "create work"
+// verb. The task enters the normal flow: `recap next`'s todo tier picks it up,
+// the TUI's UPCOMING band shows it, and notify wakes any parked loop/TUI.
+func cmdTodo(args []string) error {
+	fs := flag.NewFlagSet("todo", flag.ExitOnError)
+	repoPath := fs.String("repo-path", "", "repo whose TODO receives the task (default: git root of cwd)")
+	fs.Parse(args)
+	text := strings.TrimSpace(strings.Join(fs.Args(), " "))
+	if text == "" {
+		return fmt.Errorf("usage: recap todo [--repo-path P] \"task text\"")
+	}
+	rp := *repoPath
+	if rp == "" {
+		rp = currentRepoPath()
+	}
+	if rp == "" {
+		return fmt.Errorf("not in a git repo — pass --repo-path")
+	}
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return err
+	}
+	path, err := todo.PathFor(cfg.TODOTemplate, rp)
+	if err != nil || path == "" {
+		return fmt.Errorf("no TODO path resolves for %s — set todo_template in the recap config", rp)
+	}
+	items, err := todo.Read(path)
+	if err != nil {
+		return err
+	}
+	if err := todo.Write(path, todo.Add(items, text)); err != nil {
+		return err
+	}
+	notify.Reload() // wakes a parked `recap next --wait` + refreshes any open TUI
+	fmt.Printf("added to %s\n", path)
 	return nil
 }
 

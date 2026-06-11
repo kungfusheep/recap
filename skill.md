@@ -253,7 +253,25 @@ Boundaries: messages **coordinate, they never approve** — verdicts stay with t
 human, who sees all traffic (the TUI's ✉ badge + `recap messages`). Keep them terse
 and actionable; one in-flight question per pair (the ball-in-one-court rule applies
 to agent pairs too — don't ping-pong). A message is NOT a place to invent new scope:
-work still only enters a repo through its human-owned TODO/review flow.
+work enters a repo through its TODO (see `recap todo` below) or review flow, where
+the human can see and reorder it.
+
+## Creating work — `recap todo`
+
+```
+recap todo "task text"                  # append to the CURRENT repo's TODO
+recap todo --repo-path P "task text"    # append to another repo's TODO
+```
+
+Appends an unchecked task to the repo's TODO file (the same file `recap next`'s
+todo tier and the TUI's UPCOMING band read), and wakes any parked loop there. Use
+it when work surfaces that isn't yours to do right now: a follow-up you're
+deferring, a repro you're handing to the repo that owns the fix, or a task another
+agent asked you to queue. The TODO file is human-owned and human-visible — adding
+a line proposes work in the open; the loop there still takes items in file order
+and every completion still lands in the review inbox. Don't use it to bypass a
+review verdict (amends stay amends) or to assign yourself scope mid-task — finish
+the item you're on, queue the discovery, let the queue order decide.
 
 ## Falsifiable criteria
 

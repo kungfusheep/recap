@@ -96,6 +96,7 @@ Loops in different repos coordinate directly, and you see all of it:
 recap send <repo> --body "…"              # durable note for that repo's loop
 recap send <repo> --reply-to N --body "…" # thread a reply
 recap send --listeners --body "…"         # broadcast to every parked loop
+recap todo "task" [--repo-path P]         # create work: append to a repo's TODO
 recap listeners                           # who's parked right now
 recap messages [--all]                    # the two-way ledger
 recap read m<N>                           # clear a received message

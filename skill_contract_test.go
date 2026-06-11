@@ -189,3 +189,48 @@ func TestSkillContract_ReviewLsRepoScope(t *testing.T) {
 		t.Fatalf("--all should show both:\n%s", all)
 	}
 }
+
+// the create-work verb: `recap todo "text"` appends an unchecked task to the
+// repo's TODO file (resolved via todo_template), where recap next's todo tier
+// picks it up. This is how an agent (or the human) injects work from the CLI.
+func TestSkillContract_TodoCreatesWork(t *testing.T) {
+	dir := t.TempDir()
+	db := filepath.Join(dir, "recap.db")
+	cfgPath := filepath.Join(dir, "config.toml")
+	todoFile := filepath.Join(dir, "notes", "proj", "TODO.md")
+	// a literal template (no {relpath}) resolves the same file for any repo —
+	// enough for the contract; path templating is covered in todo's own tests.
+	if err := os.WriteFile(cfgPath, []byte("todo_template = \""+todoFile+"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command(recapBin, "todo", "--repo-path", dir, "wire the new verb end to end")
+	cmd.Env = append(os.Environ(), "RECAP_DB="+db, "RECAP_CONFIG="+cfgPath)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("recap todo failed: %v\n%s", err, out)
+	}
+	b, err := os.ReadFile(todoFile)
+	if err != nil {
+		t.Fatalf("TODO file not created: %v", err)
+	}
+	if !strings.Contains(string(b), "- [ ] wire the new verb end to end") {
+		t.Fatalf("task not appended as an unchecked item:\n%s", b)
+	}
+
+	// a second add appends, never clobbers
+	cmd = exec.Command(recapBin, "todo", "--repo-path", dir, "second task")
+	cmd.Env = append(os.Environ(), "RECAP_DB="+db, "RECAP_CONFIG="+cfgPath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("second recap todo failed: %v\n%s", err, out)
+	}
+	b, _ = os.ReadFile(todoFile)
+	if !strings.Contains(string(b), "first") && !strings.Contains(string(b), "wire the new verb") || !strings.Contains(string(b), "- [ ] second task") {
+		t.Fatalf("second add lost content:\n%s", b)
+	}
+
+	// help advertises the verb
+	if h := mustRun(t, db, "help"); !strings.Contains(h, "recap todo") {
+		t.Errorf("recap help does not mention the todo verb:\n%s", h)
+	}
+}
