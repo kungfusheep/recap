@@ -191,8 +191,9 @@ func TestSkillContract_ReviewLsRepoScope(t *testing.T) {
 }
 
 // the create-work verb: `recap todo "text"` appends an unchecked task to the
-// repo's TODO file (resolved via todo_template), where recap next's todo tier
-// picks it up. This is how an agent (or the human) injects work from the CLI.
+// repo's TODO file (resolved via todo_template). Cross-repo targeting is a
+// MECHANICAL barrier: refused unless the TARGET's owner opted in with
+// `recap todo --open` (run inside that repo) — the comms-model rule, enforced.
 func TestSkillContract_TodoCreatesWork(t *testing.T) {
 	dir := t.TempDir()
 	db := filepath.Join(dir, "recap.db")
@@ -203,12 +204,45 @@ func TestSkillContract_TodoCreatesWork(t *testing.T) {
 	if err := os.WriteFile(cfgPath, []byte("todo_template = \""+todoFile+"\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	env := append(os.Environ(), "RECAP_DB="+db, "RECAP_CONFIG="+cfgPath)
+	target := filepath.Join(dir, "proj")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, ga := range [][]string{{"init", "-q"}} {
+		c := exec.Command("git", ga...)
+		c.Dir = target
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", ga, err, out)
+		}
+	}
 
-	cmd := exec.Command(recapBin, "todo", "--repo-path", dir, "wire the new verb end to end")
-	cmd.Env = append(os.Environ(), "RECAP_DB="+db, "RECAP_CONFIG="+cfgPath)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("recap todo failed: %v\n%s", err, out)
+	run := func(dir string, args ...string) (string, error) {
+		cmd := exec.Command(recapBin, args...)
+		cmd.Env = env
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+
+	// cross-repo WITHOUT the target's opt-in: refused, pointing at the comms model
+	out, err := run(".", "todo", "--repo-path", target, "sneaky cross-repo task")
+	if err == nil {
+		t.Fatalf("cross-repo todo without opt-in must be refused, got:\n%s", out)
+	}
+	if !strings.Contains(out, "recap send") {
+		t.Fatalf("refusal should point at the comms model:\n%s", out)
+	}
+	if b, _ := os.ReadFile(todoFile); strings.Contains(string(b), "sneaky") {
+		t.Fatalf("refused todo still landed:\n%s", b)
+	}
+
+	// the OWNER opts in from inside the target repo; cross-repo then lands
+	if out, err := run(target, "todo", "--open"); err != nil {
+		t.Fatalf("owner --open failed: %v\n%s", err, out)
+	}
+	if out, err := run(".", "todo", "--repo-path", target, "wire the new verb end to end"); err != nil {
+		t.Fatalf("opted-in cross-repo todo failed: %v\n%s", err, out)
 	}
 	b, err := os.ReadFile(todoFile)
 	if err != nil {
@@ -218,15 +252,21 @@ func TestSkillContract_TodoCreatesWork(t *testing.T) {
 		t.Fatalf("task not appended as an unchecked item:\n%s", b)
 	}
 
-	// a second add appends, never clobbers
-	cmd = exec.Command(recapBin, "todo", "--repo-path", dir, "second task")
-	cmd.Env = append(os.Environ(), "RECAP_DB="+db, "RECAP_CONFIG="+cfgPath)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("second recap todo failed: %v\n%s", err, out)
+	// own-repo adds never need opt-in (run from inside the target)
+	if out, err := run(target, "todo", "own queue task"); err != nil {
+		t.Fatalf("own-repo todo failed: %v\n%s", err, out)
 	}
 	b, _ = os.ReadFile(todoFile)
-	if !strings.Contains(string(b), "first") && !strings.Contains(string(b), "wire the new verb") || !strings.Contains(string(b), "- [ ] second task") {
-		t.Fatalf("second add lost content:\n%s", b)
+	if !strings.Contains(string(b), "- [ ] own queue task") {
+		t.Fatalf("own-repo add lost:\n%s", b)
+	}
+
+	// --close revokes
+	if out, err := run(target, "todo", "--close"); err != nil {
+		t.Fatalf("owner --close failed: %v\n%s", err, out)
+	}
+	if out, err := run(".", "todo", "--repo-path", target, "should be refused again"); err == nil {
+		t.Fatalf("cross-repo todo after --close must be refused:\n%s", out)
 	}
 
 	// help advertises the verb

@@ -163,8 +163,10 @@ usage:
   recap todo "text" [--repo-path P]
                          create work: append a task to a TODO file (default:
                          current repo). Enters recap next's todo tier; wakes a
-                         parked loop there. AGENTS: own repo only — propose
-                         cross-repo work via recap send; the owner queues it.
+                         parked loop there. Cross-repo targets are REFUSED unless
+                         the target's owner opted in (recap todo --open, run in
+                         that repo; --close revokes) — propose via recap send
+                         instead and the owner queues agreed work.
 
   recap listeners        show repos with a live parked loop right now
   recap messages [--all] the message ledger, both directions (m-ids, read state)
@@ -1234,7 +1236,28 @@ func cmdSend(args []string) error {
 func cmdTodo(args []string) error {
 	fs := flag.NewFlagSet("todo", flag.ExitOnError)
 	repoPath := fs.String("repo-path", "", "repo whose TODO receives the task (default: git root of cwd)")
+	open := fs.Bool("open", false, "OWNER verb, run inside the repo: accept cross-repo todos onto this repo's queue")
+	closed := fs.Bool("close", false, "OWNER verb, run inside the repo: stop accepting cross-repo todos (the default)")
 	fs.Parse(args)
+
+	// owner opt-in for receiving cross-repo todos — the mechanical barrier behind
+	// the comms-model rule (work lands on another queue only if its OWNER opened it).
+	if *open || *closed {
+		repo := currentRepo()
+		if repo == "" {
+			return fmt.Errorf("run --open/--close inside the repo that owns the queue")
+		}
+		if err := setTodoOpen(repo, *open); err != nil {
+			return err
+		}
+		if *open {
+			fmt.Printf("%s now ACCEPTS cross-repo todos (recap todo --close to revoke)\n", repo)
+		} else {
+			fmt.Printf("%s no longer accepts cross-repo todos\n", repo)
+		}
+		return nil
+	}
+
 	text := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if text == "" {
 		return fmt.Errorf("usage: recap todo [--repo-path P] \"task text\"")
@@ -1245,6 +1268,15 @@ func cmdTodo(args []string) error {
 	}
 	if rp == "" {
 		return fmt.Errorf("not in a git repo — pass --repo-path")
+	}
+	// cross-repo (the target is not the repo you're standing in) requires the
+	// TARGET's opt-in: queues belong to their owners; propose via `recap send`
+	// and the owning loop queues it — unless the owner has opened the door.
+	if cur := currentRepoPath(); filepath.Clean(rp) != filepath.Clean(cur) || cur == "" {
+		target := filepath.Base(filepath.Clean(rp))
+		if !todoOpen(target) {
+			return fmt.Errorf("%s does not accept cross-repo todos — propose it instead: recap send %s --body \"…\" (its owner queues agreed work; to accept external todos the owner runs `recap todo --open` in that repo)", target, target)
+		}
 	}
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -1264,6 +1296,42 @@ func cmdTodo(args []string) error {
 	notify.Reload() // wakes a parked `recap next --wait` + refreshes any open TUI
 	fmt.Printf("added to %s\n", path)
 	return nil
+}
+
+// todoOpenPath is the per-repo marker that says "this repo accepts cross-repo
+// todos" — created by the OWNER via `recap todo --open` run inside the repo.
+func todoOpenPath(repo string) (string, error) {
+	dbp, err := db.Path()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(dbp), "todo-open", repo), nil
+}
+
+func todoOpen(repo string) bool {
+	p, err := todoOpenPath(repo)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(p)
+	return err == nil
+}
+
+func setTodoOpen(repo string, open bool) error {
+	p, err := todoOpenPath(repo)
+	if err != nil {
+		return err
+	}
+	if !open {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(p, []byte("accepts cross-repo todos\n"), 0o644)
 }
 
 // cmdListeners shows which repos have a live parked loop right now — the audience

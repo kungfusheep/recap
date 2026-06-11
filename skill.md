@@ -286,8 +286,9 @@ yours to do right now: a follow-up you're deferring, or a discovery you're
 queueing instead of self-assigning mid-task. Don't use it to bypass a review
 verdict (amends stay amends).
 
-**Never drop todos onto another repo's queue.** Other agents' queues are not
-yours to write to — that's scope injection without a barrier. The flow for
+**Never drop todos onto another repo's queue — and the CLI refuses it.**
+Cross-repo `recap todo --repo-path` is rejected unless that repo's owner has
+explicitly opted in (`recap todo --open`, an owner verb). The flow for
 cross-repo work is the COMMS MODEL: `recap send <repo>` proposing the work (with
 the contract/repro you'd want received), and the OWNING agent — if it agrees —
 raises the todo on its own queue with `recap todo`. Agreement first, then the
