@@ -758,14 +758,14 @@ func TestGeneralCommentAppearsAfterSave(t *testing.T) {
 	reloadTasks()
 	inboxUI.Sel = 0
 	uiApp.SetView(buildMain())
-	refreshDetail() // establishes LastSel/LastLen; no comments yet
+	onInboxSelChanged() // establishes LastSel/LastLen; no comments yet
 	if len(draftUI.Comments) != 0 {
 		t.Fatalf("precondition: expected 0 comments, got %d", len(draftUI.Comments))
 	}
 
 	promptUI.Field.Value = "a general note"
 	saveGeneralComment()
-	refreshDetail() // selection unchanged → refreshes only if saveGeneralComment marked it dirty
+	onInboxSelChanged() // selection unchanged → refreshes only if saveGeneralComment marked it dirty
 
 	found := false
 	for _, c := range draftUI.Comments {
@@ -821,14 +821,14 @@ func TestSummaryFollowsSelectedRevision(t *testing.T) {
 
 	inboxUI.Sel = hdr
 	inboxUI.DetailDirty = true
-	refreshDetail()
+	onInboxSelChanged()
 	if b := flattenSpans(diffUI.Banner); !contains2(b, "revised briefing") {
 		t.Fatalf("header should show the latest revision summary, banner=%q", b)
 	}
 
 	inboxUI.Sel = origChild
 	inboxUI.DetailDirty = true
-	refreshDetail()
+	onInboxSelChanged()
 	if b := flattenSpans(diffUI.Banner); !contains2(b, "original briefing") {
 		t.Fatalf("selecting rev 0 should show its own summary, banner=%q", b)
 	}
@@ -1071,7 +1071,7 @@ func TestDiffShowsDanglingShaWarning(t *testing.T) {
 	inboxUI.Sel = 0
 	inboxUI.DetailDirty = true
 	inboxUI.LastSel = -99
-	refreshDetail()
+	onInboxSelChanged()
 
 	found := false
 	for _, row := range diffUI.Banner {

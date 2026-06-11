@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 	"unicode"
@@ -96,10 +95,6 @@ var (
 	metaResult         string
 	metaResultColor    = cSubtle
 	statusMsg          string
-
-	// set by the SIGUSR1 handler; consumed on the render thread to reload the
-	// inbox when another process (e.g. `recap add`) changes the db.
-	reloadRequested atomic.Bool
 )
 
 func runUI() error {
@@ -124,10 +119,12 @@ func runUI() error {
 	uiRepo = currentRepo() // cache the TUI's repo once (refreshIdentity runs on the render thread; no git there)
 	refreshIdentity()      // load this repo's agent name + colour
 	reloadTasks()
+	applyPaneFocus() // initial focus colours (events own them from here on)
 
 	// live refresh: register this TUI so `recap add` can SIGUSR1 us to reload the
-	// inbox without a restart. The handler only flags + requests a render; the
-	// actual reload runs on the render thread (refreshDetail) to avoid races.
+	// inbox without a restart. The signal handler kicks its own fetch (events own
+	// their work): queries run here on the signal goroutine against a mutex-copied
+	// filter/pins snapshot, the result stages, and the frame seam swaps it in.
 	cleanup := notify.Register()
 	defer cleanup()
 	sigReload := make(chan os.Signal, 1)
@@ -135,7 +132,8 @@ func runUI() error {
 	defer signal.Stop(sigReload)
 	go func() {
 		for range sigReload {
-			reloadRequested.Store(true)
+			f, p := inboxSnap()
+			stageInbox(fetchInbox(f, p))
 			uiApp.RequestRender() // App.Suspend() gates the draw if vim owns the screen; Resume repaints on exit
 		}
 	}()
@@ -293,9 +291,45 @@ func takeStagedInbox() *inboxData {
 	return d
 }
 
-// reloadTasks is the handler-side reload: fetch + apply inline.
+// reloadTasks is the handler-side reload: fetch + apply inline, then the
+// reload's consequences (header, flags, detail) — events own their work.
 func reloadTasks() {
 	applyInbox(fetchInbox(inboxUI.RepoFilter, pinned))
+	onInboxReloaded()
+}
+
+// onInboxReloaded runs a reload's consequences: header strings, selection
+// flags, and the detail refresh. Callers: reloadTasks (handler path) and the
+// staged-inbox drain (signal path).
+func onInboxReloaded() {
+	updateInboxSnap()
+	refreshHeader()
+	syncSelectionFlags()
+	refreshDetailNow()
+}
+
+// the SIGUSR1 fetch snapshot: filter + pins, copied under a mutex so the signal
+// goroutine can kick fetchInbox directly without racing handler writes.
+var (
+	inboxSnapMu sync.Mutex
+	snapFilter  string
+	snapPins    map[int64]bool
+)
+
+func updateInboxSnap() {
+	inboxSnapMu.Lock()
+	snapFilter = inboxUI.RepoFilter
+	snapPins = make(map[int64]bool, len(pinned))
+	for k, v := range pinned {
+		snapPins[k] = v
+	}
+	inboxSnapMu.Unlock()
+}
+
+func inboxSnap() (string, map[int64]bool) {
+	inboxSnapMu.Lock()
+	defer inboxSnapMu.Unlock()
+	return snapFilter, snapPins
 }
 
 // applyInbox projects a fetched bundle into the inbox view-model — render
@@ -563,15 +597,20 @@ func toggleExpand() {
 		}
 	}
 	inboxUI.DetailDirty = true
+	onInboxSelChanged()
 }
 
 // refreshDetail updates selection fill + the right-hand detail when selection,
 // filter, or task set changes — never per-frame git calls.
+// refreshDetail is the OnBeforeRender hook — after the event-home decomposition
+// it carries ONLY pure derivation and the staged-apply seam (loader results are
+// staged off-thread and swapped here, the first thing the next frame does; this
+// seam collapses to app.Post(fn) when glyph grows it). Events own their work:
+// selection handlers run their selection's consequences, setPane applies focus
+// colours, the SIGUSR1 handler kicks its own fetch.
 func refreshDetail() {
-	// track the inbox column's rendered width (populated each frame after layout) so
-	// the upcoming section can be given an explicit width — a plain VBox/ForEach
-	// content-sizes to its label and truncates the rows otherwise. Request one more
-	// render when it first/again changes so the now-sized section paints.
+	// inbox column width: read from the layout output (NodeRef, set after layout)
+	// — layout completion has no event hook, so this stays frame-derived.
 	if !upcomingReady {
 		upcomingReady = true
 		uiApp.RequestRender() // one extra frame so listPaneRef.W (set after layout) is readable
@@ -580,43 +619,33 @@ func refreshDetail() {
 		upcomingWidth = w
 		uiApp.RequestRender()
 	}
-	// a SIGUSR1 from another process (e.g. `recap add`) requests an inbox reload.
-	// The render path only detects and kicks: fetchInbox runs on a goroutine and
-	// stages the bundle; the swap below applies it next frame. (Identity rides
-	// the same bundle, so `recap whoami` lands on push too.)
-	if reloadRequested.CompareAndSwap(true, false) {
-		filter, pins, app := inboxUI.RepoFilter, pinned, uiApp
-		go func() {
-			stageInbox(fetchInbox(filter, pins))
-			if app != nil {
-				app.RequestRender()
-			}
-		}()
-	}
+	// staged-apply seam: swap in finished loader results (fetched off-thread).
 	if d := takeStagedInbox(); d != nil {
 		applyInbox(d)
 		invalidateUpcoming() // force the in-flight cursor + upcoming list to reflect current state (e.g. after `recap next`)
 		inboxUI.DetailDirty = true
+		onInboxReloaded()
 	}
-	// peek at the selected repo's next TODO tasks + in-flight marker (loaded async;
-	// swapped in here), before the change-detection early-return so finished loads
-	// and reload-signal refreshes are picked up.
-	updateUpcoming()
-	// swap in a finished detail load (banner/comments/diff fetched off-thread by
-	// fetchDetail). A result whose key no longer matches the shown selection is
-	// stale — the newer kick's result is already on its way; drop it.
+	drainUpcoming()
+	// a result whose key no longer matches the shown selection is stale — the
+	// newer kick's result is already on its way; drop it.
 	if staged := takeStagedDetail(); staged != nil && staged.key == inboxUI.LastDiffKey {
 		applyDetail(staged)
 	}
+}
+
+// syncSelectionFlags re-marks the inbox rows' Selected flags — called by the
+// handlers that move the selection (and by applyInbox after a rebuild).
+func syncSelectionFlags() {
 	for i := range inboxUI.Rows {
 		inboxUI.Rows[i].Selected = i == inboxUI.Sel
 	}
-	for i := range draftUI.Comments {
-		draftUI.Comments[i].Selected = i == draftUI.Sel
-	}
-	// focus-aware selection bands: the active column's selected row reads bright,
-	// the others dim. Painted per-row (in taskRow/draftRow) so the band covers
-	// only the row body, never a group header sharing the same list item.
+}
+
+// applyPaneFocus applies the focus-driven colours: the active column's selection
+// band reads bright, the others dim, and the diff/comments scrollbars fade with
+// focus. Called by setPane — a focus switch applies its colours in the switch.
+func applyPaneFocus() {
 	curSelBG = cFloat
 	draftUI.SelBG = cFloat
 	switch pane {
@@ -625,38 +654,44 @@ func refreshDetail() {
 	case paneDraft:
 		draftUI.SelBG = cSelBG
 	}
-	// fade the diff scrollbar in only while the diff column has focus
 	if pane == paneDiff {
 		diffUI.Focused = 1.0
 	} else {
 		diffUI.Focused = 0.0
 	}
-	// …and the comments scrollbar only while the draft column has focus
 	if pane == paneDraft {
 		draftUI.Focused = 1.0
 	} else {
 		draftUI.Focused = 0.0
 	}
-	if draftUI.Sel != draftUI.LastSel {
-		draftUI.LastSel = draftUI.Sel
-		syncDiffToDraft()
-		markSelectedCommentRead()
-	}
+}
+
+// refreshHeader recomputes the header's count/filter display strings — called
+// when their inputs change (reload, filter cycle, badge recount).
+func refreshHeader() {
 	inboxUI.FilterText = "all"
 	if inboxUI.RepoFilter != "" {
 		inboxUI.FilterText = inboxUI.RepoFilter
 	}
 	inboxUI.CountText = fmt.Sprintf("%d", inboxUI.Count)
-	// cross-repo unread peer-message badge: the human always sees pending
-	// agent→agent traffic at a glance, whichever repo the TUI runs in. msgUnread
-	// is a CACHE — recounted on reload (startup + SIGUSR1 push, which every
-	// `recap send`/`read` triggers) and by the message-view handlers; the render
-	// path only reads it. Querying the db here ran once per FRAME (every spinner
-	// tick) — the template layer serialises state, it never acquires it.
 	if msgUnread > 0 {
 		inboxUI.CountText += fmt.Sprintf("  ✉ %d", msgUnread)
 	}
+}
 
+// onInboxSelChanged runs an inbox selection change's consequences — flags, the
+// detail refresh, the upcoming peek. The handler that moves the selection calls
+// this; nothing polls for the move.
+func onInboxSelChanged() {
+	syncSelectionFlags()
+	refreshDetailNow()
+}
+
+// refreshDetailNow rebuilds the detail pane for the current selection. Idempotent
+// (keyed on sel/len/filter + the DetailDirty force-flag), so every event that
+// could change what the detail shows simply calls it.
+func refreshDetailNow() {
+	kickUpcoming()
 	if inboxUI.Sel == inboxUI.LastSel && len(inboxUI.Tasks) == inboxUI.LastLen && inboxUI.RepoFilter == inboxUI.LastFilter && !inboxUI.DetailDirty {
 		return
 	}
@@ -673,7 +708,7 @@ func refreshDetail() {
 	resetScroll := diffKey != inboxUI.LastDiffKey
 	inboxUI.LastDiffKey = diffKey
 	if !ok || row == nil {
-		detailTitle, metaRepo, metaWhen, metaResult = "no inboxUI.Tasks", "", "", ""
+		detailTitle, metaRepo, metaWhen, metaResult = "no tasks", "", "", ""
 		diffUI.FilesText, diffUI.Files, draftUI.Note = "", nil, ""
 		draftUI.Has, draftUI.Comments = false, nil
 		setDiff(resetScroll)
@@ -681,8 +716,7 @@ func refreshDetail() {
 	}
 	// the cheap, already-in-memory fields update synchronously; everything that
 	// needs the db or git (banner, comments, the diff body) is acquisition and
-	// goes through detailKick → fetchDetail (goroutine) → applyDetail (next
-	// frame). OnBeforeRender detects and reads; it never acquires.
+	// goes through detailKick → fetchDetail (goroutine) → the staged seam.
 	detailTitle = t.Title
 	if row.RevIdx >= 0 { // a revision child: title it so the diff in view is clear
 		detailTitle = t.Title + "  ·  " + row.RevLabel
@@ -1651,10 +1685,9 @@ func setPane(p string) {
 		draftUI.LastSel = -1 // force a diff sync to the current comment on focus-in
 	}
 	pane = p
-	if p == paneList {
-		curSelBG = cSelBG // selection reads bright while the list is focused
-	} else {
-		curSelBG = cFloat // …and dims while you're elsewhere
+	applyPaneFocus() // a focus switch applies its colours in the switch function
+	if p == paneDraft {
+		onDraftSelChanged() // focus-in: sync the diff to the current comment
 	}
 }
 
@@ -1721,6 +1754,7 @@ func saveEditedComment() {
 	}
 	statusMsg = "comment updated"
 	inboxUI.DetailDirty = true
+	refreshDetailNow()
 }
 
 func openComment() {
@@ -1743,6 +1777,7 @@ func saveGeneralComment() {
 	}
 	statusMsg = fmt.Sprintf("commented on #%d", t.ID)
 	inboxUI.DetailDirty = true // refresh the comments pane so the new comment shows (was "lost")
+	refreshDetailNow()
 }
 
 // diff scroll is native: adjust the layer's scrollY (clamped internally) and
@@ -1762,15 +1797,17 @@ func moveSel(d int) {
 	if inboxUI.Sel < 0 {
 		inboxUI.Sel = 0
 	}
+	onInboxSelChanged()
 }
 
 // selectTop / selectBottom are the list's vim gg / G — jump to the first / last row.
-func selectTop() { inboxUI.Sel = 0 }
+func selectTop() { inboxUI.Sel = 0; onInboxSelChanged() }
 func selectBottom() {
 	inboxUI.Sel = len(inboxUI.Rows) - 1
 	if inboxUI.Sel < 0 {
 		inboxUI.Sel = 0
 	}
+	onInboxSelChanged()
 }
 
 // undoStack is a LIFO of reversible actions; `u` in the inbox runs the most recent.
@@ -2056,6 +2093,7 @@ func saveLineComment() {
 	}
 	statusMsg = fmt.Sprintf("commented on %s:%d", diffUI.PickFile, diffUI.PickLine)
 	inboxUI.DetailDirty = true
+	refreshDetailNow()
 }
 
 // submitSelected publishes the selected task's draft review as request_changes

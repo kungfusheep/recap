@@ -62,28 +62,33 @@ func invalidateUpcoming() {
 	upcomingMu.Unlock()
 }
 
-// updateUpcoming runs on the render thread (from refreshDetail). It swaps in any
-// finished async load, then kicks off a new load when the selected task's repo
-// differs from what's shown. Cheap and idempotent — safe to call every frame.
-func updateUpcoming() {
+// drainUpcoming swaps in a finished async load — the staged-apply seam, run at
+// the top of each frame (render thread).
+func drainUpcoming() {
 	upcomingMu.Lock()
 	staged := upcomingStaged
 	upcomingStaged = nil
 	upcomingMu.Unlock()
-	if staged != nil {
-		upcomingRepo = staged.repo
-		upcomingLoading = "" // load landed — clear the in-flight guard so forced reloads work
-		currentRef = staged.ref
-		hasCurrent = currentRef != ""
-		markInFlight() // re-mark inbox rows now the fresh cursor ref has landed (no reload lag)
-		upcomingItems = buildUpcomingRows(staged.items, currentRef)
-		upcomingNone = len(upcomingItems) == 0
-		// show the section for any repo with a resolvable TODO path — NOT just when it
-		// has items — so it reserves a fixed block and the inbox below doesn't jump as
-		// you move between projects with different numbers of upcoming tasks.
-		hasUpcoming = staged.hasPath
+	if staged == nil {
+		return
 	}
+	upcomingRepo = staged.repo
+	upcomingLoading = "" // load landed — clear the in-flight guard so forced reloads work
+	currentRef = staged.ref
+	hasCurrent = currentRef != ""
+	markInFlight() // re-mark inbox rows now the fresh cursor ref has landed (no reload lag)
+	upcomingItems = buildUpcomingRows(staged.items, currentRef)
+	upcomingNone = len(upcomingItems) == 0
+	// show the section for any repo with a resolvable TODO path — NOT just when it
+	// has items — so it reserves a fixed block and the inbox below doesn't jump as
+	// you move between projects with different numbers of upcoming tasks.
+	hasUpcoming = staged.hasPath
+}
 
+// kickUpcoming starts an async TODO load when the selected repo differs from
+// what's shown. Called from the selection-change path (events, not the frame
+// hook); the repo/loading fields are dedupe state, so repeat calls are free.
+func kickUpcoming() {
 	t, ok := selectedTask()
 	if !ok {
 		return

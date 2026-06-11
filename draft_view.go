@@ -143,6 +143,9 @@ func applyDraftComments(taskID int64, cs []db.TaskComment) {
 	// order top-level comments (general first, then anchored by file:line) with each
 	// reply nested under its parent.
 	draftUI.Comments = threadComments(draftUI.Comments)
+	for i := range draftUI.Comments {
+		draftUI.Comments[i].Selected = i == draftUI.Sel
+	}
 }
 
 // threadComments orders a flat comment list into threads: top-level comments in
@@ -173,15 +176,6 @@ func threadComments(vms []draftCommentVM) []draftCommentVM {
 		}
 		return a.Line < b.Line
 	})
-	// descendant count, for the collapsed root's "▸ N replies" cue.
-	var countReplies func(id int64) int
-	countReplies = func(id int64) int {
-		n := 0
-		for _, r := range byParent[id] {
-			n += 1 + countReplies(r.ID)
-		}
-		return n
-	}
 	var out []draftCommentVM
 	var walk func(v draftCommentVM, depth int)
 	walk = func(v draftCommentVM, depth int) {
@@ -250,6 +244,7 @@ func toggleCommentThread() {
 	draftUI.Collapsed[draftUI.Comments[root].ID] = !draftUI.Collapsed[draftUI.Comments[root].ID]
 	setFoldFlags(draftUI.Comments)
 	draftUI.Sel = root
+	onDraftSelChanged()
 }
 
 // draftRow renders one draft comment in the inbox's visual style: a filled card
@@ -285,8 +280,23 @@ func moveDraft(d int) {
 	for i := draftUI.Sel + d; i >= 0 && i < len(draftUI.Comments); i += d {
 		if draftUI.Comments[i].Visible {
 			draftUI.Sel = i
+			onDraftSelChanged()
 			return
 		}
+	}
+}
+
+// onDraftSelChanged runs a comments-pane selection change's consequences: row
+// flags, the diff sync, and the read receipt. The handler that moves the
+// selection calls this; nothing polls for the move.
+func onDraftSelChanged() {
+	for i := range draftUI.Comments {
+		draftUI.Comments[i].Selected = i == draftUI.Sel
+	}
+	if draftUI.Sel != draftUI.LastSel {
+		draftUI.LastSel = draftUI.Sel
+		syncDiffToDraft()
+		markSelectedCommentRead()
 	}
 }
 
@@ -355,6 +365,7 @@ func saveReply() {
 	}
 	statusMsg = "replied"
 	inboxUI.DetailDirty = true
+	refreshDetailNow()
 }
 
 // editDraftComment opens the body prompt pre-filled with the selected comment's
@@ -390,6 +401,7 @@ func deleteDraftComment() {
 		draftUI.Sel--
 	}
 	inboxUI.DetailDirty = true
+	refreshDetailNow()
 }
 
 // openDraftLinks opens any [[file]] references in the selected comment (e.g. a

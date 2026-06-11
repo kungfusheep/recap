@@ -131,6 +131,7 @@ func applyTheme(name string, t theme.Theme) {
 		// margins) — keep it in step with the palette.
 		uiApp.SetDefaultStyle(Style{FG: cFG, BG: cBG})
 		inboxUI.DetailDirty = true
+		refreshDetailNow()
 		if diffUI.Layer != nil {
 			diffUI.Layer.Invalidate()
 		}

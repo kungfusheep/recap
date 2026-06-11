@@ -279,7 +279,7 @@ func TestDiffScrollPreservedOnReload(t *testing.T) {
 		HBox.Grow(1).NodeRef(&diffUI.ViewRef)(LayerView(diffUI.Layer).Grow(1)),
 	))
 	inboxUI.DetailDirty = true
-	refreshDetail()
+	onInboxSelChanged()
 	uiApp.RenderNow()
 
 	diffUI.Layer.ScrollTo(5)
@@ -294,7 +294,7 @@ func TestDiffScrollPreservedOnReload(t *testing.T) {
 	st.Add(db.Task{Repo: "r", RepoPath: dir, SHA: sha, Title: "t2", Status: db.StatusPending})
 	reloadTasks()
 	inboxUI.DetailDirty = true
-	refreshDetail()
+	onInboxSelChanged()
 	uiApp.RenderNow()
 	if diffUI.Layer.ScrollY() != scrolled {
 		t.Fatalf("scroll reset on same-task reload: was %d, now %d", scrolled, diffUI.Layer.ScrollY())
@@ -303,7 +303,7 @@ func TestDiffScrollPreservedOnReload(t *testing.T) {
 	// switching to a different task DOES reset scroll to the top
 	inboxUI.Sel = 1
 	inboxUI.DetailDirty = true
-	refreshDetail()
+	onInboxSelChanged()
 	uiApp.RenderNow()
 	if diffUI.Layer.ScrollY() != 0 {
 		t.Fatalf("switching inboxUI.Tasks should reset scroll, got %d", diffUI.Layer.ScrollY())

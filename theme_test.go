@@ -46,7 +46,7 @@ func TestThemeRepaintsDiffLayer(t *testing.T) {
 	addLineFG := func() (Color, bool) {
 		inboxUI.DetailDirty = true
 		inboxUI.LastSel = -99
-		refreshDetail() // sets diffUI.Files (the real path)
+		onInboxSelChanged() // sets diffUI.Files (the real path)
 		// the diff renders via the ONE compiled template now; prep + execute and read
 		// the add-coloured '+' gutter cell (added line / new-file header — both cAdd).
 		prepDiffRows(80)
