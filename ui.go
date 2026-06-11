@@ -1069,6 +1069,12 @@ func prepDiffRows(w int) {
 		diffUI.Rows = append(diffUI.Rows, diffRowVM{Spans: spans})
 		diffUI.Meta = append(diffUI.Meta, m)
 	}
+	// bandRow is a row whose container Fill paints bg edge-to-edge (file headers,
+	// comment washes) — the band is the container's, not padding spans'.
+	bandRow := func(m diffLineMeta, bg Color, spans ...Span) {
+		diffUI.Rows = append(diffUI.Rows, diffRowVM{Spans: spans, BG: bg})
+		diffUI.Meta = append(diffUI.Meta, m)
+	}
 
 	for _, brow := range diffUI.Banner {
 		diffUI.Rows = append(diffUI.Rows, diffRowVM{Spans: append([]Span(nil), brow...)})
@@ -1105,7 +1111,7 @@ func prepDiffRows(w int) {
 			label = cleanLine(f.OldPath) + " → " + cleanLine(f.Path)
 		}
 		hdr := Span{Text: clip(caret + sym + " " + label), Style: Style{FG: c, BG: cFileHdrBG, Attr: AttrBold}}
-		row(diffLineMeta{FileHeader: true, File: f.Path}, padTo([]Span{hdr}, w, cFileHdrBG)...)
+		bandRow(diffLineMeta{FileHeader: true, File: f.Path}, cFileHdrBG, hdr)
 		if folded {
 			continue
 		}
@@ -1135,12 +1141,13 @@ func prepDiffRows(w int) {
 					spans = []Span{span(clip("  "+txt), cSubtle, false)} // context: unchanged, subtle
 				}
 				// a commented line gets a full-width wash: every span takes the wash
-				// background, padded to the edge.
+				// background; the row container's Fill carries it to the edge.
 				if diffUI.Commented[lineKey(m.File, m.Line)] {
 					for i := range spans {
 						spans[i].Style.BG = cCommentBG
 					}
-					spans = padTo(spans, w, cCommentBG)
+					bandRow(m, cCommentBG, spans...)
+					continue
 				}
 				row(m, spans...)
 			}

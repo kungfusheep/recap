@@ -70,8 +70,8 @@ func TestBuildDiffViewRenders(t *testing.T) {
 			banded++
 		}
 	}
-	if banded < w/2 {
-		t.Fatalf("header band not full width: %d/%d cells", banded, w)
+	if banded != w {
+		t.Fatalf("header band must reach the edge (container Fill, not padding spans): %d/%d cells", banded, w)
 	}
 	if !strings.Contains(buf.GetLine(hdr), "main.go") {
 		t.Fatalf("header row missing path: %q", buf.GetLine(hdr))
@@ -105,8 +105,8 @@ func TestBuildDiffViewRenders(t *testing.T) {
 			washed++
 		}
 	}
-	if washed < w/2 {
-		t.Fatalf("commented line not washed: %d/%d cells", washed, w)
+	if washed != w {
+		t.Fatalf("comment wash must reach the edge (container Fill, not padding spans): %d/%d cells", washed, w)
 	}
 }
 

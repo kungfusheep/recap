@@ -1,8 +1,6 @@
 package main
 
 import (
-	"strings"
-
 	. "github.com/kungfusheep/glyph"
 	"github.com/kungfusheep/recap/diff"
 )
@@ -60,9 +58,12 @@ var diffUI = diffView{
 }
 
 // diffRowVM is one rendered diff row: a span slice the compiled template re-reads
-// every frame (Rich pointer binding — see prepDiffRows).
+// every frame (Rich pointer binding — see prepDiffRows). BG carries a full-width
+// band (file headers, comment washes) via the row container's per-item Fill —
+// zero Mode means no band; no padding spans are allocated.
 type diffRowVM struct {
 	Spans []Span
+	BG    Color
 }
 
 // diffTemplate returns the diff pane's single compiled template (built on first use:
@@ -70,21 +71,13 @@ type diffRowVM struct {
 func diffTemplate() *Template {
 	if diffUI.Tmpl == nil {
 		diffUI.Tmpl = Build(VBox.Fill(&cBG).Gap(0)(
-			ForEach(&diffUI.Rows, func(r *diffRowVM) Component { return Rich(&r.Spans).CharWrap() }),
+			// the row container's Fill carries full-width bands (file headers,
+			// comment washes) — per-item colour bindings resolve per rendered
+			// element, so no padding spans are needed to reach the edge.
+			ForEach(&diffUI.Rows, func(r *diffRowVM) Component {
+				return HBox.Fill(&r.BG)(Rich(&r.Spans).CharWrap())
+			}),
 		))
 	}
 	return diffUI.Tmpl
-}
-
-// padTo right-pads a row's spans with background-coloured spaces to width w, so a
-// banded row (file header, comment wash) paints its colour edge to edge.
-func padTo(spans []Span, w int, bg Color) []Span {
-	used := 0
-	for _, sp := range spans {
-		used += len([]rune(sp.Text))
-	}
-	if used < w {
-		spans = append(spans, Span{Text: strings.Repeat(" ", w-used), Style: Style{BG: bg}})
-	}
-	return spans
 }
