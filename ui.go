@@ -647,12 +647,12 @@ func syncSelectionFlags() {
 // focus. Called by setPane — a focus switch applies its colours in the switch.
 func applyPaneFocus() {
 	curSelBG = cFloat
-	draftUI.SelBG = cFloat
+	draftSelStyle.BG = cFloat
 	switch pane {
 	case paneList:
 		curSelBG = cSelBG
 	case paneDraft:
-		draftUI.SelBG = cSelBG
+		draftSelStyle.BG = cSelBG
 	}
 	if pane == paneDiff {
 		diffUI.Focused = 1.0
@@ -1379,8 +1379,8 @@ func buildMain() Component {
 							List(&draftUI.Comments).
 								Selection(&draftUI.Sel).
 								Style(&listBaseStyle).
-								SelectedStyle(Style{}). // band painted per-row
-								Marker("  ").           // blank gutter: Marker("") falls back to the default "> "
+								SelectedStyle(&draftSelStyle). // focus-aware band; List paints it
+								Marker("  ").                  // blank gutter: Marker("") falls back to the default "> "
 								Render(draftRow).
 								ScrollState(&draftUI.ScrollOffset, &draftUI.ScrollVisible, &draftUI.ScrollTotal),
 						),

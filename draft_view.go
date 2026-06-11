@@ -35,7 +35,6 @@ type draftCommentVM struct {
 	File     string
 	Line     int
 	Draft    bool // on the open draft (editable); else submitted (read-only)
-	Selected bool // updated each frame like the inbox rows, drives the fill
 	Visible  bool // false while this row's thread root is collapsed — the template's If skips it
 	Reply    bool // a nested reply row (depth > 0); rows are in thread order, so a thread = a root + its run of Reply rows
 }
@@ -48,8 +47,7 @@ type draftCommentVM struct {
 type draftView struct {
 	Comments []draftCommentVM
 	Sel      int
-	LastSel  int   // selection watermark: re-sync the diff highlight on change
-	SelBG    Color // focus-aware selection band (bright focused, dim elsewhere)
+	LastSel  int // selection watermark: re-sync the diff highlight on change
 
 	ScrollOffset, ScrollVisible, ScrollTotal int // List ScrollState → ScrollbarDyn
 
@@ -75,6 +73,12 @@ type draftView struct {
 
 // draftUI is the single instance the view tree binds against.
 var draftUI = draftView{LastSel: -1, Collapsed: map[int64]bool{}}
+
+// draftSelStyle is the comments List's selection band — a *Style binding, so
+// List re-reads it every frame. applyPaneFocus mutates the BG (bright while the
+// column has focus, dim elsewhere): the List owns selection painting; recap
+// stopped hand-painting per-row Selected flags here (glyph audit m69 item 2).
+var draftSelStyle = Style{BG: cFloat}
 
 // loadDraftPane refreshes the draft-review overview for a task synchronously —
 // the HANDLER-side composition (handlers acquire; the render path goes through
@@ -143,9 +147,6 @@ func applyDraftComments(taskID int64, cs []db.TaskComment) {
 	// order top-level comments (general first, then anchored by file:line) with each
 	// reply nested under its parent.
 	draftUI.Comments = threadComments(draftUI.Comments)
-	for i := range draftUI.Comments {
-		draftUI.Comments[i].Selected = i == draftUI.Sel
-	}
 }
 
 // threadComments orders a flat comment list into threads: top-level comments in
@@ -250,15 +251,15 @@ func toggleCommentThread() {
 // draftRow renders one draft comment in the inbox's visual style: a filled card
 // (selection-aware, accent bar) with the location, the snippet, then the note.
 func draftRow(c *draftCommentVM) Component {
-	// per-row body fill = full-width flat band (no list marker), focus-aware.
-	itemBG := If(&c.Selected).Then(&draftUI.SelBG).Else(&cPaneBG)
+	// the List owns the selection band (SelectedStyle(&draftSelStyle), focus-aware
+	// via applyPaneFocus) — the row paints content only.
 	// the row set never changes on fold — collapsing a thread flips Visible and
 	// the template chooses here, via control flow, whether to render the row.
 	// The If lives INSIDE a concrete root container: List measures/positions the
-	// row root directly, so an If at the root renders nothing; padding and fill
-	// ride the If branch so a hidden row truly occupies zero height.
+	// row root directly, so an If at the root renders nothing; padding rides the
+	// If branch so a hidden row truly occupies zero height.
 	// Indent (precomputed per row) nests replies; empty for top-level comments.
-	return VBox(If(&c.Visible).Then(VBox.Fill(itemBG).PaddingVH(1, 1)(
+	return VBox(If(&c.Visible).Then(VBox.PaddingVH(1, 1)(
 		// one read-receipt dot: has the OTHER party read this? (● read / ○ unread)
 		HBox(Text(&c.Indent), Text(&c.ReadDot).FG(&cHunk), SpaceW(1), Text(&c.Location).FG(&c.LocColor),
 			If(&c.FoldCue).Then(HBox(SpaceW(2), Text(&c.FoldCue).FG(&cMuted))),
@@ -290,9 +291,6 @@ func moveDraft(d int) {
 // flags, the diff sync, and the read receipt. The handler that moves the
 // selection calls this; nothing polls for the move.
 func onDraftSelChanged() {
-	for i := range draftUI.Comments {
-		draftUI.Comments[i].Selected = i == draftUI.Sel
-	}
 	if draftUI.Sel != draftUI.LastSel {
 		draftUI.LastSel = draftUI.Sel
 		syncDiffToDraft()

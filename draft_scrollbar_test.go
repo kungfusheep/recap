@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/kungfusheep/recap/db"
+	"strings"
 	"testing"
 
 	. "github.com/kungfusheep/glyph"
@@ -302,5 +303,70 @@ func TestDraftScrollbarTrackFullHeight(t *testing.T) {
 	draftUI.Sel = 0
 	if n := trackRows(); n < H-6 {
 		t.Fatalf("short content: track only %d rows of a %d-row pane — collapsed track", n, H)
+	}
+}
+
+// the comments List owns the selection band now (SelectedStyle(&draftSelStyle),
+// m69 item 2): the selected comment's cells carry the focus-aware band BG, a
+// non-selected row does not, and dropping focus dims the band. Asserted on the
+// rendered buffer cells (not on helper return values).
+func TestDraftSelectionBandPaintedByList(t *testing.T) {
+	prevStore, prevApp, prevOmni := uiStore, uiApp, omni
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	t.Cleanup(func() {
+		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
+		inboxUI.Rows = nil
+		pane = paneList
+		applyPaneFocus()
+		draftUI = draftView{LastSel: -1, Collapsed: map[int64]bool{}}
+	})
+	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
+	reloadTasks()
+	draftUI.Comments = []draftCommentVM{
+		{Location: "general", Body: "FIRSTBODY", Visible: true},
+		{Location: "general", Body: "SECONDBODY", Visible: true},
+	}
+	draftUI.Has = true
+	draftUI.Sel = 0
+	pane = paneDraft
+	applyPaneFocus()
+
+	render := func() *Buffer {
+		tmpl := Build(buildMain())
+		buf := NewBuffer(140, 30)
+		tmpl.Execute(buf, 140, 30)
+		return buf
+	}
+	cellBG := func(buf *Buffer, needle string) Color {
+		for y := 0; y < 30; y++ {
+			var line string
+			for x := 0; x < 140; x++ {
+				line += string(buf.Get(x, y).Rune)
+			}
+			if i := strings.Index(line, needle); i >= 0 {
+				return buf.Get(i, y).Style.BG
+			}
+		}
+		t.Fatalf("%q not rendered", needle)
+		return Color{}
+	}
+
+	buf := render()
+	if got := cellBG(buf, "FIRSTBODY"); got != cSelBG {
+		t.Fatalf("selected row band BG = %v, want focused cSelBG %v", got, cSelBG)
+	}
+	if got := cellBG(buf, "SECONDBODY"); got == cSelBG {
+		t.Fatalf("non-selected row carries the selection band")
+	}
+
+	// focus leaves the column → the band dims to cFloat (List re-reads *Style)
+	pane = paneDiff
+	applyPaneFocus()
+	buf = render()
+	if got := cellBG(buf, "FIRSTBODY"); got != cFloat {
+		t.Fatalf("unfocused band BG = %v, want dim cFloat %v", got, cFloat)
 	}
 }

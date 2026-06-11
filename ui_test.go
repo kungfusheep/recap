@@ -369,7 +369,7 @@ func TestDraftCommentBodyWraps(t *testing.T) {
 	t.Cleanup(func() { draftUI.Comments = prev; draftUI.Sel = prevSel })
 
 	long := "this is a deliberately long top-level comment that should wrap across several lines inside the narrow draft column instead of truncating at a single line in the available space"
-	draftUI.Comments = []draftCommentVM{{ID: 1, Location: "general", Body: long, Selected: true, Visible: true}}
+	draftUI.Comments = []draftCommentVM{{ID: 1, Location: "general", Body: long, Visible: true}}
 	draftUI.Sel = 0
 	node := List(&draftUI.Comments).Selection(&draftUI.Sel).Style(&listBaseStyle).
 		SelectedStyle(Style{}).Marker("  ").Render(draftRow)
@@ -600,7 +600,7 @@ func TestStatusIconColorByRender(t *testing.T) {
 	t.Cleanup(func() { inboxUI.Rows = prevRows; inboxUI.Sel = prevSel })
 
 	inboxUI.Rows = []taskVM{
-		{ID: 1, Title: "pending", Repo: "recap", Glyph: stateGlyph(db.StatePending), GlyphColor: stateColor(db.StatePending), Pending: true, Selected: true, Header: true},
+		{ID: 1, Title: "pending", Repo: "recap", Glyph: stateGlyph(db.StatePending), GlyphColor: stateColor(db.StatePending), Pending: true, Header: true},
 		{ID: 2, Title: "rework", Repo: "recap", Glyph: stateGlyph(db.StateRework), GlyphColor: stateColor(db.StateRework), Header: true},
 		{ID: 3, Title: "done", Repo: "recap", Glyph: stateGlyph(db.StateDone), GlyphColor: stateColor(db.StateDone), Header: true},
 	}
