@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kungfusheep/recap/db"
 )
 
 // These tests pin the exact CLI surface the `recap` skill instructs the
@@ -22,6 +24,12 @@ import (
 var recapBin string
 
 func TestMain(m *testing.M) {
+	// the detail pane's banner/comments/diff load runs on a goroutine in
+	// production (detailKick → fetchDetail → staged swap); under test it runs
+	// inline so a single refreshDetail() lands the full effect deterministically.
+	detailKick = func(t db.Task, row taskVM, key string, reset bool) {
+		applyDetail(fetchDetail(t, row, key, reset))
+	}
 	dir, err := os.MkdirTemp("", "recap-bin")
 	if err != nil {
 		panic(err)

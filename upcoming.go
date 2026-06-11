@@ -93,14 +93,15 @@ func updateUpcoming() {
 	}
 	upcomingLoading = t.RepoPath
 	repo := t.RepoPath
+	app := uiApp // snapshot: the goroutine must not read the mutable global
 	go func() {
 		ref, _ := cursor.Load(filepath.Base(repo)) // the displayed repo's in-flight item ref
 		items, hasPath := loadUpcoming(repo)       // TODO tasks — file read + parse, off the render thread
 		upcomingMu.Lock()
 		upcomingStaged = &upcomingResult{repo: repo, ref: ref, items: items, hasPath: hasPath}
 		upcomingMu.Unlock()
-		if uiApp != nil {
-			uiApp.RequestRender()
+		if app != nil {
+			app.RequestRender()
 		}
 	}()
 }

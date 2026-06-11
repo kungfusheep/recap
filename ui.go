@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -310,9 +311,99 @@ func stateColor(s string) Color {
 	}
 }
 
+// inboxData is everything an inbox reload needs from disk/db, fetched as one
+// bundle: the SIGNAL path acquires it on a goroutine and stages it (the render
+// path never acquires); handlers call reloadTasks() — fetch+apply inline, since
+// handlers are the acquisition layer.
+type inboxData struct {
+	tasks      []db.Task
+	state      map[int64]string // derived per-task state (computed from reviews)
+	lastRev    map[int64]int64
+	count      int // pending (inbox) tasks — the header count
+	pins       map[int64]bool
+	unread     int           // cross-repo unread peer messages — the ✉ badge
+	drafts     map[int64]int // open draft comment counts (row pill)
+	revs       map[int64][]db.Revision
+	repos      []string // distinct repos from the unfiltered set (filter cycle)
+	identName  string
+	identColor Color
+}
+
+// fetchInbox runs the inbox reload's queries — db + small files, no view
+// mutation, safe on any goroutine. pins is the caller's snapshot of the current
+// pin set (nil = load from disk).
+func fetchInbox(repoFilter string, pins map[int64]bool) *inboxData {
+	d := &inboxData{pins: pins}
+	if d.pins == nil {
+		d.pins = loadPins()
+	}
+	if n, err := uiStore.UnreadMessageCount(); err == nil {
+		d.unread = n
+	}
+	d.identName, d.identColor = loadIdentity(uiRepo)
+	d.tasks, _ = uiStore.List("", repoFilter)
+	d.state = make(map[int64]string, len(d.tasks))
+	d.drafts = map[int64]int{}
+	d.revs = map[int64][]db.Revision{}
+	for _, t := range d.tasks {
+		d.state[t.ID] = uiStore.ReviewState(t.ID)
+		if d.state[t.ID] == db.StatePending {
+			d.count++
+		}
+		if _, n, ok := uiStore.DraftInfo(t.ID); ok && n > 0 {
+			d.drafts[t.ID] = n
+		}
+		if revs, _ := uiStore.Revisions(t.ID); len(revs) > 0 {
+			d.revs[t.ID] = revs
+		}
+	}
+	d.lastRev, _ = uiStore.LatestReviewIDs()
+	// distinct repos for the filter cycle (from the unfiltered set)
+	all, _ := uiStore.List("", "")
+	seen := map[string]bool{}
+	for _, t := range all {
+		if !seen[t.Repo] {
+			seen[t.Repo] = true
+			d.repos = append(d.repos, t.Repo)
+		}
+	}
+	return d
+}
+
+var (
+	inboxStagedMu sync.Mutex
+	inboxStaged   *inboxData
+)
+
+func stageInbox(d *inboxData) {
+	inboxStagedMu.Lock()
+	inboxStaged = d
+	inboxStagedMu.Unlock()
+}
+
+func takeStagedInbox() *inboxData {
+	inboxStagedMu.Lock()
+	d := inboxStaged
+	inboxStaged = nil
+	inboxStagedMu.Unlock()
+	return d
+}
+
+// reloadTasks is the handler-side reload: fetch + apply inline.
 func reloadTasks() {
-	ensurePins()
-	recountMsgUnread() // header ✉ badge cache — the render path only reads it
+	applyInbox(fetchInbox(inboxUI.RepoFilter, pinned))
+}
+
+// applyInbox projects a fetched bundle into the inbox view-model — render
+// thread, no I/O.
+func applyInbox(d *inboxData) {
+	pinned = d.pins
+	msgUnread = d.unread
+	agentName, agentColor = d.identName, d.identColor
+	agentLabel = agentName
+	if agentLabel == "" {
+		agentLabel = "agent"
+	}
 	// remember which row is selected (by task id + revision) so a reload that
 	// inserts items above it doesn't shift the selection out from under the reader.
 	var prevID int64 = -1
@@ -320,20 +411,13 @@ func reloadTasks() {
 	if inboxUI.Sel >= 0 && inboxUI.Sel < len(inboxUI.Rows) {
 		prevID, prevRev = inboxUI.Rows[inboxUI.Sel].ID, inboxUI.Rows[inboxUI.Sel].RevIdx
 	}
-	inboxUI.Tasks, _ = uiStore.List("", inboxUI.RepoFilter)
-	// derived state per task (computed from reviews, never a stale flag).
-	state := make(map[int64]string, len(inboxUI.Tasks))
-	inboxUI.Count = 0
-	for _, t := range inboxUI.Tasks {
-		state[t.ID] = uiStore.ReviewState(t.ID)
-		if state[t.ID] == db.StatePending {
-			inboxUI.Count++ // the header count is the inbox, not the whole task set
-		}
-	}
+	inboxUI.Tasks = d.tasks
+	state := d.state
+	inboxUI.Count = d.count
 	// sections: inbox, then amends, then done. Within inbox, oldest-first (work
 	// the queue front-to-back); amends/done by most recent review activity — last
 	// completed first — so the done list reads newest-at-top, not by creation id.
-	lastRev, _ := uiStore.LatestReviewIDs()
+	lastRev := d.lastRev
 	sort.SliceStable(inboxUI.Tasks, func(i, j int) bool {
 		si, sj := state[inboxUI.Tasks[i].ID], state[inboxUI.Tasks[j].ID]
 		pi, pj := statePriority(si), statePriority(sj)
@@ -423,7 +507,7 @@ func reloadTasks() {
 		}
 		vm.When = hhmm(t.CreatedAt)
 		// unsubmitted draft feedback → a pill on the row (doesn't affect state).
-		if _, n, ok := uiStore.DraftInfo(t.ID); ok && n > 0 {
+		if n := d.drafts[t.ID]; n > 0 {
 			vm.HasDraft = true
 			vm.DraftPill = fmt.Sprintf("✎ %d", n)
 		}
@@ -435,7 +519,7 @@ func reloadTasks() {
 		}
 		// revision history: the header shows the latest diff by default; a task with
 		// more than one diff is expandable (`o`) into one child row per revision.
-		revs, _ := uiStore.Revisions(t.ID)
+		revs := d.revs[t.ID]
 		if len(revs) > 0 {
 			vm.DiffSHA = revs[len(revs)-1].SHA     // latest
 			vm.Summary = revs[len(revs)-1].Summary // briefing follows the latest revision
@@ -508,16 +592,8 @@ func reloadTasks() {
 		inboxUI.Sel = 0
 	}
 
-	// distinct repos for the filter cycle (from the unfiltered set)
-	all, _ := uiStore.List("", "")
-	seen := map[string]bool{}
-	inboxUI.Repos = inboxUI.Repos[:0]
-	for _, t := range all {
-		if !seen[t.Repo] {
-			seen[t.Repo] = true
-			inboxUI.Repos = append(inboxUI.Repos, t.Repo)
-		}
-	}
+	// distinct repos for the filter cycle (fetched from the unfiltered set)
+	inboxUI.Repos = append(inboxUI.Repos[:0], d.repos...)
 	inboxUI.DetailDirty = true
 }
 
@@ -599,18 +675,34 @@ func refreshDetail() {
 		upcomingWidth = w
 		uiApp.RequestRender()
 	}
-	// a SIGUSR1 from another process (e.g. `recap add`) requests an inbox reload;
-	// do it here on the render thread, then force the detail to rebuild.
+	// a SIGUSR1 from another process (e.g. `recap add`) requests an inbox reload.
+	// The render path only detects and kicks: fetchInbox runs on a goroutine and
+	// stages the bundle; the swap below applies it next frame. (Identity rides
+	// the same bundle, so `recap whoami` lands on push too.)
 	if reloadRequested.CompareAndSwap(true, false) {
-		reloadTasks()
+		filter, pins, app := inboxUI.RepoFilter, pinned, uiApp
+		go func() {
+			stageInbox(fetchInbox(filter, pins))
+			if app != nil {
+				app.RequestRender()
+			}
+		}()
+	}
+	if d := takeStagedInbox(); d != nil {
+		applyInbox(d)
 		invalidateUpcoming() // force the in-flight cursor + upcoming list to reflect current state (e.g. after `recap next`)
-		refreshIdentity()    // pick up `recap whoami` (name + colour) on push
 		inboxUI.DetailDirty = true
 	}
 	// peek at the selected repo's next TODO tasks + in-flight marker (loaded async;
 	// swapped in here), before the change-detection early-return so finished loads
 	// and reload-signal refreshes are picked up.
 	updateUpcoming()
+	// swap in a finished detail load (banner/comments/diff fetched off-thread by
+	// fetchDetail). A result whose key no longer matches the shown selection is
+	// stale — the newer kick's result is already on its way; drop it.
+	if staged := takeStagedDetail(); staged != nil && staged.key == inboxUI.LastDiffKey {
+		applyDetail(staged)
+	}
 	for i := range inboxUI.Rows {
 		inboxUI.Rows[i].Selected = i == inboxUI.Sel
 	}
@@ -682,6 +774,10 @@ func refreshDetail() {
 		setDiff(resetScroll)
 		return
 	}
+	// the cheap, already-in-memory fields update synchronously; everything that
+	// needs the db or git (banner, comments, the diff body) is acquisition and
+	// goes through detailKick → fetchDetail (goroutine) → applyDetail (next
+	// frame). OnBeforeRender detects and reads; it never acquires.
 	detailTitle = t.Title
 	if row.RevIdx >= 0 { // a revision child: title it so the diff in view is clear
 		detailTitle = t.Title + "  ·  " + row.RevLabel
@@ -689,40 +785,11 @@ func refreshDetail() {
 	metaRepo, metaWhen = t.Repo, t.CreatedAt
 	metaResult = dash(t.Result)
 	metaResultColor = resultColor(t.Result)
-	loadDraftPane(t.ID)
 	// the briefing follows the row in view: the header shows the latest revision's
 	// summary (so it updates when a revise lands), a revision child shows its own —
 	// in full, not the truncated left-column label.
 	t.Summary = row.Summary
-	// the review-context banner (amends summary / re-review header) sits above the
-	// task's own diff, which still shows for context.
-	diffUI.Banner = buildBanner(t)
-
-	// the diff shown follows the selected row: a header shows the latest revision,
-	// a revision child shows its own commit.
-	sha := row.DiffSHA
-	if sha == "" || t.RepoPath == "" {
-		diffUI.FilesText, diffUI.Files = "no diff — task has no sha", nil
-		setDiff(resetScroll)
-		return
-	}
-	diffUI.FilesText = changedFiles(t.RepoPath, sha)
-	full, err := git(t.RepoPath, "show", "--format=", sha)
-	if err != nil {
-		// a sha this checkout can't resolve must SAY so — silently rendering
-		// "no changes" hid a real data problem (agents recording shas from a
-		// different clone/sandbox, so the commit never existed here).
-		diffUI.Files = nil
-		diffUI.FilesText = "commit not found"
-		diffUI.Banner = append(diffUI.Banner,
-			[]Span{span(fmt.Sprintf("⚠ commit %s not found in %s", sha, t.RepoPath), cDel, true)},
-			[]Span{span("  the work may have been recorded from a different checkout (clone/sandbox),", cSubtle, false)},
-			[]Span{span("  or this repo's history was rewritten after recording", cSubtle, false)},
-			[]Span{})
-	} else {
-		diffUI.Files = diff.Parse(full)
-	}
-	setDiff(resetScroll)
+	detailKick(t, *row, diffKey, resetScroll)
 }
 
 // buildBanner produces the context rows shown above the diff:
@@ -828,17 +895,24 @@ func reviewBanner(title string, rv db.Review, withComments bool) [][]Span {
 	return rows
 }
 
-// loadDraftPane refreshes the draft-review overview for a task: the ✎ N hint and
-// the conditional pane's comment rows, sourced from the open draft review.
+// loadDraftPane refreshes the draft-review overview for a task synchronously —
+// the HANDLER-side composition (handlers acquire; the render path goes through
+// fetchDetail/applyDetail instead).
 func loadDraftPane(taskID int64) {
+	cs, _ := uiStore.TaskReviewComments(taskID)
+	applyDraftComments(taskID, cs)
+}
+
+// applyDraftComments projects a task's comments into the pane's row VMs — render
+// thread, no I/O. Shows ALL review comments on the task — not just the open
+// draft — so feedback stays visible after submit. Each row knows if it's still
+// an editable draft.
+func applyDraftComments(taskID int64, cs []db.TaskComment) {
 	draftUI.TaskID = taskID
 	draftUI.Comments = nil
 	for k := range diffUI.Commented {
 		delete(diffUI.Commented, k)
 	}
-	// show ALL review comments on the task — not just the open draft — so feedback
-	// stays visible after submit. Each row knows if it's still an editable draft.
-	cs, _ := uiStore.TaskReviewComments(taskID)
 	if len(cs) == 0 {
 		draftUI.Has, draftUI.Note = false, ""
 		return
