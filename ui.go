@@ -121,6 +121,14 @@ func runUI() error {
 	reloadTasks()
 	applyPaneFocus() // initial focus colours (events own them from here on)
 
+	// the upcoming band's explicit width derives from the terminal width at the
+	// two events that change it — startup and resize. The formula mirrors the
+	// column's WidthPct (single source: inboxColPct) and is pinned against real
+	// layout output by TestUpcomingWidthFormulaMatchesLayout.
+	applyTermWidth := func(w int) { upcomingWidth = int16(float32(w) * inboxColPct) }
+	applyTermWidth(uiApp.Size().Width)
+	uiApp.OnResize(func(w, _ int) { applyTermWidth(w) })
+
 	// live refresh: register this TUI so `recap add` can SIGUSR1 us to reload the
 	// inbox without a restart. The signal handler kicks its own fetch (events own
 	// their work): queries run here on the signal goroutine against a mutex-copied
@@ -586,17 +594,8 @@ func toggleExpand() {
 // selection handlers run their selection's consequences, setPane applies focus
 // colours, the SIGUSR1 handler kicks its own fetch.
 func refreshDetail() {
-	// inbox column width: read from the layout output (NodeRef, set after layout)
-	// — layout completion has no event hook, so this stays frame-derived.
-	if !upcomingReady {
-		upcomingReady = true
-		uiApp.RequestRender() // one extra frame so listPaneRef.W (set after layout) is readable
-	}
-	if w := int16(listPaneRef.W); w > 0 && w != upcomingWidth {
-		upcomingWidth = w
-		uiApp.RequestRender()
-	}
-	// staged-apply seam: swap in finished loader results (fetched off-thread).
+	// staged-apply seam ONLY: swap in finished loader results (fetched
+	// off-thread). No polls, no derivation — events own everything else.
 	if d := takeStagedInbox(); d != nil {
 		applyInbox(d)
 		invalidateUpcoming() // force the in-flight cursor + upcoming list to reflect current state (e.g. after `recap next`)
@@ -1206,6 +1205,10 @@ func hhmm(stamp string) string {
 
 // --- view ------------------------------------------------------------------
 
+// inboxColPct is the left column's share of the terminal — single source for
+// the template's WidthPct AND the resize-event computation of upcomingWidth.
+const inboxColPct = 0.28
+
 func buildMain() Component {
 	return VBox.Fill(&cBG).CascadeStyle(&bgStyle)(
 		// global keys. While picking a diff line glyph's jump router is pushed on top
@@ -1234,7 +1237,7 @@ func buildMain() Component {
 			// the comments column appeared/vanished (2/5 ↔ 2/7 of the width) — a
 			// distracting jump while reviewing. A fixed share keeps the inbox put; the
 			// middle column alone absorbs the right pane.
-			VBox.WidthPct(0.28).Fill(&cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0).NodeRef(&listPaneRef)(
+			VBox.WidthPct(inboxColPct).Fill(&cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0).NodeRef(&listPaneRef)(
 				HBox(
 					SpaceW(3),
 					Text("recap").FG(&cBright).Bold(),

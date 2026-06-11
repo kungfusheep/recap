@@ -23,8 +23,7 @@ var (
 	hasUpcoming     bool          // gates the whole section
 	currentRef      string        // the in-flight item's ref (amends:N / todo:hash) — for in-place flaring
 	hasCurrent      bool          // true when something is in flight; gates the spinner animation
-	upcomingWidth   int16         // inbox column's rendered width (from its NodeRef) — explicit width for the section so its rows don't content-size/truncate
-	upcomingReady   bool          // one-shot: force a second frame so the column's NodeRef width is known before sizing the section
+	upcomingWidth   int16         // inbox column width — set at startup + resize events (int16(termW*inboxColPct), pinned to layout by test)
 	upcomingRepo    string        // repo path currently shown (render-thread owned)
 	upcomingLoading string        // repo path being loaded (render-thread owned, dedupe)
 
