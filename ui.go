@@ -134,6 +134,7 @@ type draftCommentVM struct {
 	Indent   string // leading spaces for nested replies (precomputed; build-once safe)
 	When     string // comment time (HH:MM) from CreatedAt
 	Snippet  string // the diff line commented on (may be empty)
+	FoldCue  string // "▸ N replies" on a collapsed thread root (empty = expanded/no replies)
 	Body     string
 	File     string
 	Line     int
@@ -166,10 +167,16 @@ type draftView struct {
 
 	EditingID  int64 // comment being edited via the prompt
 	ReplyingTo int64 // parent comment for a reply in flight
+
+	TaskID int64 // the task whose comments are loaded (for in-place reloads)
+	// Collapsed thread roots ('o'): the root row stays with a "▸ N replies" cue,
+	// its reply rows are dropped from Comments. Keyed by comment id so it
+	// survives reloads while the task's pane stays open.
+	Collapsed map[int64]bool
 }
 
 // draftUI is the single instance the view tree binds against.
-var draftUI = draftView{LastSel: -1}
+var draftUI = draftView{LastSel: -1, Collapsed: map[int64]bool{}}
 
 var (
 	uiStore *db.Store
@@ -821,6 +828,7 @@ func reviewBanner(title string, rv db.Review, withComments bool) [][]Span {
 // loadDraftPane refreshes the draft-review overview for a task: the ✎ N hint and
 // the conditional pane's comment rows, sourced from the open draft review.
 func loadDraftPane(taskID int64) {
+	draftUI.TaskID = taskID
 	draftUI.Comments = nil
 	for k := range diffUI.Commented {
 		delete(diffUI.Commented, k)
@@ -907,6 +915,15 @@ func threadComments(vms []draftCommentVM) []draftCommentVM {
 		}
 		return a.Line < b.Line
 	})
+	// descendant count, for the collapsed root's "▸ N replies" cue.
+	var countReplies func(id int64) int
+	countReplies = func(id int64) int {
+		n := 0
+		for _, r := range byParent[id] {
+			n += 1 + countReplies(r.ID)
+		}
+		return n
+	}
 	var out []draftCommentVM
 	var walk func(v draftCommentVM, depth int)
 	walk = func(v draftCommentVM, depth int) {
@@ -918,6 +935,14 @@ func threadComments(vms []draftCommentVM) []draftCommentVM {
 				v.LocColor = agentColor
 			}
 		}
+		// a collapsed root keeps its row (with a cue) and drops its reply rows ('o').
+		if depth == 0 && draftUI.Collapsed[v.ID] {
+			if n := countReplies(v.ID); n > 0 {
+				v.FoldCue = fmt.Sprintf("▸ %d repl%s", n, map[bool]string{true: "y", false: "ies"}[n == 1])
+				out = append(out, v)
+				return
+			}
+		}
 		out = append(out, v)
 		for _, r := range byParent[v.ID] {
 			walk(r, depth+1)
@@ -927,6 +952,36 @@ func threadComments(vms []draftCommentVM) []draftCommentVM {
 		walk(v, 0)
 	}
 	return out
+}
+
+// toggleCommentThread ('o' in the comments pane) collapses/expands the selected
+// row's thread: the root stays with a "▸ N replies" cue, replies hide. Selecting
+// a reply folds its whole thread (selection lands back on the root).
+func toggleCommentThread() {
+	if draftUI.Sel < 0 || draftUI.Sel >= len(draftUI.Comments) {
+		return
+	}
+	// walk up to the thread root: every visible reply's parent is also visible.
+	byID := make(map[int64]draftCommentVM, len(draftUI.Comments))
+	for _, v := range draftUI.Comments {
+		byID[v.ID] = v
+	}
+	root := draftUI.Comments[draftUI.Sel]
+	for root.ParentID != 0 {
+		p, ok := byID[root.ParentID]
+		if !ok {
+			break
+		}
+		root = p
+	}
+	draftUI.Collapsed[root.ID] = !draftUI.Collapsed[root.ID]
+	loadDraftPane(draftUI.TaskID)
+	for i, v := range draftUI.Comments {
+		if v.ID == root.ID {
+			draftUI.Sel = i
+			break
+		}
+	}
 }
 
 func plural(n int) string {
@@ -1362,7 +1417,8 @@ func buildMain() Component {
 						Key("j", func() { moveDraft(1) }),
 						Key("k", func() { moveDraft(-1) }),
 						Key("<Enter>", openCommentView),
-						Key("r", replyToComment), // reply to the selected comment (threads under it)
+						Key("r", replyToComment),      // reply to the selected comment (threads under it)
+						Key("o", toggleCommentThread), // collapse/expand the selected thread
 						Key("e", editDraftComment),
 						Key("d", deleteDraftComment),
 						Key("O", openDraftLinks), // open [[file]] refs (e.g. screenshots)
@@ -1398,7 +1454,7 @@ var helpNavRows = []helpRow{
 }
 
 var helpActionRows = []helpRow{
-	{"o", "expand revisions"},
+	{"o", "revisions / fold thread"},
 	{"p", "pin / unpin"},
 	{"m", "agent messages"},
 	{"t", "edit TODO"},
@@ -1500,7 +1556,9 @@ func draftRow(c *draftCommentVM) Component {
 	// Indent (precomputed per row) nests replies; empty for top-level comments.
 	return VBox.Fill(itemBG).PaddingVH(1, 1)(
 		// one read-receipt dot: has the OTHER party read this? (● read / ○ unread)
-		HBox(Text(&c.Indent), Text(&c.ReadDot).FG(&cHunk), SpaceW(1), Text(&c.Location).FG(&c.LocColor), Space(), Text(&c.When).FG(&cMuted)),
+		HBox(Text(&c.Indent), Text(&c.ReadDot).FG(&cHunk), SpaceW(1), Text(&c.Location).FG(&c.LocColor),
+			If(&c.FoldCue).Then(HBox(SpaceW(2), Text(&c.FoldCue).FG(&cMuted))),
+			Space(), Text(&c.When).FG(&cMuted)),
 		If(&c.Snippet).Then(Text(&c.Snippet).FG(&cMuted)),
 		// TextBlock must be bounded to the width LEFT after the indent, else it wraps to
 		// the full column and the indent shoves it off the right edge (worse the deeper a

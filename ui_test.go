@@ -1133,3 +1133,62 @@ func TestMessagesViewShowsLedger(t *testing.T) {
 		}
 	}
 }
+
+// 'o' on a comment thread collapses it to its root row (with a "▸ N replies"
+// cue) and expands it back; selecting a nested reply folds the whole thread and
+// lands the cursor on the root.
+func TestToggleCommentThread(t *testing.T) {
+	st := testStore(t)
+	uiStore = st
+	t.Cleanup(func() {
+		uiStore = nil
+		draftUI = draftView{LastSel: -1, Collapsed: map[int64]bool{}}
+	})
+
+	id, err := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	rootID, err := st.AddReviewComment(id, "you", "root note", "calc.go", 3, "@@", "snippet")
+	if err != nil {
+		t.Fatalf("root: %v", err)
+	}
+	replyID, err := st.AddReply(rootID, "agent", "first reply")
+	if err != nil {
+		t.Fatalf("reply: %v", err)
+	}
+	if _, err := st.AddReply(replyID, "you", "nested reply"); err != nil {
+		t.Fatalf("nested: %v", err)
+	}
+
+	loadDraftPane(id)
+	if len(draftUI.Comments) != 3 {
+		t.Fatalf("expanded rows = %d, want 3", len(draftUI.Comments))
+	}
+
+	// select the NESTED reply and fold: whole thread collapses, cursor on root
+	draftUI.Sel = 2
+	toggleCommentThread()
+	if len(draftUI.Comments) != 1 {
+		t.Fatalf("collapsed rows = %d, want 1", len(draftUI.Comments))
+	}
+	if draftUI.Comments[0].ID != rootID || draftUI.Sel != 0 {
+		t.Fatalf("cursor not on root: sel=%d id=%d", draftUI.Sel, draftUI.Comments[0].ID)
+	}
+	if draftUI.Comments[0].FoldCue != "▸ 2 replies" {
+		t.Fatalf("fold cue = %q, want \"▸ 2 replies\"", draftUI.Comments[0].FoldCue)
+	}
+
+	// o again expands, cue clears
+	toggleCommentThread()
+	if len(draftUI.Comments) != 3 || draftUI.Comments[0].FoldCue != "" {
+		t.Fatalf("expand failed: rows=%d cue=%q", len(draftUI.Comments), draftUI.Comments[0].FoldCue)
+	}
+
+	// a reload (e.g. new comment lands) keeps a collapsed thread collapsed
+	toggleCommentThread()
+	loadDraftPane(id)
+	if len(draftUI.Comments) != 1 {
+		t.Fatalf("collapse should survive reload, rows = %d", len(draftUI.Comments))
+	}
+}
