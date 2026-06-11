@@ -169,7 +169,8 @@ type draftView struct {
 	EditingID  int64 // comment being edited via the prompt
 	ReplyingTo int64 // parent comment for a reply in flight
 
-	TaskID int64 // the task whose comments are loaded (for in-place reloads)
+	TaskID int64            // the task whose comments are loaded (for in-place reloads)
+	Raw    []db.TaskComment // the loaded comments, pre-projection — fold/unfold re-projects from here without re-querying
 	// Collapsed thread roots ('o'): the root row stays with a "▸ N replies" cue,
 	// its reply rows are dropped from Comments. Keyed by comment id so it
 	// survives reloads while the task's pane stays open.
@@ -910,6 +911,7 @@ func loadDraftPane(taskID int64) {
 // an editable draft.
 func applyDraftComments(taskID int64, cs []db.TaskComment) {
 	draftUI.TaskID = taskID
+	draftUI.Raw = cs
 	draftUI.Comments = nil
 	for k := range diffUI.Commented {
 		delete(diffUI.Commented, k)
@@ -1053,7 +1055,9 @@ func toggleCommentThread() {
 		root = p
 	}
 	draftUI.Collapsed[root.ID] = !draftUI.Collapsed[root.ID]
-	loadDraftPane(draftUI.TaskID)
+	// folding is a pure VIEWING change — re-project the comments we already hold
+	// (no db round-trip; the data didn't change, only how it's viewed).
+	applyDraftComments(draftUI.TaskID, draftUI.Raw)
 	for i, v := range draftUI.Comments {
 		if v.ID == root.ID {
 			draftUI.Sel = i
