@@ -23,6 +23,19 @@ type msgView struct {
 
 var msgUI msgView
 
+// msgUnread caches the cross-repo unread count for the header badge. The render
+// path reads it; recountMsgUnread refreshes it from reload/handler paths only.
+var msgUnread int
+
+func recountMsgUnread() {
+	if uiStore == nil {
+		return
+	}
+	if n, err := uiStore.UnreadMessageCount(); err == nil {
+		msgUnread = n
+	}
+}
+
 // msgVM is one rendered message: precomputed header/body strings + the sender's
 // identity colour, pointer-bound per row. ID/FromRepo/TaskID carry enough of the
 // underlying row to thread a human comment back at it.
@@ -154,6 +167,7 @@ func (mv *msgView) comment() {
 			// the human has read their own words
 			_ = uiStore.MarkMessageReadUser(mid)
 			notify.Reload() // wakes the target's parked --wait
+			recountMsgUnread()
 			mv.load()
 			mv.Sel = len(mv.Rows) - 1
 			mv.prep()

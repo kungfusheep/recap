@@ -312,6 +312,7 @@ func stateColor(s string) Color {
 
 func reloadTasks() {
 	ensurePins()
+	recountMsgUnread() // header ✉ badge cache — the render path only reads it
 	// remember which row is selected (by task id + revision) so a reload that
 	// inserts items above it doesn't shift the selection out from under the reader.
 	var prevID int64 = -1
@@ -650,9 +651,13 @@ func refreshDetail() {
 	}
 	inboxUI.CountText = fmt.Sprintf("%d", inboxUI.Count)
 	// cross-repo unread peer-message badge: the human always sees pending
-	// agent→agent traffic at a glance, whichever repo the TUI runs in.
-	if n, err := uiStore.UnreadMessageCount(); err == nil && n > 0 {
-		inboxUI.CountText += fmt.Sprintf("  ✉ %d", n)
+	// agent→agent traffic at a glance, whichever repo the TUI runs in. msgUnread
+	// is a CACHE — recounted on reload (startup + SIGUSR1 push, which every
+	// `recap send`/`read` triggers) and by the message-view handlers; the render
+	// path only reads it. Querying the db here ran once per FRAME (every spinner
+	// tick) — the template layer serialises state, it never acquires it.
+	if msgUnread > 0 {
+		inboxUI.CountText += fmt.Sprintf("  ✉ %d", msgUnread)
 	}
 
 	if inboxUI.Sel == inboxUI.LastSel && len(inboxUI.Tasks) == inboxUI.LastLen && inboxUI.RepoFilter == inboxUI.LastFilter && !inboxUI.DetailDirty {
