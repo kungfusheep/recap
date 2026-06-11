@@ -192,18 +192,18 @@ func TestDraftPaneOrdering(t *testing.T) {
 func TestReReviewFlag(t *testing.T) {
 	st := testStore(t)
 	uiStore = st
-	t.Cleanup(func() { uiStore = nil; vmRows = nil; sel = 0 })
+	t.Cleanup(func() { uiStore = nil; inboxUI.Rows = nil; inboxUI.Sel = 0 })
 
 	orig, _ := st.Add(db.Task{Repo: "recap", RepoPath: "/tmp/r", Title: "orig", Status: db.StatusRedo})
 	fix, _ := st.Add(db.Task{Repo: "recap", RepoPath: "/tmp/r", Title: "fix", Status: db.StatusPending, ParentID: orig})
 	st.Add(db.Task{Repo: "recap", RepoPath: "/tmp/r", Title: "fresh", Status: db.StatusPending}) // net-new, no parent
 
-	repoFltr = "recap"
-	t.Cleanup(func() { repoFltr = "" })
+	inboxUI.RepoFilter = "recap"
+	t.Cleanup(func() { inboxUI.RepoFilter = "" })
 	reloadTasks()
 
 	byID := map[int64]taskVM{}
-	for _, vm := range vmRows {
+	for _, vm := range inboxUI.Rows {
 		byID[vm.ID] = vm
 	}
 	if !byID[fix].ReReview {
@@ -219,7 +219,7 @@ func TestReReviewFlag(t *testing.T) {
 	// once the fix is approved, it leaves the inbox and the re-review flag clears.
 	st.SubmitReview(fix, db.VerdictApprove, "")
 	reloadTasks()
-	for _, vm := range vmRows {
+	for _, vm := range inboxUI.Rows {
 		if vm.ID == fix && vm.ReReview {
 			t.Fatalf("approved fix should no longer be re-review")
 		}
@@ -290,18 +290,18 @@ func TestBuildBanner(t *testing.T) {
 // renders the real taskRow list both ways and asserts the production marker hides
 // the ">" while the buggy Marker("") would show it (so the test can actually fail).
 func TestSelectedRowHasNoCaretMarker(t *testing.T) {
-	prevRows, prevSel := vmRows, sel
-	t.Cleanup(func() { vmRows = prevRows; sel = prevSel })
+	prevRows, prevSel := inboxUI.Rows, inboxUI.Sel
+	t.Cleanup(func() { inboxUI.Rows = prevRows; inboxUI.Sel = prevSel })
 
-	vmRows = []taskVM{
+	inboxUI.Rows = []taskVM{
 		{ID: 1, IDText: "#1", Title: "first task", When: "10:00", Repo: "recap", Glyph: "●", GlyphColor: cSubtle, Selected: true},
 		{ID: 2, IDText: "#2", Title: "second task", When: "10:01", Repo: "recap", Glyph: "●", GlyphColor: cSubtle},
 	}
-	sel = 0
+	inboxUI.Sel = 0
 
 	render := func(marker string) string {
-		node := List(&vmRows).
-			Selection(&sel).
+		node := List(&inboxUI.Rows).
+			Selection(&inboxUI.Sel).
 			Style(&listBaseStyle).
 			SelectedStyle(Style{}).
 			Marker(marker).
@@ -333,9 +333,9 @@ func TestSelectedRowHasNoCaretMarker(t *testing.T) {
 func TestInboxCount(t *testing.T) {
 	st := testStore(t)
 	uiStore = st
-	prevFltr := repoFltr
-	repoFltr = ""
-	t.Cleanup(func() { uiStore = nil; vmRows = nil; sel = 0; repoFltr = prevFltr; inboxCount = 0 })
+	prevFltr := inboxUI.RepoFilter
+	inboxUI.RepoFilter = ""
+	t.Cleanup(func() { uiStore = nil; inboxUI.Rows = nil; inboxUI.Sel = 0; inboxUI.RepoFilter = prevFltr; inboxUI.Count = 0 })
 
 	// 3 pending (inbox), 1 amends (request_changes), 1 done (approved)
 	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "p1", Status: db.StatusPending})
@@ -347,11 +347,11 @@ func TestInboxCount(t *testing.T) {
 	st.SubmitReview(done, db.VerdictApprove, "")
 
 	reloadTasks()
-	if inboxCount != 3 {
-		t.Fatalf("inbox count = %d, want 3 (only pending); total tasks = %d", inboxCount, len(tasks))
+	if inboxUI.Count != 3 {
+		t.Fatalf("inbox count = %d, want 3 (only pending); total inboxUI.Tasks = %d", inboxUI.Count, len(inboxUI.Tasks))
 	}
-	if len(tasks) != 5 {
-		t.Fatalf("sanity: want 5 total tasks, got %d", len(tasks))
+	if len(inboxUI.Tasks) != 5 {
+		t.Fatalf("sanity: want 5 total inboxUI.Tasks, got %d", len(inboxUI.Tasks))
 	}
 }
 
@@ -393,12 +393,12 @@ func TestDraftCommentBodyWraps(t *testing.T) {
 // build the real main view and assert all three title rows are equal.
 func TestColumnHeadersAlign(t *testing.T) {
 	prevApp, prevOmni, prevHasDraft := uiApp, omni, draftUI.Has
-	prevRows, prevDrafts, prevTitle := vmRows, draftUI.Comments, detailTitle
+	prevRows, prevDrafts, prevTitle := inboxUI.Rows, draftUI.Comments, detailTitle
 	t.Cleanup(func() {
 		uiApp = prevApp
 		omni = prevOmni
 		draftUI.Has = prevHasDraft
-		vmRows = prevRows
+		inboxUI.Rows = prevRows
 		draftUI.Comments = prevDrafts
 		detailTitle = prevTitle
 	})
@@ -407,7 +407,7 @@ func TestColumnHeadersAlign(t *testing.T) {
 	omni = newOmniBox(uiApp, omniCommands())
 	detailTitle = "PREVIEWTITLE"
 	draftUI.Has = true
-	vmRows = []taskVM{{ID: 1, Title: "a task", Repo: "recap", Glyph: "●", GlyphColor: cBright}}
+	inboxUI.Rows = []taskVM{{ID: 1, Title: "a task", Repo: "recap", Glyph: "●", GlyphColor: cBright}}
 	draftUI.Comments = []draftCommentVM{{Location: "general", Body: "x"}}
 
 	tmpl := Build(buildMain())
@@ -437,19 +437,19 @@ func TestColumnHeadersAlign(t *testing.T) {
 // o again collapses. Single-diff tasks aren't expandable.
 func TestRevisionExpand(t *testing.T) {
 	st := testStore(t)
-	prevStore, prevRows, prevSel := uiStore, vmRows, sel
-	prevExpanded, prevByID, prevTasks, prevFltr := expandedTasks, taskByID, tasks, repoFltr
+	prevStore, prevRows, prevSel := uiStore, inboxUI.Rows, inboxUI.Sel
+	prevExpanded, prevByID, prevTasks, prevFltr := inboxUI.Expanded, inboxUI.TaskByID, inboxUI.Tasks, inboxUI.RepoFilter
 	uiStore = st
-	expandedTasks = map[int64]bool{}
-	repoFltr = ""
+	inboxUI.Expanded = map[int64]bool{}
+	inboxUI.RepoFilter = ""
 	t.Cleanup(func() {
 		uiStore = prevStore
-		vmRows = prevRows
-		sel = prevSel
-		expandedTasks = prevExpanded
-		taskByID = prevByID
-		tasks = prevTasks
-		repoFltr = prevFltr
+		inboxUI.Rows = prevRows
+		inboxUI.Sel = prevSel
+		inboxUI.Expanded = prevExpanded
+		inboxUI.TaskByID = prevByID
+		inboxUI.Tasks = prevTasks
+		inboxUI.RepoFilter = prevFltr
 	})
 
 	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", SHA: "base000", Title: "fix me", Status: db.StatusPending})
@@ -457,10 +457,10 @@ func TestRevisionExpand(t *testing.T) {
 
 	// collapsed: a single header row showing the latest diff + a ▸ 2 cue
 	reloadTasks()
-	if len(vmRows) != 1 {
-		t.Fatalf("collapsed: want 1 row, got %d", len(vmRows))
+	if len(inboxUI.Rows) != 1 {
+		t.Fatalf("collapsed: want 1 row, got %d", len(inboxUI.Rows))
 	}
-	h := vmRows[0]
+	h := inboxUI.Rows[0]
 	if h.RevIdx != -1 {
 		t.Fatalf("header RevIdx should be -1, got %d", h.RevIdx)
 	}
@@ -472,19 +472,19 @@ func TestRevisionExpand(t *testing.T) {
 	}
 
 	// expand
-	sel = 0
+	inboxUI.Sel = 0
 	toggleExpand()
-	if !expandedTasks[id] {
+	if !inboxUI.Expanded[id] {
 		t.Fatal("task should be marked expanded")
 	}
-	if len(vmRows) != 3 {
-		t.Fatalf("expanded: want header + 2 children = 3 rows, got %d", len(vmRows))
+	if len(inboxUI.Rows) != 3 {
+		t.Fatalf("expanded: want header + 2 children = 3 rows, got %d", len(inboxUI.Rows))
 	}
-	if vmRows[0].ExpandPill != "▾ 2" {
-		t.Fatalf("expanded cue = %q, want \"▾ 2\"", vmRows[0].ExpandPill)
+	if inboxUI.Rows[0].ExpandPill != "▾ 2" {
+		t.Fatalf("expanded cue = %q, want \"▾ 2\"", inboxUI.Rows[0].ExpandPill)
 	}
 	// children are latest-first, each with its own diff sha
-	c1, c2 := vmRows[1], vmRows[2]
+	c1, c2 := inboxUI.Rows[1], inboxUI.Rows[2]
 	if c1.RevIdx != 1 || c1.DiffSHA != "fix111" || !strings.Contains(c1.RevLabel, "rev 1") || !strings.Contains(c1.RevLabel, "first fix") {
 		t.Fatalf("child 1 wrong: %+v", c1)
 	}
@@ -493,7 +493,7 @@ func TestRevisionExpand(t *testing.T) {
 	}
 
 	// render shows the child labels (verify the expansion is visible)
-	node := List(&vmRows).Selection(&sel).Style(&listBaseStyle).
+	node := List(&inboxUI.Rows).Selection(&inboxUI.Sel).Style(&listBaseStyle).
 		SelectedStyle(Style{}).Marker("  ").Render(taskRow)
 	tmpl := Build(node)
 	buf := NewBuffer(80, 30)
@@ -508,17 +508,17 @@ func TestRevisionExpand(t *testing.T) {
 
 	// collapse
 	toggleExpand()
-	if expandedTasks[id] {
+	if inboxUI.Expanded[id] {
 		t.Fatal("task should be collapsed")
 	}
-	if len(vmRows) != 1 {
-		t.Fatalf("collapsed again: want 1 row, got %d", len(vmRows))
+	if len(inboxUI.Rows) != 1 {
+		t.Fatalf("collapsed again: want 1 row, got %d", len(inboxUI.Rows))
 	}
 
 	// a single-diff task is not expandable
 	id2, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", SHA: "solo", Title: "solo", Status: db.StatusPending})
 	reloadTasks()
-	for _, vm := range vmRows {
+	for _, vm := range inboxUI.Rows {
 		if vm.ID == id2 && vm.RevIdx < 0 && vm.ExpandPill != "" {
 			t.Fatalf("single-diff task should have no expand cue, got %q", vm.ExpandPill)
 		}
@@ -590,16 +590,16 @@ func TestPaneRingRespectsDraftVisibility(t *testing.T) {
 // verifies by RENDER: it executes the real taskRow list and reads the icon cell's
 // foreground out of the buffer, so a by-value regression fails it.
 func TestStatusIconColorByRender(t *testing.T) {
-	prevRows, prevSel := vmRows, sel
-	t.Cleanup(func() { vmRows = prevRows; sel = prevSel })
+	prevRows, prevSel := inboxUI.Rows, inboxUI.Sel
+	t.Cleanup(func() { inboxUI.Rows = prevRows; inboxUI.Sel = prevSel })
 
-	vmRows = []taskVM{
+	inboxUI.Rows = []taskVM{
 		{ID: 1, Title: "pending", Repo: "recap", Glyph: stateGlyph(db.StatePending), GlyphColor: stateColor(db.StatePending), Pending: true, Selected: true, Header: true},
 		{ID: 2, Title: "rework", Repo: "recap", Glyph: stateGlyph(db.StateRework), GlyphColor: stateColor(db.StateRework), Header: true},
 		{ID: 3, Title: "done", Repo: "recap", Glyph: stateGlyph(db.StateDone), GlyphColor: stateColor(db.StateDone), Header: true},
 	}
-	sel = 0
-	node := List(&vmRows).Selection(&sel).Style(&listBaseStyle).
+	inboxUI.Sel = 0
+	node := List(&inboxUI.Rows).Selection(&inboxUI.Sel).Style(&listBaseStyle).
 		SelectedStyle(Style{}).Marker("  ").Render(taskRow)
 	tmpl := Build(node)
 	buf := NewBuffer(48, 18)
@@ -745,14 +745,14 @@ func TestGeneralCommentAppearsAfterSave(t *testing.T) {
 		diffUI.Layer = prevLayer
 		promptUI.Field = InputState{}
 		draftUI.Comments = nil
-		detailDirty = false
+		inboxUI.DetailDirty = false
 	})
 	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	_ = id
 	reloadTasks()
-	sel = 0
+	inboxUI.Sel = 0
 	uiApp.SetView(buildMain())
-	refreshDetail() // establishes lastSel/lastLen; no comments yet
+	refreshDetail() // establishes LastSel/LastLen; no comments yet
 	if len(draftUI.Comments) != 0 {
 		t.Fatalf("precondition: expected 0 comments, got %d", len(draftUI.Comments))
 	}
@@ -789,20 +789,20 @@ func TestSummaryFollowsSelectedRevision(t *testing.T) {
 		uiApp = nil
 		omni = nil
 		diffUI.Layer = prevLayer
-		clear(expandedTasks)
-		detailDirty = false
+		clear(inboxUI.Expanded)
+		inboxUI.DetailDirty = false
 	})
 	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending, Summary: "original briefing"})
 	if _, err := st.AddRevision(id, "deadbeef", "revised briefing"); err != nil {
 		t.Fatalf("AddRevision: %v", err)
 	}
-	expandedTasks[id] = true
+	inboxUI.Expanded[id] = true
 	reloadTasks()
 	uiApp.SetView(buildMain())
 
-	// vmRows: [header(-1), child rev1 "revised", child rev0 "original"]
+	// rows: [header(-1), child rev1 "revised", child rev0 "original"]
 	hdr, origChild := -1, -1
-	for i, r := range vmRows {
+	for i, r := range inboxUI.Rows {
 		if r.RevIdx < 0 {
 			hdr = i
 		} else if r.RevIdx == 0 {
@@ -810,18 +810,18 @@ func TestSummaryFollowsSelectedRevision(t *testing.T) {
 		}
 	}
 	if hdr < 0 || origChild < 0 {
-		t.Fatalf("expected a header + an original-revision child row, got %+v", vmRows)
+		t.Fatalf("expected a header + an original-revision child row, got %+v", inboxUI.Rows)
 	}
 
-	sel = hdr
-	detailDirty = true
+	inboxUI.Sel = hdr
+	inboxUI.DetailDirty = true
 	refreshDetail()
 	if b := flattenSpans(diffUI.Banner); !contains2(b, "revised briefing") {
 		t.Fatalf("header should show the latest revision summary, banner=%q", b)
 	}
 
-	sel = origChild
-	detailDirty = true
+	inboxUI.Sel = origChild
+	inboxUI.DetailDirty = true
 	refreshDetail()
 	if b := flattenSpans(diffUI.Banner); !contains2(b, "original briefing") {
 		t.Fatalf("selecting rev 0 should show its own summary, banner=%q", b)
@@ -834,7 +834,7 @@ func TestSummaryFollowsSelectedRevision(t *testing.T) {
 func TestInboxOrderLatestAtBottom(t *testing.T) {
 	st := testStore(t)
 	uiStore = st
-	t.Cleanup(func() { uiStore = nil; vmRows = nil; sel = 0 })
+	t.Cleanup(func() { uiStore = nil; inboxUI.Rows = nil; inboxUI.Sel = 0 })
 
 	a, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "oldest", Status: db.StatusPending})
 	b, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "middle", Status: db.StatusPending})
@@ -842,7 +842,7 @@ func TestInboxOrderLatestAtBottom(t *testing.T) {
 
 	reloadTasks()
 	var ids []int64
-	for _, r := range vmRows {
+	for _, r := range inboxUI.Rows {
 		if r.RevIdx < 0 && r.Pending {
 			ids = append(ids, r.ID)
 		}
@@ -904,7 +904,7 @@ func TestReplyToCommentFromPane(t *testing.T) {
 func TestReloadKeepsSelectionByTask(t *testing.T) {
 	st := testStore(t)
 	uiStore = st
-	t.Cleanup(func() { uiStore = nil; vmRows = nil; sel = 0 })
+	t.Cleanup(func() { uiStore = nil; inboxUI.Rows = nil; inboxUI.Sel = 0 })
 
 	// inbox is oldest-first, so a NEW task lands above older ones? no — newest at
 	// bottom. To force insertion ABOVE the selection we approve the selected one's
@@ -915,18 +915,18 @@ func TestReloadKeepsSelectionByTask(t *testing.T) {
 	b, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "b", Status: db.StatusPending})
 	reloadTasks()
 	// select task b
-	for i, r := range vmRows {
+	for i, r := range inboxUI.Rows {
 		if r.ID == b {
-			sel = i
+			inboxUI.Sel = i
 		}
 	}
-	selectedBefore := vmRows[sel].ID
+	selectedBefore := inboxUI.Rows[inboxUI.Sel].ID
 
 	// a SIGUSR1-style reload after another task arrives must keep us on b
 	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "c", Status: db.StatusPending})
 	reloadTasks()
-	if vmRows[sel].ID != selectedBefore {
-		t.Fatalf("selection jumped: was on task %d, now on %d", selectedBefore, vmRows[sel].ID)
+	if inboxUI.Rows[inboxUI.Sel].ID != selectedBefore {
+		t.Fatalf("selection jumped: was on task %d, now on %d", selectedBefore, inboxUI.Rows[inboxUI.Sel].ID)
 	}
 	_ = a
 }
@@ -943,7 +943,7 @@ func TestLeftColumnStableWhenDraftToggles(t *testing.T) {
 	omni = newOmniBox(uiApp, omniCommands())
 	t.Cleanup(func() {
 		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
-		vmRows, draftUI.Comments = nil, nil
+		inboxUI.Rows, draftUI.Comments = nil, nil
 		draftUI.Has = false
 	})
 	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
@@ -1057,13 +1057,13 @@ func TestDiffShowsDanglingShaWarning(t *testing.T) {
 	omni = newOmniBox(uiApp, omniCommands())
 	t.Cleanup(func() {
 		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
-		vmRows, diffUI.Banner, diffUI.Files = nil, nil, nil
+		inboxUI.Rows, diffUI.Banner, diffUI.Files = nil, nil, nil
 	})
 	st.Add(db.Task{Repo: "r", RepoPath: dir, SHA: "deadbeef1", Title: "t", Status: db.StatusPending})
 	reloadTasks()
-	sel = 0
-	detailDirty = true
-	lastSel = -99
+	inboxUI.Sel = 0
+	inboxUI.DetailDirty = true
+	inboxUI.LastSel = -99
 	refreshDetail()
 
 	found := false
@@ -1096,7 +1096,7 @@ func TestMessagesViewShowsLedger(t *testing.T) {
 	t.Cleanup(func() {
 		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
 		msgUI = msgView{}
-		vmRows = nil
+		inboxUI.Rows = nil
 	})
 	reloadTasks()
 	m1, _ := st.SendMessage("recap", "Kestrel", "tui", 0, 0, "need a second pair of eyes on the layout pass")

@@ -240,7 +240,7 @@ func TestReviewStateDerivation(t *testing.T) {
 
 // the rework queue must be DERIVED from ReviewState, never read off the stale
 // `status` flag. Resolving a review leaves status=='redo' behind (the flag is
-// only set, never cleared), so a flag-driven `recap redo` showed resolved tasks
+// only set, never cleared), so a flag-driven `recap redo` showed resolved inboxUI.Tasks
 // forever — the "why does this keep coming back to me?" phantom. This pins the
 // divergence: after resolve, the flag still says redo but the derived state is
 // pending, so the queue (which filters on ReviewState) excludes it.
@@ -310,7 +310,7 @@ func TestResolveSHA(t *testing.T) {
 func writeFileT(path, content string) error { return os.WriteFile(path, []byte(content), 0o644) }
 
 // a task accumulates revisions (fix-forward diffs) instead of spawning child
-// tasks: Revisions returns the synthetic base (the task's own SHA) first, then
+// inboxUI.Tasks: Revisions returns the synthetic base (the task's own SHA) first, then
 // each appended revision oldest-first, with the latest diff last.
 func TestRevisions(t *testing.T) {
 	st := testStore(t)

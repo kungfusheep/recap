@@ -5,21 +5,21 @@ import "testing"
 // gg / G jump the list selection to the first / last row, clamping on an empty list.
 // (todo #124)
 func TestSelectTopBottom(t *testing.T) {
-	defer func() { vmRows = nil; sel = 0 }()
-	vmRows = []taskVM{{ID: 1}, {ID: 2}, {ID: 3}, {ID: 4}}
+	defer func() { inboxUI.Rows = nil; inboxUI.Sel = 0 }()
+	inboxUI.Rows = []taskVM{{ID: 1}, {ID: 2}, {ID: 3}, {ID: 4}}
 
-	sel = 2
+	inboxUI.Sel = 2
 	selectBottom()
-	if sel != 3 {
-		t.Fatalf("selectBottom: sel=%d, want 3 (last)", sel)
+	if inboxUI.Sel != 3 {
+		t.Fatalf("selectBottom: inboxUI.Sel=%d, want 3 (last)", inboxUI.Sel)
 	}
 	selectTop()
-	if sel != 0 {
-		t.Fatalf("selectTop: sel=%d, want 0 (first)", sel)
+	if inboxUI.Sel != 0 {
+		t.Fatalf("selectTop: inboxUI.Sel=%d, want 0 (first)", inboxUI.Sel)
 	}
-	vmRows = nil
+	inboxUI.Rows = nil
 	selectBottom()
-	if sel != 0 {
-		t.Fatalf("selectBottom on empty list: sel=%d, want 0", sel)
+	if inboxUI.Sel != 0 {
+		t.Fatalf("selectBottom on empty list: inboxUI.Sel=%d, want 0", inboxUI.Sel)
 	}
 }

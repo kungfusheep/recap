@@ -20,7 +20,7 @@ func TestDraftPaneScrollbarWired(t *testing.T) {
 	omni = newOmniBox(uiApp, omniCommands())
 	t.Cleanup(func() {
 		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
-		vmRows, draftUI.Comments = nil, nil
+		inboxUI.Rows, draftUI.Comments = nil, nil
 		draftUI.Has = false
 		pane = paneList
 		draftUI.Focused = 0

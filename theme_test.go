@@ -30,22 +30,22 @@ func TestThemeRepaintsDiffLayer(t *testing.T) {
 	uiStore = st
 	uiApp = NewApp()
 	omni = newOmniBox(uiApp, omniCommands())
-	expandedTasks = map[int64]bool{}
+	inboxUI.Expanded = map[int64]bool{}
 	t.Cleanup(func() {
 		uiStore = nil
 		uiApp = nil
 		omni = nil
-		vmRows = nil
+		inboxUI.Rows = nil
 		setThemeVars(theme.Dark)
 	})
 	st.Add(db.Task{Repo: "r", RepoPath: dir, SHA: sha, Title: "t", Status: db.StatusPending})
 	setThemeVars(theme.Dark)
 	reloadTasks()
-	sel = 0
+	inboxUI.Sel = 0
 
 	addLineFG := func() (Color, bool) {
-		detailDirty = true
-		lastSel = -99
+		inboxUI.DetailDirty = true
+		inboxUI.LastSel = -99
 		refreshDetail() // sets diffUI.Files (the real path)
 		// the diff renders via the ONE compiled template now; prep + execute and read
 		// the add-coloured '+' gutter cell (added line / new-file header — both cAdd).

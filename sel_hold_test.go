@@ -12,14 +12,14 @@ import (
 // place. (todo #120)
 func TestMarkHoldsSelectionIndex(t *testing.T) {
 	st := testStore(t)
-	prev, prevFltr := uiStore, repoFltr
-	uiStore, repoFltr = st, ""
+	prev, prevFltr := uiStore, inboxUI.RepoFilter
+	uiStore, inboxUI.RepoFilter = st, ""
 	t.Cleanup(func() {
 		uiStore = prev
-		repoFltr = prevFltr
-		vmRows = nil
-		sel = 0
-		keepSelOnReload = false
+		inboxUI.RepoFilter = prevFltr
+		inboxUI.Rows = nil
+		inboxUI.Sel = 0
+		inboxUI.KeepSelOnReload = false
 		undoStack = nil
 	})
 
@@ -31,23 +31,23 @@ func TestMarkHoldsSelectionIndex(t *testing.T) {
 
 	// --- external reload tracks the task by id (no yank) ---
 	// select c (index 2), approve b ABOVE it via the store, reload WITHOUT the flag.
-	sel = 2
-	if vmRows[sel].ID != c {
-		t.Fatalf("setup: index 2 should be c (%d), got %d", c, vmRows[sel].ID)
+	inboxUI.Sel = 2
+	if inboxUI.Rows[inboxUI.Sel].ID != c {
+		t.Fatalf("setup: index 2 should be c (%d), got %d", c, inboxUI.Rows[inboxUI.Sel].ID)
 	}
 	if _, err := submitReview(uiStore, b, db.VerdictApprove, ""); err != nil {
 		t.Fatalf("approve b: %v", err)
 	}
-	reloadTasks() // no keepSelOnReload → must follow c by id as it shifts up
-	if vmRows[sel].ID != c {
-		t.Fatalf("external reload must track c (%d) by id, got %d at sel=%d", c, vmRows[sel].ID, sel)
+	reloadTasks() // no inboxUI.KeepSelOnReload → must follow c by id as it shifts up
+	if inboxUI.Rows[inboxUI.Sel].ID != c {
+		t.Fatalf("external reload must track c (%d) by id, got %d at inboxUI.Sel=%d", c, inboxUI.Rows[inboxUI.Sel].ID, inboxUI.Sel)
 	}
 
 	// --- a user mark holds the index so the next item slides up ---
-	// sel is on c; approving it should leave the cursor on the NEXT item (d), not chase
+	// inboxUI.Sel is on c; approving it should leave the cursor on the NEXT item (d), not chase
 	// c down into the done section.
-	approveSelected() // sets keepSelOnReload, approves c, reloads
-	if vmRows[sel].ID != d {
-		t.Fatalf("after mark: cursor should hold its index and land on next item d (%d), got %d", d, vmRows[sel].ID)
+	approveSelected() // sets inboxUI.KeepSelOnReload, approves c, reloads
+	if inboxUI.Rows[inboxUI.Sel].ID != d {
+		t.Fatalf("after mark: cursor should hold its index and land on next item d (%d), got %d", d, inboxUI.Rows[inboxUI.Sel].ID)
 	}
 }

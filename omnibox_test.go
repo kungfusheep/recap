@@ -53,7 +53,7 @@ func TestOmniActionNoOrphanedRouter(t *testing.T) {
 	uiStore = st
 	uiApp = NewApp()
 	omni = newOmniBox(uiApp, omniCommands())
-	t.Cleanup(func() { uiStore = prev; uiApp = nil; omni = nil; vmRows = nil })
+	t.Cleanup(func() { uiStore = prev; uiApp = nil; omni = nil; inboxUI.Rows = nil })
 	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	reloadTasks()
 	uiApp.SetView(buildMain())
@@ -99,7 +99,7 @@ func TestOmniTodoItemSwitchesToTodoViewCleanly(t *testing.T) {
 	uiStore = st
 	uiApp = NewApp()
 	omni = newOmniBox(uiApp, omniCommands())
-	t.Cleanup(func() { uiStore = prev; uiApp = nil; omni = nil; vmRows = nil })
+	t.Cleanup(func() { uiStore = prev; uiApp = nil; omni = nil; inboxUI.Rows = nil })
 	st.Add(db.Task{Repo: "r", RepoPath: home + "/r", Title: "t", Status: db.StatusPending})
 	reloadTasks()
 	// register the same named views runUI does, and start on main
@@ -134,7 +134,7 @@ func TestOmniTodoItemSwitchesToTodoViewCleanly(t *testing.T) {
 	// opened scrolled to the bottom (todoUI.Sel = last); 'k' must move the selection up. If the
 	// omnibox router were orphaned it would swallow this and todoUI.Sel wouldn't budge.
 	if todoUI.Sel != len(todoUI.Items)-1 {
-		t.Fatalf("setup: todo should open at the last item, got sel=%d of %d", todoUI.Sel, len(todoUI.Items))
+		t.Fatalf("setup: todo should open at the last item, got inboxUI.Sel=%d of %d", todoUI.Sel, len(todoUI.Items))
 	}
 	if !uiApp.Input().Dispatch(riffkey.Key{Rune: 'k'}) {
 		t.Fatal("'k' was not handled by the active router — todo keys are dead")

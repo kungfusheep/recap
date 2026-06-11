@@ -6,57 +6,57 @@ import (
 	"github.com/kungfusheep/recap/db"
 )
 
-// filterOmniItems lists the repo filters as selectable palette items — "all repos"
+// filterOmniItems lists the repo filters as selectable palette items — "all inboxUI.Repos"
 // plus one per project — and each item's action sets the filter. (todo #123)
 func TestFilterOmniItems(t *testing.T) {
 	st := testStore(t)
-	prevStore, prevRepos, prevFltr := uiStore, repos, repoFltr
+	prevStore, prevRepos, prevFltr := uiStore, inboxUI.Repos, inboxUI.RepoFilter
 	uiStore = st
 	t.Cleanup(func() {
 		uiStore = prevStore
-		repos = prevRepos
-		repoFltr = prevFltr
-		vmRows = nil
-		sel = 0
+		inboxUI.Repos = prevRepos
+		inboxUI.RepoFilter = prevFltr
+		inboxUI.Rows = nil
+		inboxUI.Sel = 0
 	})
 
-	repos = []string{"alpha", "beta"}
+	inboxUI.Repos = []string{"alpha", "beta"}
 	items := filterOmniItems()
 	if len(items) != 3 {
 		t.Fatalf("want 3 filter items (all + alpha + beta), got %d", len(items))
 	}
-	if items[0].Label != "filter: all repos" {
-		t.Fatalf("first filter item should be 'filter: all repos', got %q", items[0].Label)
+	if items[0].Label != "filter: all inboxUI.Repos" {
+		t.Fatalf("first filter item should be 'filter: all inboxUI.Repos', got %q", items[0].Label)
 	}
 	labels := map[string]omniItem{}
 	for _, it := range items {
 		labels[it.Label] = it
 	}
-	for _, want := range []string{"filter: all repos", "filter: alpha", "filter: beta"} {
+	for _, want := range []string{"filter: all inboxUI.Repos", "filter: alpha", "filter: beta"} {
 		if _, ok := labels[want]; !ok {
 			t.Fatalf("missing filter item %q", want)
 		}
 	}
 
 	// selecting a repo item applies that filter
-	repoFltr = ""
+	inboxUI.RepoFilter = ""
 	labels["filter: beta"].Action()
-	if repoFltr != "beta" {
-		t.Fatalf("selecting 'filter: beta' should set repoFltr=beta, got %q", repoFltr)
+	if inboxUI.RepoFilter != "beta" {
+		t.Fatalf("selecting 'filter: beta' should set inboxUI.RepoFilter=beta, got %q", inboxUI.RepoFilter)
 	}
-	// selecting "all repos" clears it
-	labels["filter: all repos"].Action()
-	if repoFltr != "" {
-		t.Fatalf("selecting 'filter: all repos' should clear repoFltr, got %q", repoFltr)
+	// selecting "all inboxUI.Repos" clears it
+	labels["filter: all inboxUI.Repos"].Action()
+	if inboxUI.RepoFilter != "" {
+		t.Fatalf("selecting 'filter: all inboxUI.Repos' should clear inboxUI.RepoFilter, got %q", inboxUI.RepoFilter)
 	}
 }
 
 // todoOmniItems lists one "todo: <repo>" per distinct repo present (with a repo path), so
 // any project's TODO list is reachable from the palette. (todo: project)
 func TestTodoOmniItems(t *testing.T) {
-	prev := tasks
-	t.Cleanup(func() { tasks = prev })
-	tasks = []db.Task{
+	prev := inboxUI.Tasks
+	t.Cleanup(func() { inboxUI.Tasks = prev })
+	inboxUI.Tasks = []db.Task{
 		{Repo: "alpha", RepoPath: "/a"},
 		{Repo: "alpha", RepoPath: "/a"}, // dup repo → one item
 		{Repo: "beta", RepoPath: "/b"},

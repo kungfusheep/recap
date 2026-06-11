@@ -130,7 +130,7 @@ func applyTheme(name string, t theme.Theme) {
 		// the default style backs cells the templates don't paint (e.g. the screen
 		// margins) — keep it in step with the palette.
 		uiApp.SetDefaultStyle(Style{FG: cFG, BG: cBG})
-		detailDirty = true
+		inboxUI.DetailDirty = true
 		if diffUI.Layer != nil {
 			diffUI.Layer.Invalidate()
 		}

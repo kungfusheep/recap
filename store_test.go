@@ -117,7 +117,7 @@ func mustList(t *testing.T, st *db.Store, status, repo string) []db.Task {
 	return got
 }
 
-// done tasks sort by most recent review activity (last completed first), not by
+// done inboxUI.Tasks sort by most recent review activity (last completed first), not by
 // creation id: approve out of id order and the newest approval must lead.
 func TestDoneOrderLastCompletedFirst(t *testing.T) {
 	st := testStore(t)
@@ -137,7 +137,7 @@ func TestDoneOrderLastCompletedFirst(t *testing.T) {
 
 	reloadTasks()
 	var done []int64
-	for _, tk := range tasks {
+	for _, tk := range inboxUI.Tasks {
 		if uiStore.ReviewState(tk.ID) == db.StateDone {
 			done = append(done, tk.ID)
 		}
@@ -242,9 +242,9 @@ func TestUndoCategorise(t *testing.T) {
 	reloadTasks()
 
 	// approve both (via the real handler path so the undo stack is populated)
-	sel = indexOfTask(a)
+	inboxUI.Sel = indexOfTask(a)
 	approveSelected()
-	sel = indexOfTask(b)
+	inboxUI.Sel = indexOfTask(b)
 	approveSelected()
 	if uiStore.ReviewState(a) != db.StateDone || uiStore.ReviewState(b) != db.StateDone {
 		t.Fatalf("setup: both should be done (a=%s b=%s)", uiStore.ReviewState(a), uiStore.ReviewState(b))
@@ -268,10 +268,10 @@ func TestUndoCategorise(t *testing.T) {
 	}
 }
 
-// indexOfTask returns the vmRows index of a task header row, for tests that drive
+// indexOfTask returns the inboxUI.Rows index of a task header row, for tests that drive
 // selection-based handlers.
 func indexOfTask(id int64) int {
-	for i, r := range vmRows {
+	for i, r := range inboxUI.Rows {
 		if r.ID == id && r.RevIdx < 0 {
 			return i
 		}
@@ -386,7 +386,7 @@ func TestInboxFIFOByArrival(t *testing.T) {
 	st := testStore(t)
 	prev := uiStore
 	uiStore = st
-	t.Cleanup(func() { uiStore = prev; vmRows = nil; sel = 0 })
+	t.Cleanup(func() { uiStore = prev; inboxUI.Rows = nil; inboxUI.Sel = 0 })
 
 	a, _ := st.Add(db.Task{Repo: "r", Title: "a", CreatedAt: "2026-06-10 09:00:01"})
 	b, _ := st.Add(db.Task{Repo: "r", Title: "b", CreatedAt: "2026-06-10 09:00:02"})
@@ -395,7 +395,7 @@ func TestInboxFIFOByArrival(t *testing.T) {
 	pendingOrder := func() []int64 {
 		reloadTasks()
 		var ids []int64
-		for _, tk := range tasks {
+		for _, tk := range inboxUI.Tasks {
 			if uiStore.ReviewState(tk.ID) == db.StatePending {
 				ids = append(ids, tk.ID)
 			}

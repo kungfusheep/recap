@@ -94,6 +94,20 @@ Ordered low-risk → high-risk so the reviewer can stop/redirect at any boundary
         prompt Open/Title/Loc/Snip/OnSave/Field + read-overlay flag + both NodeRefs;
         methods open/close/submit/openRead/insertLink/pasteImage). The cv* read-overlay
         CONTENT stays global for 5c — it belongs to the draft pane that sets it.
+      - [x] 5d: diff pane residue → `diffView` struct in diff_view.go, one instance
+        `diffUI` (Layer/Meta/Banner/Files, the compile-once Rows/Tmpl pair +
+        diffTemplate/padTo moved with it, jump-pick ViewRef/PickAction/PickHeaders,
+        the picked Pick* anchor, Folded/Commented maps, Focused, FilesText). The
+        pcLocation/pcSnippetView globals were function-locals in disguise — demoted
+        into commentOnDiffLine.
+      - [x] 5e: inbox model → `inboxView` struct in inbox_view.go, one instance
+        `inboxUI` (Tasks/Rows/Sel, KeepSelOnReload, RepoFilter/Repos, Expanded/
+        TaskByID maps, Count/CountText/FilterText, and the selection-change
+        bookkeeping: LastSel/LastLen/LastFilter/DetailDirty/LastDiffKey/
+        DoneOldLimit). reloadTasks's deliberate local `var repos` shadow (repo
+        colour assignment) kept as a local. Remaining ui.go globals are the app
+        handles (uiStore/uiApp/omni) + detail-pane display strings (detailTitle/
+        meta*/statusMsg/spinFrame/helpOpen/reloadRequested) — slice 6 territory.
 - [ ] **Slice 6 — root cleanup.** Rename `main.go` → `recap.go` (service-named entry),
       keep `func main` + command dispatch composing the pipeline; command bodies can move
       to a flat `cli` package if dispatch grows. Per-struct file naming pass.

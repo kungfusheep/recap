@@ -176,47 +176,14 @@ var (
 	uiApp   *App
 	omni    *OmniBox
 
-	tasks  []db.Task
-	vmRows []taskVM // flattened: task headers + (when expanded) their revision children
-	sel    int      // index into vmRows, NOT tasks (a row may be a revision child)
-	// keepSelOnReload makes the next reloadTasks hold the cursor at its current index
-	// instead of chasing the selected task by id. Set by user marks (approve/submit) so
-	// the marked item leaves and the NEXT item slides up under the cursor — a clean path
-	// down the list — without changing the async-insert behaviour (which still tracks the
-	// task so a pushed item never yanks the reader's place).
-	keepSelOnReload bool
-	repoFltr        string
-	repos           []string
-
-	// expandedTasks tracks which tasks are expanded into their revision children
-	// (mail's thread-expand). Keyed by task id so it survives vmRows rebuilds.
-	expandedTasks = map[int64]bool{}
-	// taskByID resolves the selected row's task without re-querying (rebuilt each
-	// reloadTasks). Rows carry only a task ID; this maps back to the full db.Task.
-	taskByID = map[int64]db.Task{}
-
 	helpOpen bool // ? cheatsheet overlay
 
-	countText, filterText string
-	spinFrame             int // animation frame for the in-flight spinner flare
-	inboxCount            int // number of pending (inbox) tasks — shown in the header
-	detailTitle           string
-	metaRepo, metaWhen    string
-	metaResult            string
-	metaResultColor       = cSubtle
-	statusMsg             string
-
-	lastSel, lastLen int
-	lastFltr         string
-	detailDirty      bool
-	// lastDiffKey identifies the diff currently shown (task:rev:sha). refreshDetail only
-	// resets the diff scroll when this changes — so an inbox reload that adds an item but
-	// leaves the selected task unchanged keeps the reader's scroll position.
-	lastDiffKey string
-	// doneOldLimit caps how many completed items OLDER THAN A DAY the inbox list renders;
-	// the rest sit behind a "load more" row (avoids rendering a huge done history). Recent
-	// (< 24h) completed items always show. "load more" raises this by a batch.
-	doneOldLimit = 20
+	spinFrame          int // animation frame for the in-flight spinner flare
+	detailTitle        string
+	metaRepo, metaWhen string
+	metaResult         string
+	metaResultColor    = cSubtle
+	statusMsg          string
 
 	// set by the SIGUSR1 handler; consumed on the render thread to reload the
 	// inbox when another process (e.g. `recap add`) changes the db.
@@ -342,25 +309,25 @@ func reloadTasks() {
 	// inserts items above it doesn't shift the selection out from under the reader.
 	var prevID int64 = -1
 	prevRev := -99
-	if sel >= 0 && sel < len(vmRows) {
-		prevID, prevRev = vmRows[sel].ID, vmRows[sel].RevIdx
+	if inboxUI.Sel >= 0 && inboxUI.Sel < len(inboxUI.Rows) {
+		prevID, prevRev = inboxUI.Rows[inboxUI.Sel].ID, inboxUI.Rows[inboxUI.Sel].RevIdx
 	}
-	tasks, _ = uiStore.List("", repoFltr)
+	inboxUI.Tasks, _ = uiStore.List("", inboxUI.RepoFilter)
 	// derived state per task (computed from reviews, never a stale flag).
-	state := make(map[int64]string, len(tasks))
-	inboxCount = 0
-	for _, t := range tasks {
+	state := make(map[int64]string, len(inboxUI.Tasks))
+	inboxUI.Count = 0
+	for _, t := range inboxUI.Tasks {
 		state[t.ID] = uiStore.ReviewState(t.ID)
 		if state[t.ID] == db.StatePending {
-			inboxCount++ // the header count is the inbox, not the whole task set
+			inboxUI.Count++ // the header count is the inbox, not the whole task set
 		}
 	}
 	// sections: inbox, then amends, then done. Within inbox, oldest-first (work
 	// the queue front-to-back); amends/done by most recent review activity — last
 	// completed first — so the done list reads newest-at-top, not by creation id.
 	lastRev, _ := uiStore.LatestReviewIDs()
-	sort.SliceStable(tasks, func(i, j int) bool {
-		si, sj := state[tasks[i].ID], state[tasks[j].ID]
+	sort.SliceStable(inboxUI.Tasks, func(i, j int) bool {
+		si, sj := state[inboxUI.Tasks[i].ID], state[inboxUI.Tasks[j].ID]
 		pi, pj := statePriority(si), statePriority(sj)
 		if pi != pj {
 			return pi < pj
@@ -369,34 +336,34 @@ func reloadTasks() {
 			// FIFO by ARRIVAL into the inbox, not creation order: a task resolved
 			// back from amends (or unsubmitted) re-queues at the END — its stamped
 			// inbox_at is newer — instead of jumping to the top on its old id.
-			ai, aj := tasks[i].InboxAt, tasks[j].InboxAt
+			ai, aj := inboxUI.Tasks[i].InboxAt, inboxUI.Tasks[j].InboxAt
 			if ai == "" {
-				ai = tasks[i].CreatedAt // pre-migration rows
+				ai = inboxUI.Tasks[i].CreatedAt // pre-migration rows
 			}
 			if aj == "" {
-				aj = tasks[j].CreatedAt
+				aj = inboxUI.Tasks[j].CreatedAt
 			}
 			if ai != aj {
 				return ai < aj // oldest arrival first
 			}
-			return tasks[i].ID < tasks[j].ID
+			return inboxUI.Tasks[i].ID < inboxUI.Tasks[j].ID
 		}
 		// non-pending (amends/done): newest review activity first, then id as a
 		// tie-break (covers tasks approved directly, with no review row).
-		ri, rj := lastRev[tasks[i].ID], lastRev[tasks[j].ID]
+		ri, rj := lastRev[inboxUI.Tasks[i].ID], lastRev[inboxUI.Tasks[j].ID]
 		if ri != rj {
 			return ri > rj
 		}
-		return tasks[i].ID > tasks[j].ID
+		return inboxUI.Tasks[i].ID > inboxUI.Tasks[j].ID
 	})
 	// pinned tasks float to the top in a "PINNED" section, preserving their relative
 	// order from the state sort above (stable). Everything else keeps its place.
-	sort.SliceStable(tasks, func(i, j int) bool {
-		return pinned[tasks[i].ID] && !pinned[tasks[j].ID]
+	sort.SliceStable(inboxUI.Tasks, func(i, j int) bool {
+		return pinned[inboxUI.Tasks[i].ID] && !pinned[inboxUI.Tasks[j].ID]
 	})
-	taskByID = make(map[int64]db.Task, len(tasks))
-	for _, t := range tasks {
-		taskByID[t.ID] = t
+	inboxUI.TaskByID = make(map[int64]db.Task, len(inboxUI.Tasks))
+	for _, t := range inboxUI.Tasks {
+		inboxUI.TaskByID[t.ID] = t
 	}
 
 	// assign each repo a DISTINCT palette colour by sorted order — the old name hash
@@ -405,29 +372,29 @@ func reloadTasks() {
 	repoColors := map[string]Color{}
 	{
 		seen := map[string]bool{}
-		var repos []string
-		for _, t := range tasks {
+		var rs []string
+		for _, t := range inboxUI.Tasks {
 			if !seen[t.Repo] {
 				seen[t.Repo] = true
-				repos = append(repos, t.Repo)
+				rs = append(rs, t.Repo)
 			}
 		}
-		sort.Strings(repos)
-		for i, r := range repos {
+		sort.Strings(rs)
+		for i, r := range rs {
 			repoColors[r] = repoPalette[i%len(repoPalette)]
 		}
 	}
 
-	vmRows = vmRows[:0]
+	inboxUI.Rows = inboxUI.Rows[:0]
 	prevSection := ""
 	oldDoneShown, oldDoneSkipped := 0, 0
-	for _, t := range tasks {
+	for _, t := range inboxUI.Tasks {
 		st := state[t.ID]
 		// paginate completed items older than a day: show recent (<24h) done always, but
-		// only doneOldLimit of the older ones — the rest hide behind a "load more" row.
+		// only DoneOldLimit of the older ones — the rest hide behind a "load more" row.
 		// pinned items are never paginated away — they always stay visible up top.
 		if st == db.StateDone && !isRecent(t.CreatedAt) && !pinned[t.ID] {
-			if oldDoneShown >= doneOldLimit {
+			if oldDoneShown >= inboxUI.DoneOldLimit {
 				oldDoneSkipped++
 				continue
 			}
@@ -468,7 +435,7 @@ func reloadTasks() {
 			vm.Summary = t.Summary
 		}
 		if len(revs) > 1 {
-			vm.Expanded = expandedTasks[t.ID]
+			vm.Expanded = inboxUI.Expanded[t.ID]
 			if vm.Expanded {
 				vm.ExpandPill = fmt.Sprintf("▾ %d", len(revs))
 			} else {
@@ -486,13 +453,13 @@ func reloadTasks() {
 			vm.GroupLabel = section
 			prevSection = section
 		}
-		vmRows = append(vmRows, vm)
+		inboxUI.Rows = append(inboxUI.Rows, vm)
 
 		// expanded → splice a child row per revision, latest first (mail's order).
 		if vm.Expanded {
 			for j := len(revs) - 1; j >= 0; j-- {
 				r := revs[j]
-				vmRows = append(vmRows, taskVM{
+				inboxUI.Rows = append(inboxUI.Rows, taskVM{
 					ID:       t.ID,
 					RevIdx:   j,
 					DiffSHA:  r.SHA,
@@ -505,7 +472,7 @@ func reloadTasks() {
 	}
 	// a "load more" row at the very bottom when older completed items are hidden.
 	if oldDoneSkipped > 0 {
-		vmRows = append(vmRows, taskVM{
+		inboxUI.Rows = append(inboxUI.Rows, taskVM{
 			LoadMore: true,
 			RevIdx:   -1,
 			Title:    fmt.Sprintf("load more  ·  %d older completed", oldDoneSkipped),
@@ -514,36 +481,36 @@ func reloadTasks() {
 
 	// restore the selection to the same row (task + revision) it was on before, so
 	// items arriving above it don't yank the view; fall back to clamping if it's gone.
-	// EXCEPT after a user mark (keepSelOnReload): hold the index so the marked item
+	// EXCEPT after a user mark (KeepSelOnReload): hold the index so the marked item
 	// leaves and the next one slides up under the cursor.
-	if keepSelOnReload {
-		keepSelOnReload = false // one-shot; external reloads still track by id
+	if inboxUI.KeepSelOnReload {
+		inboxUI.KeepSelOnReload = false // one-shot; external reloads still track by id
 	} else if prevID >= 0 {
-		for i, r := range vmRows {
+		for i, r := range inboxUI.Rows {
 			if r.ID == prevID && r.RevIdx == prevRev {
-				sel = i
+				inboxUI.Sel = i
 				break
 			}
 		}
 	}
-	if sel >= len(vmRows) {
-		sel = len(vmRows) - 1
+	if inboxUI.Sel >= len(inboxUI.Rows) {
+		inboxUI.Sel = len(inboxUI.Rows) - 1
 	}
-	if sel < 0 {
-		sel = 0
+	if inboxUI.Sel < 0 {
+		inboxUI.Sel = 0
 	}
 
 	// distinct repos for the filter cycle (from the unfiltered set)
 	all, _ := uiStore.List("", "")
 	seen := map[string]bool{}
-	repos = repos[:0]
+	inboxUI.Repos = inboxUI.Repos[:0]
 	for _, t := range all {
 		if !seen[t.Repo] {
 			seen[t.Repo] = true
-			repos = append(repos, t.Repo)
+			inboxUI.Repos = append(inboxUI.Repos, t.Repo)
 		}
 	}
-	detailDirty = true
+	inboxUI.DetailDirty = true
 }
 
 // revLabel is a revision child row's caption: "original" for the base diff (the
@@ -570,10 +537,10 @@ func revLabel(idx int, r db.Revision) string {
 // selectedRow returns the currently selected flattened row (header or revision
 // child), or nil when the list is empty.
 func selectedRow() *taskVM {
-	if sel < 0 || sel >= len(vmRows) {
+	if inboxUI.Sel < 0 || inboxUI.Sel >= len(inboxUI.Rows) {
 		return nil
 	}
-	return &vmRows[sel]
+	return &inboxUI.Rows[inboxUI.Sel]
 }
 
 // selectedTask resolves the task behind the selected row — the same task whether a
@@ -583,7 +550,7 @@ func selectedTask() (db.Task, bool) {
 	if r == nil {
 		return db.Task{}, false
 	}
-	t, ok := taskByID[r.ID]
+	t, ok := inboxUI.TaskByID[r.ID]
 	return t, ok
 }
 
@@ -598,15 +565,15 @@ func toggleExpand() {
 	if len(revs) < 2 {
 		return // nothing to expand — only the base diff
 	}
-	expandedTasks[t.ID] = !expandedTasks[t.ID]
+	inboxUI.Expanded[t.ID] = !inboxUI.Expanded[t.ID]
 	reloadTasks()
-	for i := range vmRows {
-		if vmRows[i].ID == t.ID && vmRows[i].RevIdx < 0 {
-			sel = i
+	for i := range inboxUI.Rows {
+		if inboxUI.Rows[i].ID == t.ID && inboxUI.Rows[i].RevIdx < 0 {
+			inboxUI.Sel = i
 			break
 		}
 	}
-	detailDirty = true
+	inboxUI.DetailDirty = true
 }
 
 // refreshDetail updates selection fill + the right-hand detail when selection,
@@ -632,14 +599,14 @@ func refreshDetail() {
 		reloadTasks()
 		invalidateUpcoming() // force the in-flight cursor + upcoming list to reflect current state (e.g. after `recap next`)
 		refreshIdentity()    // pick up `recap whoami` (name + colour) on push
-		detailDirty = true
+		inboxUI.DetailDirty = true
 	}
 	// peek at the selected repo's next TODO tasks + in-flight marker (loaded async;
 	// swapped in here), before the change-detection early-return so finished loads
 	// and reload-signal refreshes are picked up.
 	updateUpcoming()
-	for i := range vmRows {
-		vmRows[i].Selected = i == sel
+	for i := range inboxUI.Rows {
+		inboxUI.Rows[i].Selected = i == inboxUI.Sel
 	}
 	for i := range draftUI.Comments {
 		draftUI.Comments[i].Selected = i == draftUI.Sel
@@ -672,21 +639,21 @@ func refreshDetail() {
 		syncDiffToDraft()
 		markSelectedCommentRead()
 	}
-	filterText = "all"
-	if repoFltr != "" {
-		filterText = repoFltr
+	inboxUI.FilterText = "all"
+	if inboxUI.RepoFilter != "" {
+		inboxUI.FilterText = inboxUI.RepoFilter
 	}
-	countText = fmt.Sprintf("%d", inboxCount)
+	inboxUI.CountText = fmt.Sprintf("%d", inboxUI.Count)
 	// cross-repo unread peer-message badge: the human always sees pending
 	// agent→agent traffic at a glance, whichever repo the TUI runs in.
 	if n, err := uiStore.UnreadMessageCount(); err == nil && n > 0 {
-		countText += fmt.Sprintf("  ✉ %d", n)
+		inboxUI.CountText += fmt.Sprintf("  ✉ %d", n)
 	}
 
-	if sel == lastSel && len(tasks) == lastLen && repoFltr == lastFltr && !detailDirty {
+	if inboxUI.Sel == inboxUI.LastSel && len(inboxUI.Tasks) == inboxUI.LastLen && inboxUI.RepoFilter == inboxUI.LastFilter && !inboxUI.DetailDirty {
 		return
 	}
-	lastSel, lastLen, lastFltr, detailDirty = sel, len(tasks), repoFltr, false
+	inboxUI.LastSel, inboxUI.LastLen, inboxUI.LastFilter, inboxUI.DetailDirty = inboxUI.Sel, len(inboxUI.Tasks), inboxUI.RepoFilter, false
 
 	row := selectedRow()
 	t, ok := selectedTask()
@@ -696,10 +663,10 @@ func refreshDetail() {
 	if ok && row != nil {
 		diffKey = fmt.Sprintf("%d:%d:%s", t.ID, row.RevIdx, row.DiffSHA)
 	}
-	resetScroll := diffKey != lastDiffKey
-	lastDiffKey = diffKey
+	resetScroll := diffKey != inboxUI.LastDiffKey
+	inboxUI.LastDiffKey = diffKey
 	if !ok || row == nil {
-		detailTitle, metaRepo, metaWhen, metaResult = "no tasks", "", "", ""
+		detailTitle, metaRepo, metaWhen, metaResult = "no inboxUI.Tasks", "", "", ""
 		diffUI.FilesText, diffUI.Files, draftUI.Note = "", nil, ""
 		draftUI.Has, draftUI.Comments = false, nil
 		setDiff(resetScroll)
@@ -1267,9 +1234,9 @@ func buildMain() Component {
 					SpaceW(3),
 					Text("recap").FG(&cBright).Bold(),
 					SpaceW(1),
-					Text(&countText).FG(&cSubtle),
+					Text(&inboxUI.CountText).FG(&cSubtle),
 					Space(),
-					Text(&filterText).FG(&cSubtle),
+					Text(&inboxUI.FilterText).FG(&cSubtle),
 					SpaceW(2),
 				),
 				SpaceH(2),
@@ -1294,8 +1261,8 @@ func buildMain() Component {
 						),
 					),
 				),
-				List(&vmRows).
-					Selection(&sel).
+				List(&inboxUI.Rows).
+					Selection(&inboxUI.Sel).
 					Style(&listBaseStyle).
 					SelectedStyle(Style{}). // band painted per-row, excludes group headers
 					Marker("  ").           // blank gutter: Marker("") falls back to the default "> "
@@ -1550,8 +1517,8 @@ func draftRow(c *draftCommentVM) Component {
 // lands a frame after the task reload) — otherwise the flare sticks on whatever row
 // the last full reload marked, instead of following the cursor.
 func markInFlight() {
-	for i := range vmRows {
-		vmRows[i].InFlight = vmRows[i].RevIdx < 0 && currentRef == fmt.Sprintf("amends:%d", vmRows[i].ID)
+	for i := range inboxUI.Rows {
+		inboxUI.Rows[i].InFlight = inboxUI.Rows[i].RevIdx < 0 && currentRef == fmt.Sprintf("amends:%d", inboxUI.Rows[i].ID)
 	}
 }
 
@@ -1835,7 +1802,7 @@ func saveReply() {
 		return
 	}
 	statusMsg = "replied"
-	detailDirty = true
+	inboxUI.DetailDirty = true
 }
 
 // editDraftComment opens the body prompt pre-filled with the selected comment's
@@ -1867,7 +1834,7 @@ func saveEditedComment() {
 		return
 	}
 	statusMsg = "comment updated"
-	detailDirty = true
+	inboxUI.DetailDirty = true
 }
 
 func deleteDraftComment() {
@@ -1887,7 +1854,7 @@ func deleteDraftComment() {
 	if draftUI.Sel > 0 {
 		draftUI.Sel--
 	}
-	detailDirty = true
+	inboxUI.DetailDirty = true
 }
 
 // openDraftLinks opens any [[file]] references in the selected comment (e.g. a
@@ -1926,7 +1893,7 @@ func saveGeneralComment() {
 		return
 	}
 	statusMsg = fmt.Sprintf("commented on #%d", t.ID)
-	detailDirty = true // refresh the comments pane so the new comment shows (was "lost")
+	inboxUI.DetailDirty = true // refresh the comments pane so the new comment shows (was "lost")
 }
 
 // diff scroll is native: adjust the layer's scrollY (clamped internally) and
@@ -1939,21 +1906,21 @@ func diffTop()      { diffUI.Layer.ScrollToTop() }
 func diffBottom()   { diffUI.Layer.ScrollToEnd() }
 
 func moveSel(d int) {
-	sel += d
-	if sel >= len(vmRows) {
-		sel = len(vmRows) - 1
+	inboxUI.Sel += d
+	if inboxUI.Sel >= len(inboxUI.Rows) {
+		inboxUI.Sel = len(inboxUI.Rows) - 1
 	}
-	if sel < 0 {
-		sel = 0
+	if inboxUI.Sel < 0 {
+		inboxUI.Sel = 0
 	}
 }
 
 // selectTop / selectBottom are the list's vim gg / G — jump to the first / last row.
-func selectTop() { sel = 0 }
+func selectTop() { inboxUI.Sel = 0 }
 func selectBottom() {
-	sel = len(vmRows) - 1
-	if sel < 0 {
-		sel = 0
+	inboxUI.Sel = len(inboxUI.Rows) - 1
+	if inboxUI.Sel < 0 {
+		inboxUI.Sel = 0
 	}
 }
 
@@ -2007,30 +1974,30 @@ func approveSelected() {
 	}
 	pushCategoriseUndo(t.ID)
 	statusMsg = fmt.Sprintf("#%d approved  ·  u to undo", t.ID)
-	keepSelOnReload = true // hold the cursor; let the next item slide up
+	inboxUI.KeepSelOnReload = true // hold the cursor; let the next item slide up
 	reloadTasks()
 }
 
 func cycleFilter() {
-	if repoFltr == "" {
-		if len(repos) > 0 {
-			repoFltr = repos[0]
+	if inboxUI.RepoFilter == "" {
+		if len(inboxUI.Repos) > 0 {
+			inboxUI.RepoFilter = inboxUI.Repos[0]
 		}
 	} else {
 		idx := -1
-		for i, rp := range repos {
-			if rp == repoFltr {
+		for i, rp := range inboxUI.Repos {
+			if rp == inboxUI.RepoFilter {
 				idx = i
 				break
 			}
 		}
-		if idx < 0 || idx+1 >= len(repos) {
-			repoFltr = ""
+		if idx < 0 || idx+1 >= len(inboxUI.Repos) {
+			inboxUI.RepoFilter = ""
 		} else {
-			repoFltr = repos[idx+1]
+			inboxUI.RepoFilter = inboxUI.Repos[idx+1]
 		}
 	}
-	sel = 0
+	inboxUI.Sel = 0
 	reloadTasks()
 }
 
@@ -2040,18 +2007,18 @@ func cycleFilter() {
 // opens, so a repo that appeared mid-session shows up.
 func filterOmniItems() []omniItem {
 	items := []omniItem{{
-		Label:       "filter: all repos",
-		Description: "show tasks from every repo",
+		Label:       "filter: all inboxUI.Repos",
+		Description: "show inboxUI.Tasks from every repo",
 		Section:     "filter",
-		Action:      func() { repoFltr = ""; sel = 0; reloadTasks() },
+		Action:      func() { inboxUI.RepoFilter = ""; inboxUI.Sel = 0; reloadTasks() },
 	}}
-	for _, rp := range repos {
+	for _, rp := range inboxUI.Repos {
 		rp := rp // capture per iteration
 		items = append(items, omniItem{
 			Label:       "filter: " + rp,
-			Description: "show only " + rp + " tasks",
+			Description: "show only " + rp + " inboxUI.Tasks",
 			Section:     "filter",
-			Action:      func() { repoFltr = rp; sel = 0; reloadTasks() },
+			Action:      func() { inboxUI.RepoFilter = rp; inboxUI.Sel = 0; reloadTasks() },
 		})
 	}
 	return items
@@ -2063,7 +2030,7 @@ func filterOmniItems() []omniItem {
 func todoOmniItems() []omniItem {
 	seen := map[string]bool{}
 	var items []omniItem
-	for _, t := range tasks {
+	for _, t := range inboxUI.Tasks {
 		if t.Repo == "" || t.RepoPath == "" || seen[t.Repo] {
 			continue
 		}
@@ -2112,7 +2079,7 @@ func rerun() {
 // completed items; any other row opens the diff pane.
 func openOrLoadMore() {
 	if r := selectedRow(); r != nil && r.LoadMore {
-		doneOldLimit += 20
+		inboxUI.DoneOldLimit += 20
 		reloadTasks()
 		return
 	}
@@ -2145,7 +2112,7 @@ func anyCommentableRow() bool {
 // jump labels (no view switch): EnterJumpMode renders, renderDiffLayer registers a
 // target per visible commentable row, and picking a label runs diffUI.PickAction on it.
 func openDiffLineComment() {
-	if len(tasks) == 0 {
+	if len(inboxUI.Tasks) == 0 {
 		return
 	}
 	if !anyCommentableRow() {
@@ -2252,7 +2219,7 @@ func saveLineComment() {
 		return
 	}
 	statusMsg = fmt.Sprintf("commented on %s:%d", diffUI.PickFile, diffUI.PickLine)
-	detailDirty = true
+	inboxUI.DetailDirty = true
 }
 
 // submitSelected publishes the selected task's draft review as request_changes
@@ -2271,7 +2238,7 @@ func submitSelected() {
 	}
 	pushCategoriseUndo(t.ID)
 	statusMsg = fmt.Sprintf("#%d submitted → amends  ·  u to undo", t.ID)
-	keepSelOnReload = true // hold the cursor; let the next item slide up
+	inboxUI.KeepSelOnReload = true // hold the cursor; let the next item slide up
 	reloadTasks()
 }
 

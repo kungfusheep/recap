@@ -11,7 +11,7 @@ import (
 	"github.com/kungfusheep/recap/todo"
 )
 
-// upcomingFromItems surfaces the next incomplete tasks in file order, skips done
+// upcomingFromItems surfaces the next incomplete inboxUI.Tasks in file order, skips done
 // + non-task lines, caps at upcomingMax, and keeps the full text (the row clips to
 // the column width at render time — no hard-coded truncation).
 func TestUpcomingFromItems(t *testing.T) {
@@ -87,7 +87,7 @@ func TestBuildUpcomingBlob(t *testing.T) {
 }
 
 // the upcoming section reserves a FIXED height (upcomingMax rows), so the inbox list
-// below sits at the same screen row regardless of how many upcoming tasks the selected
+// below sits at the same screen row regardless of how many upcoming inboxUI.Tasks the selected
 // project has — no more "slapping about" when moving between projects (#1f3c631d).
 func TestUpcomingSectionFixedHeight(t *testing.T) {
 	prevStore, prevApp, prevOmni := uiStore, uiApp, omni
@@ -97,7 +97,7 @@ func TestUpcomingSectionFixedHeight(t *testing.T) {
 	omni = newOmniBox(uiApp, omniCommands())
 	t.Cleanup(func() {
 		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
-		vmRows = nil
+		inboxUI.Rows = nil
 		hasUpcoming = false
 		upcomingBlob = ""
 	})
@@ -135,22 +135,22 @@ func TestUpcomingSectionFixedHeight(t *testing.T) {
 // never sticks where a prior reload left it — the "spinner stuck on #73" bug. db.Revision
 // child rows (RevIdx >= 0) never flare.
 func TestMarkInFlight(t *testing.T) {
-	defer func() { vmRows = nil; currentRef = "" }()
-	vmRows = []taskVM{{ID: 73, RevIdx: -1}, {ID: 65, RevIdx: -1}, {ID: 65, RevIdx: 0}}
+	defer func() { inboxUI.Rows = nil; currentRef = "" }()
+	inboxUI.Rows = []taskVM{{ID: 73, RevIdx: -1}, {ID: 65, RevIdx: -1}, {ID: 65, RevIdx: 0}}
 
 	currentRef = "amends:65"
 	markInFlight()
-	if vmRows[0].InFlight || !vmRows[1].InFlight {
-		t.Fatalf("cursor amends:65 → only #65 header flares, got %v/%v", vmRows[0].InFlight, vmRows[1].InFlight)
+	if inboxUI.Rows[0].InFlight || !inboxUI.Rows[1].InFlight {
+		t.Fatalf("cursor amends:65 → only #65 header flares, got %v/%v", inboxUI.Rows[0].InFlight, inboxUI.Rows[1].InFlight)
 	}
-	if vmRows[2].InFlight {
+	if inboxUI.Rows[2].InFlight {
 		t.Fatal("revision child row must not flare")
 	}
 	// cursor moves → flare follows (not stuck on #73's neighbour)
 	currentRef = "amends:73"
 	markInFlight()
-	if !vmRows[0].InFlight || vmRows[1].InFlight {
-		t.Fatalf("flare should follow cursor to #73, got %v/%v", vmRows[0].InFlight, vmRows[1].InFlight)
+	if !inboxUI.Rows[0].InFlight || inboxUI.Rows[1].InFlight {
+		t.Fatalf("flare should follow cursor to #73, got %v/%v", inboxUI.Rows[0].InFlight, inboxUI.Rows[1].InFlight)
 	}
 }
 

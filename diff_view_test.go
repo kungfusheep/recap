@@ -264,21 +264,21 @@ func TestDiffScrollPreservedOnReload(t *testing.T) {
 	uiApp = NewApp()
 	diffUI.Layer = NewLayer()
 	diffUI.Layer.Render = renderDiffLayer
-	expandedTasks = map[int64]bool{}
+	inboxUI.Expanded = map[int64]bool{}
 	t.Cleanup(func() {
 		uiStore = prevStore
 		uiApp = prevApp
 		diffUI.Layer = prevLayer
-		vmRows, diffUI.Meta, diffUI.Files = nil, nil, nil
-		sel, lastSel, lastLen, lastDiffKey, detailDirty = 0, 0, 0, "", false
+		inboxUI.Rows, diffUI.Meta, diffUI.Files = nil, nil, nil
+		inboxUI.Sel, inboxUI.LastSel, inboxUI.LastLen, inboxUI.LastDiffKey, inboxUI.DetailDirty = 0, 0, 0, "", false
 	})
 	st.Add(db.Task{Repo: "r", RepoPath: dir, SHA: sha, Title: "t1", Status: db.StatusPending})
 	reloadTasks()
-	sel = 0
+	inboxUI.Sel = 0
 	uiApp.SetView(VBox.Width(80).Height(8)(
 		HBox.Grow(1).NodeRef(&diffUI.ViewRef)(LayerView(diffUI.Layer).Grow(1)),
 	))
-	detailDirty = true
+	inboxUI.DetailDirty = true
 	refreshDetail()
 	uiApp.RenderNow()
 
@@ -289,11 +289,11 @@ func TestDiffScrollPreservedOnReload(t *testing.T) {
 		t.Fatal("could not scroll the diff (setup)")
 	}
 
-	// inbox reload: add a NEWER task (sorts after in the oldest-first inbox), so sel still
+	// inbox reload: add a NEWER task (sorts after in the oldest-first inbox), so inboxUI.Sel still
 	// points at t1 — the shown diff is unchanged, scroll must be kept.
 	st.Add(db.Task{Repo: "r", RepoPath: dir, SHA: sha, Title: "t2", Status: db.StatusPending})
 	reloadTasks()
-	detailDirty = true
+	inboxUI.DetailDirty = true
 	refreshDetail()
 	uiApp.RenderNow()
 	if diffUI.Layer.ScrollY() != scrolled {
@@ -301,12 +301,12 @@ func TestDiffScrollPreservedOnReload(t *testing.T) {
 	}
 
 	// switching to a different task DOES reset scroll to the top
-	sel = 1
-	detailDirty = true
+	inboxUI.Sel = 1
+	inboxUI.DetailDirty = true
 	refreshDetail()
 	uiApp.RenderNow()
 	if diffUI.Layer.ScrollY() != 0 {
-		t.Fatalf("switching tasks should reset scroll, got %d", diffUI.Layer.ScrollY())
+		t.Fatalf("switching inboxUI.Tasks should reset scroll, got %d", diffUI.Layer.ScrollY())
 	}
 }
 

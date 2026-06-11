@@ -7,7 +7,7 @@ import (
 )
 
 // snooze.Record persists a skipped todo ref per-repo; snooze.Load returns it while fresh,
-// drops it after the TTL, and never leaks across repos. (lets recap next --wait park past
+// drops it after the TTL, and never leaks across inboxUI.Repos. (lets recap next --wait park past
 // a permanently-blocked todo)
 func TestSnoozeTodoTTL(t *testing.T) {
 	t.Setenv("RECAP_DB", filepath.Join(t.TempDir(), "r.db"))

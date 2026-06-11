@@ -22,12 +22,12 @@ func TestPromptIsOverlay(t *testing.T) {
 	t.Cleanup(func() {
 		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
 		promptUI.Open = false
-		vmRows = nil
+		inboxUI.Rows = nil
 		promptUI.Field = InputState{}
 	})
 	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "a task", Status: db.StatusPending})
 	reloadTasks()
-	sel = 0
+	inboxUI.Sel = 0
 
 	openComment()
 	if !promptUI.Open {
@@ -95,7 +95,7 @@ func TestPromptAltBackspaceEditsNotCloses(t *testing.T) {
 		uiApp, uiStore, omni = prevApp, prevStore, prevOmni
 		promptUI.Open = false
 		promptUI.Field = InputState{}
-		vmRows = nil
+		inboxUI.Rows = nil
 	})
 	reloadTasks()
 
@@ -128,7 +128,7 @@ func TestTodoEditorInTodoView(t *testing.T) {
 	t.Cleanup(func() {
 		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
 		promptUI.Open = false
-		vmRows, todoUI.Items, todoUI.Data = nil, nil, nil
+		inboxUI.Rows, todoUI.Items, todoUI.Data = nil, nil, nil
 		promptUI.Field = InputState{}
 	})
 
@@ -176,7 +176,7 @@ func TestPromptAltEnterInsertsNewline(t *testing.T) {
 		uiApp, uiStore, omni = prevApp, prevStore, prevOmni
 		promptUI.Open = false
 		promptUI.Field = InputState{}
-		vmRows = nil
+		inboxUI.Rows = nil
 	})
 	reloadTasks()
 

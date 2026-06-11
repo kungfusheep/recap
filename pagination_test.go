@@ -22,24 +22,24 @@ func TestIsRecent(t *testing.T) {
 	}
 }
 
-// openOrLoadMore: on a "load more" row it raises doneOldLimit (and reloads); otherwise it
+// openOrLoadMore: on a "load more" row it raises inboxUI.DoneOldLimit (and reloads); otherwise it
 // opens the diff pane.
 func TestOpenOrLoadMore(t *testing.T) {
-	prev, prevLimit, prevPane := uiStore, doneOldLimit, pane
+	prev, prevLimit, prevPane := uiStore, inboxUI.DoneOldLimit, pane
 	st := testStore(t)
 	uiStore = st
-	t.Cleanup(func() { uiStore = prev; doneOldLimit = prevLimit; pane = prevPane; vmRows = nil; sel = 0 })
+	t.Cleanup(func() { uiStore = prev; inboxUI.DoneOldLimit = prevLimit; pane = prevPane; inboxUI.Rows = nil; inboxUI.Sel = 0 })
 
-	doneOldLimit = 20
-	vmRows = []taskVM{{LoadMore: true, RevIdx: -1}}
-	sel = 0
+	inboxUI.DoneOldLimit = 20
+	inboxUI.Rows = []taskVM{{LoadMore: true, RevIdx: -1}}
+	inboxUI.Sel = 0
 	openOrLoadMore()
-	if doneOldLimit != 40 {
-		t.Fatalf("load-more row should raise doneOldLimit to 40, got %d", doneOldLimit)
+	if inboxUI.DoneOldLimit != 40 {
+		t.Fatalf("load-more row should raise inboxUI.DoneOldLimit to 40, got %d", inboxUI.DoneOldLimit)
 	}
 
-	vmRows = []taskVM{{ID: 1, RevIdx: -1}}
-	sel = 0
+	inboxUI.Rows = []taskVM{{ID: 1, RevIdx: -1}}
+	inboxUI.Sel = 0
 	pane = paneList
 	openOrLoadMore()
 	if pane != paneDiff {
@@ -48,14 +48,14 @@ func TestOpenOrLoadMore(t *testing.T) {
 }
 
 // reloadTasks shows recent done always but paginates completed items older than a day:
-// only doneOldLimit of them render, the rest sit behind a "load more" row; raising the
+// only inboxUI.DoneOldLimit of them render, the rest sit behind a "load more" row; raising the
 // limit reveals them. (#163)
 func TestReloadPaginatesOldDone(t *testing.T) {
-	prev, prevLimit := uiStore, doneOldLimit
+	prev, prevLimit := uiStore, inboxUI.DoneOldLimit
 	st := testStore(t)
 	uiStore = st
-	t.Cleanup(func() { uiStore = prev; doneOldLimit = prevLimit; vmRows = nil; sel = 0 })
-	doneOldLimit = 2
+	t.Cleanup(func() { uiStore = prev; inboxUI.DoneOldLimit = prevLimit; inboxUI.Rows = nil; inboxUI.Sel = 0 })
+	inboxUI.DoneOldLimit = 2
 
 	old := time.Now().Add(-72 * time.Hour).Format("2006-01-02 15:04:05")
 	for i := 0; i < 5; i++ {
@@ -67,7 +67,7 @@ func TestReloadPaginatesOldDone(t *testing.T) {
 
 	reloadTasks()
 	loadMore, lmTitle := 0, ""
-	for _, r := range vmRows {
+	for _, r := range inboxUI.Rows {
 		if r.LoadMore {
 			loadMore++
 			lmTitle = r.Title
@@ -80,9 +80,9 @@ func TestReloadPaginatesOldDone(t *testing.T) {
 		t.Fatalf("load-more title = %q, want '3 older'", lmTitle)
 	}
 
-	doneOldLimit = 10 // reveal all
+	inboxUI.DoneOldLimit = 10 // reveal all
 	reloadTasks()
-	for _, r := range vmRows {
+	for _, r := range inboxUI.Rows {
 		if r.LoadMore {
 			t.Fatal("no load-more row once all old done fit under the limit")
 		}

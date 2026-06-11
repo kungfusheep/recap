@@ -42,7 +42,7 @@ func TestTodoRowRendersPerItem(t *testing.T) {
 	}
 }
 
-// the editor can add new tasks and edit existing lines, writing back to disk: add
+// the editor can add new inboxUI.Tasks and edit existing lines, writing back to disk: add
 // appends, edit rewrites the targeted line. Operates on todoUI.Data (data), and the disk
 // round-trip proves the data layer is wired through.
 func TestTodoAddAndEdit(t *testing.T) {

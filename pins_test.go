@@ -18,11 +18,11 @@ func TestTogglePinPersists(t *testing.T) {
 	}
 	uiStore = st
 	pinned = nil
-	t.Cleanup(func() { uiStore = prev; pinned = nil; vmRows = nil; sel = 0; st.Close() })
+	t.Cleanup(func() { uiStore = prev; pinned = nil; inboxUI.Rows = nil; inboxUI.Sel = 0; st.Close() })
 
 	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t"})
 	reloadTasks()
-	sel = indexOfTask(id)
+	inboxUI.Sel = indexOfTask(id)
 
 	togglePin()
 	if !pinned[id] {
@@ -33,7 +33,7 @@ func TestTogglePinPersists(t *testing.T) {
 		t.Fatalf("pin not persisted to disk: %+v", fresh)
 	}
 
-	sel = indexOfTask(id)
+	inboxUI.Sel = indexOfTask(id)
 	togglePin()
 	if pinned[id] {
 		t.Fatal("task should be unpinned after second toggle")
@@ -60,14 +60,14 @@ func TestUndoPin(t *testing.T) {
 		uiStore = prev
 		pinned = nil
 		undoStack = nil
-		vmRows = nil
-		sel = 0
+		inboxUI.Rows = nil
+		inboxUI.Sel = 0
 		st.Close()
 	})
 
 	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t"})
 	reloadTasks()
-	sel = indexOfTask(id)
+	inboxUI.Sel = indexOfTask(id)
 
 	// pin → undo → unpinned
 	togglePin()
@@ -83,10 +83,10 @@ func TestUndoPin(t *testing.T) {
 	}
 
 	// pin (so it's pinned), then unpin → undo → re-pinned (restores prior state)
-	sel = indexOfTask(id)
+	inboxUI.Sel = indexOfTask(id)
 	togglePin() // pin
 	undoStack = nil
-	sel = indexOfTask(id)
+	inboxUI.Sel = indexOfTask(id)
 	togglePin() // unpin
 	if pinned[id] {
 		t.Fatal("setup: task should be unpinned before the undo")
@@ -109,7 +109,7 @@ func TestReloadPinnedSectionOnTop(t *testing.T) {
 	}
 	uiStore = st
 	pinned = nil
-	t.Cleanup(func() { uiStore = prev; pinned = nil; vmRows = nil; sel = 0 })
+	t.Cleanup(func() { uiStore = prev; pinned = nil; inboxUI.Rows = nil; inboxUI.Sel = 0 })
 
 	a, _ := st.Add(db.Task{Repo: "r", Title: "a"}) // oldest → leads the inbox normally
 	b, _ := st.Add(db.Task{Repo: "r", Title: "b"})
@@ -124,15 +124,15 @@ func TestReloadPinnedSectionOnTop(t *testing.T) {
 
 	// the group label rides on the task row itself (not a separate row): the first row
 	// is the pinned task, carrying the PINNED section header.
-	if len(vmRows) == 0 || !vmRows[0].HasGroup || vmRows[0].GroupLabel != "PINNED" {
-		t.Fatalf("first row should carry the PINNED section header, got %+v", vmRows[0])
+	if len(inboxUI.Rows) == 0 || !inboxUI.Rows[0].HasGroup || inboxUI.Rows[0].GroupLabel != "PINNED" {
+		t.Fatalf("first row should carry the PINNED section header, got %+v", inboxUI.Rows[0])
 	}
-	if vmRows[0].ID != c {
-		t.Fatalf("pinned task should lead, got id %d want %d", vmRows[0].ID, c)
+	if inboxUI.Rows[0].ID != c {
+		t.Fatalf("pinned task should lead, got id %d want %d", inboxUI.Rows[0].ID, c)
 	}
-	// the unpinned tasks still appear, in their own (non-PINNED) section below
+	// the unpinned inboxUI.Tasks still appear, in their own (non-PINNED) section below
 	var sawA, sawB, sawOtherSection bool
-	for _, r := range vmRows[1:] {
+	for _, r := range inboxUI.Rows[1:] {
 		if r.HasGroup && r.GroupLabel != "PINNED" {
 			sawOtherSection = true
 		}
@@ -144,9 +144,9 @@ func TestReloadPinnedSectionOnTop(t *testing.T) {
 		}
 	}
 	if !sawA || !sawB {
-		t.Fatalf("unpinned tasks dropped: a=%v b=%v", sawA, sawB)
+		t.Fatalf("unpinned inboxUI.Tasks dropped: a=%v b=%v", sawA, sawB)
 	}
 	if !sawOtherSection {
-		t.Fatal("unpinned tasks should sit under their own state section, not PINNED")
+		t.Fatal("unpinned inboxUI.Tasks should sit under their own state section, not PINNED")
 	}
 }
