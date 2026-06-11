@@ -335,7 +335,13 @@ func TestInboxCount(t *testing.T) {
 	uiStore = st
 	prevFltr := inboxUI.RepoFilter
 	inboxUI.RepoFilter = ""
-	t.Cleanup(func() { uiStore = nil; inboxUI.Rows = nil; inboxUI.Sel = 0; inboxUI.RepoFilter = prevFltr; inboxUI.Count = 0 })
+	t.Cleanup(func() {
+		uiStore = nil
+		inboxUI.Rows = nil
+		inboxUI.Sel = 0
+		inboxUI.RepoFilter = prevFltr
+		inboxUI.Count = 0
+	})
 
 	// 3 pending (inbox), 1 amends (request_changes), 1 done (approved)
 	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "p1", Status: db.StatusPending})

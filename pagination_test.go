@@ -14,7 +14,13 @@ func TestOpenOrLoadMore(t *testing.T) {
 	prev, prevLimit, prevPane := uiStore, inboxUI.DoneLimit, pane
 	st := testStore(t)
 	uiStore = st
-	t.Cleanup(func() { uiStore = prev; inboxUI.DoneLimit = prevLimit; pane = prevPane; inboxUI.Rows = nil; inboxUI.Sel = 0 })
+	t.Cleanup(func() {
+		uiStore = prev
+		inboxUI.DoneLimit = prevLimit
+		pane = prevPane
+		inboxUI.Rows = nil
+		inboxUI.Sel = 0
+	})
 
 	inboxUI.DoneLimit = 20
 	inboxUI.Rows = []taskVM{{LoadMore: true, RevIdx: -1}}

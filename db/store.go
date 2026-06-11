@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS revisions (
 // gate each on PRAGMA table_info.
 var addColumns = []struct{ table, col, decl string }{
 	{"tasks", "parent_id", "INTEGER"},
-	{"tasks", "summary", "TEXT"}, // agent-written reviewer briefing (not the commit msg)
+	{"tasks", "summary", "TEXT"},  // agent-written reviewer briefing (not the commit msg)
 	{"tasks", "inbox_at", "TEXT"}, // when the task last ENTERED the inbox (created / resolved back / unsubmitted) — FIFO ordering
 	{"comments", "review_id", "INTEGER"},
 	{"comments", "file", "TEXT"},

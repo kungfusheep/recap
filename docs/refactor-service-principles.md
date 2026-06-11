@@ -108,9 +108,13 @@ Ordered low-risk → high-risk so the reviewer can stop/redirect at any boundary
         colour assignment) kept as a local. Remaining ui.go globals are the app
         handles (uiStore/uiApp/omni) + detail-pane display strings (detailTitle/
         meta*/statusMsg/spinFrame/helpOpen/reloadRequested) — slice 6 territory.
-- [ ] **Slice 6 — root cleanup.** Rename `main.go` → `recap.go` (service-named entry),
-      keep `func main` + command dispatch composing the pipeline; command bodies can move
-      to a flat `cli` package if dispatch grows. Per-struct file naming pass.
+- [x] **Slice 6 — root cleanup.** `main.go` → `recap.go` (service-named entry; `func main`
+      + command dispatch stay there). Per-struct file pass: the draft pane (draftView +
+      draftCommentVM + projection/fold/handlers, ~430 lines) extracted from ui.go into
+      `draft_view.go`; `taskVM` moved beside `inboxView` in inbox_view.go. ui.go is now
+      the view assembly + refreshDetail + theme vars (~2000 lines, down from ~2400).
+      `gofmt -l` clean across the repo (four files had drifted). Command bodies stay in
+      recap.go — dispatch hasn't grown enough to justify a `cli` package.
 
 ## Why slice-by-slice and not one big commit
 

@@ -42,7 +42,7 @@ func TestRegisterActivePrune(t *testing.T) {
 	Register("alpha")
 	d2, _ := dir()
 	os.WriteFile(filepath.Join(d2, "alpha.pid"), []byte("1"), 0o644) // pid 1: launchd, always alive
-	cleanup() // stale closure from the earlier registration
+	cleanup()                                                        // stale closure from the earlier registration
 	if b, err := os.ReadFile(filepath.Join(d2, "alpha.pid")); err != nil || string(b) != "1" {
 		t.Fatalf("cleanup clobbered a newer registration: %v %q", err, b)
 	}

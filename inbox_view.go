@@ -1,6 +1,44 @@
 package main
 
-import "github.com/kungfusheep/recap/db"
+import (
+	. "github.com/kungfusheep/glyph"
+	"github.com/kungfusheep/recap/db"
+)
+
+// taskVM is the per-row view-model. Selected is updated in place each frame so
+// the row fill reacts (mail's pattern); rebuilt only when the task set changes.
+type taskVM struct {
+	ID           int64
+	IDText       string // "#6", dim, for cross-referencing with CLI / chat
+	Title        string
+	When         string
+	Repo         string
+	Glyph        string
+	GlyphColor   Color
+	RepoColor    Color
+	Pending      bool
+	HasDraft     bool   // unsubmitted feedback in progress → row pill
+	DraftPill    string // e.g. "✎ 2"
+	ReReview     bool   // fix-forward task awaiting re-review
+	ReReviewPill string // e.g. "↩ #9"
+	Selected     bool
+	InFlight     bool // this task is the in-flight amends item → flare it in place (spinner)
+	HasGroup     bool
+	GroupLabel   string
+	Header       bool // a normal task header row (vs a revision child or load-more row)
+	LoadMore     bool // a "load more" pseudo-row at the bottom of the paginated done section
+
+	// revision threading (mail-style): a task with >1 diff is expandable with `o`.
+	// A header row (RevIdx < 0) shows the latest diff by default; expanding splices
+	// one child row per revision (RevIdx >= 0) beneath it, each loading its own diff.
+	RevIdx     int    // -1 = task header row; >=0 = revision child (index into Revisions, latest first)
+	DiffSHA    string // the commit this row's diff shows (header = latest revision)
+	Expanded   bool   // header only: its revisions are spliced in below
+	Grouped    bool   // child only: drives the indented, distinct-bg rendering
+	ExpandPill string // header only: revision-count cue, e.g. "▸ 3" / "▾ 3"
+	RevLabel   string // child only: e.g. "rev 2 · a1b2c3 · added line two"
+	Summary    string // this row's reviewer briefing (header = latest revision's; child = its own)
+}
 
 // inboxView is the inbox's state in one concrete struct (the 5a–5d pattern): the
 // task list and its flattened row VMs, selection, repo filter, expand/lookup maps,
