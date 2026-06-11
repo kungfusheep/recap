@@ -161,9 +161,10 @@ usage:
   recap send --listeners --body TEXT
                          broadcast to every ACTIVELY listening repo (ask the room)
   recap todo "text" [--repo-path P]
-                         create work: append a task to a repo's TODO file
-                         (default: current repo). Enters recap next's todo tier;
-                         wakes a parked loop there.
+                         create work: append a task to a TODO file (default:
+                         current repo). Enters recap next's todo tier; wakes a
+                         parked loop there. AGENTS: own repo only — propose
+                         cross-repo work via recap send; the owner queues it.
 
   recap listeners        show repos with a live parked loop right now
   recap messages [--all] the message ledger, both directions (m-ids, read state)

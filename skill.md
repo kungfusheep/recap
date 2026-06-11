@@ -274,22 +274,25 @@ to agent pairs too — don't ping-pong). A message is NOT a place to invent new 
 work enters a repo through its TODO (see `recap todo` below) or review flow, where
 the human can see and reorder it.
 
-## Creating work — `recap todo`
+## Creating work — `recap todo` (YOUR OWN queue only)
 
 ```
-recap todo "task text"                  # append to the CURRENT repo's TODO
-recap todo --repo-path P "task text"    # append to another repo's TODO
+recap todo "task text"    # append to YOUR repo's TODO — never another repo's
 ```
 
-Appends an unchecked task to the repo's TODO file (the same file `recap next`'s
-todo tier and the TUI's UPCOMING band read), and wakes any parked loop there. Use
-it when work surfaces that isn't yours to do right now: a follow-up you're
-deferring, a repro you're handing to the repo that owns the fix, or a task another
-agent asked you to queue. The TODO file is human-owned and human-visible — adding
-a line proposes work in the open; the loop there still takes items in file order
-and every completion still lands in the review inbox. Don't use it to bypass a
-review verdict (amends stay amends) or to assign yourself scope mid-task — finish
-the item you're on, queue the discovery, let the queue order decide.
+Appends an unchecked task to your repo's TODO file (the same file `recap next`'s
+todo tier and the TUI's UPCOMING band read). Use it when work surfaces that isn't
+yours to do right now: a follow-up you're deferring, or a discovery you're
+queueing instead of self-assigning mid-task. Don't use it to bypass a review
+verdict (amends stay amends).
+
+**Never drop todos onto another repo's queue.** Other agents' queues are not
+yours to write to — that's scope injection without a barrier. The flow for
+cross-repo work is the COMMS MODEL: `recap send <repo>` proposing the work (with
+the contract/repro you'd want received), and the OWNING agent — if it agrees —
+raises the todo on its own queue with `recap todo`. Agreement first, then the
+owner queues it. The human sees the proposal in the message ledger and the
+resulting todo in UPCOMING, with a clear chain of who asked and who accepted.
 
 ## Falsifiable criteria
 
