@@ -11,6 +11,7 @@ import (
 	"hash/fnv"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -276,6 +277,7 @@ func cmdDone(args []string) error {
 	summary := fs.String("summary", "", "reviewer briefing for the inbox item")
 	sha := fs.String("sha", "", "commit sha (default: short HEAD)")
 	doneForce := fs.Bool("force", false, "record a sha even if it doesn't resolve in the repo")
+	workRepo := fs.String("repo-path", "", "repo the WORK landed in, when it differs from the todo's repo (cross-repo todos) — the sha resolves there and the diff renders from there")
 	ref, rest := splitID(args)
 	fs.Parse(rest)
 	if ref == "" {
@@ -302,18 +304,26 @@ func cmdDone(args []string) error {
 		return fmt.Errorf("m%d is a peer message — clear it with: recap read m%d (reply: recap send %s --reply-to %d --body \"…\")", item.CommentID, item.CommentID, item.From, item.CommentID)
 	}
 
-	// todo: record the finished work for review (title = the todo text) ...
+	// todo: record the finished work for review (title = the todo text). The work
+	// may have landed in ANOTHER repo (a cross-repo todo): --repo-path points the
+	// recorded task there, so the sha resolves and the diff renders from the repo
+	// that actually changed; the todo tick below stays with the queue's repo.
+	taskRepo, taskPath := repo, repoPath
+	if *workRepo != "" {
+		taskPath = *workRepo
+		taskRepo = filepath.Base(taskPath)
+	}
 	resolved := *sha
 	if resolved == "" {
 		resolved = "HEAD"
 	}
 	// refuse a sha this checkout can't resolve (the dangling-sha "no changes" bug)
-	resolved, err = pinSHA(repoPath, resolved, *doneForce)
+	resolved, err = pinSHA(taskPath, resolved, *doneForce)
 	if err != nil {
 		return err
 	}
 	id, err := st.Add(db.Task{
-		Repo: repo, RepoPath: repoPath, SHA: resolved, Title: item.Title,
+		Repo: taskRepo, RepoPath: taskPath, SHA: resolved, Title: item.Title,
 		Criterion: *criterion, CheckCmd: *check, Result: *result,
 		Status: db.StatusPending, Summary: *summary,
 	})
