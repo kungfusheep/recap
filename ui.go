@@ -191,28 +191,6 @@ func stateLabel(s string) string {
 	}
 }
 
-func stateGlyph(s string) string {
-	switch s {
-	case db.StateRework:
-		return "↻"
-	case db.StateDone:
-		return "✓"
-	default:
-		return "●"
-	}
-}
-
-func stateColor(s string) Color {
-	switch s {
-	case db.StateDone:
-		return cSubtle
-	case db.StateRework:
-		return cDel
-	default:
-		return cBright
-	}
-}
-
 // inboxData is everything an inbox reload needs from disk/db, fetched as one
 // bundle: the SIGNAL path acquires it on a goroutine and stages it (the render
 // path never acquires); handlers call reloadTasks() — fetch+apply inline, since
@@ -432,17 +410,16 @@ func applyInbox(d *inboxData) {
 			doneShown++
 		}
 		vm := taskVM{
-			ID:         t.ID,
-			IDText:     fmt.Sprintf("#%d", t.ID),
-			Title:      t.Title,
-			Repo:       t.Repo,
-			Glyph:      stateGlyph(st),
-			GlyphColor: stateColor(st),
-			RepoColor:  repoColors[t.Repo],
-			Pending:    st == db.StatePending,
-			InFlight:   currentRef == fmt.Sprintf("amends:%d", t.ID),
-			RevIdx:     -1, // task header row
-			Header:     true,
+			ID:        t.ID,
+			IDText:    fmt.Sprintf("#%d", t.ID),
+			Title:     t.Title,
+			Repo:      t.Repo,
+			State:     st,
+			RepoColor: repoColors[t.Repo],
+			Pending:   st == db.StatePending,
+			InFlight:  currentRef == fmt.Sprintf("amends:%d", t.ID),
+			RevIdx:    -1, // task header row
+			Header:    true,
 		}
 		vm.When = hhmm(t.CreatedAt)
 		// unsubmitted draft feedback → a pill on the row (doesn't affect state).
@@ -1561,7 +1538,10 @@ func taskRow(r *taskVM) Component {
 			HBox.Width(1)(
 				If(&r.InFlight).
 					Then(Spinner(&spinFrame).Frames(SpinnerDots).FG(&cBright)).
-					Else(Text(&r.Glyph).FG(&r.GlyphColor)),
+					Else(Switch(&r.State).
+						Case(db.StateRework, Text("↻").FG(&cDel)).
+						Case(db.StateDone, Text("✓").FG(&cSubtle)).
+						Default(Text("●").FG(&cBright))),
 			),
 			SpaceW(1),
 			HBox.Grow(1)(

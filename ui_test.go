@@ -294,8 +294,8 @@ func TestSelectedRowHasNoCaretMarker(t *testing.T) {
 	t.Cleanup(func() { inboxUI.Rows = prevRows; inboxUI.Sel = prevSel })
 
 	inboxUI.Rows = []taskVM{
-		{ID: 1, IDText: "#1", Title: "first task", When: "10:00", Repo: "recap", Glyph: "●", GlyphColor: cSubtle, Selected: true},
-		{ID: 2, IDText: "#2", Title: "second task", When: "10:01", Repo: "recap", Glyph: "●", GlyphColor: cSubtle},
+		{ID: 1, IDText: "#1", Title: "first task", When: "10:00", Repo: "recap", State: db.StatePending, Selected: true},
+		{ID: 2, IDText: "#2", Title: "second task", When: "10:01", Repo: "recap", State: db.StatePending},
 	}
 	inboxUI.Sel = 0
 
@@ -413,7 +413,7 @@ func TestColumnHeadersAlign(t *testing.T) {
 	omni = newOmniBox(uiApp, omniCommands())
 	detailTitle = "PREVIEWTITLE"
 	draftUI.Has = true
-	inboxUI.Rows = []taskVM{{ID: 1, Title: "a task", Repo: "recap", Glyph: "●", GlyphColor: cBright}}
+	inboxUI.Rows = []taskVM{{ID: 1, Title: "a task", Repo: "recap", State: db.StatePending}}
 	draftUI.Comments = []draftCommentVM{{Location: "general", Body: "x", Visible: true}}
 
 	tmpl := Build(buildMain())
@@ -600,9 +600,9 @@ func TestStatusIconColorByRender(t *testing.T) {
 	t.Cleanup(func() { inboxUI.Rows = prevRows; inboxUI.Sel = prevSel })
 
 	inboxUI.Rows = []taskVM{
-		{ID: 1, Title: "pending", Repo: "recap", Glyph: stateGlyph(db.StatePending), GlyphColor: stateColor(db.StatePending), Pending: true, Header: true},
-		{ID: 2, Title: "rework", Repo: "recap", Glyph: stateGlyph(db.StateRework), GlyphColor: stateColor(db.StateRework), Header: true},
-		{ID: 3, Title: "done", Repo: "recap", Glyph: stateGlyph(db.StateDone), GlyphColor: stateColor(db.StateDone), Header: true},
+		{ID: 1, Title: "pending", Repo: "recap", State: db.StatePending, Pending: true, Header: true},
+		{ID: 2, Title: "rework", Repo: "recap", State: db.StateRework, Header: true},
+		{ID: 3, Title: "done", Repo: "recap", State: db.StateDone, Header: true},
 	}
 	inboxUI.Sel = 0
 	node := List(&inboxUI.Rows).Selection(&inboxUI.Sel).Style(&listBaseStyle).
@@ -613,9 +613,9 @@ func TestStatusIconColorByRender(t *testing.T) {
 
 	cyan := repoPalette[0] // 0x6f8fa8, the wrong tint the icon used to fall back to
 	want := map[rune]Color{
-		'●': stateColor(db.StatePending),
-		'↻': stateColor(db.StateRework),
-		'✓': stateColor(db.StateDone),
+		'●': cBright,
+		'↻': cDel,
+		'✓': cSubtle,
 	}
 	seen := map[rune]bool{}
 	for y := 0; y < 18; y++ {
@@ -1284,5 +1284,76 @@ func TestFoldedRowsRenderNothing(t *testing.T) {
 	}
 	if gap := secondAt - rootAt; gap > 6 {
 		t.Fatalf("hidden rows left a gap: ROOTBODY@%d -> SECONDBODY@%d (%d apart)\n%s", rootAt, secondAt, gap, after)
+	}
+}
+
+// the status glyph is template-owned: a per-item Switch on taskVM.State renders
+// ●/↻/✓ with POINTER colours — so the right glyph+colour appears per state, and
+// a theme-variable change recolors rows live with no reload. Buffer-cell proof.
+func TestStatusGlyphTemplateOwned(t *testing.T) {
+	prevApp, prevStore, prevOmni := uiApp, uiStore, omni
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	prevDel := cDel
+	t.Cleanup(func() {
+		uiApp, uiStore, omni = prevApp, prevStore, prevOmni
+		cDel = prevDel
+		inboxUI.Rows = nil
+		pane = paneList
+	})
+
+	pid, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "PENDINGROW", Status: db.StatusPending})
+	_ = pid
+	rid, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "REWORKROW", Status: db.StatusPending})
+	st.AddReviewComment(rid, "you", "x", "", 0, "", "")
+	st.SubmitReview(rid, db.VerdictRequestChanges, "fix")
+	did, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "DONEROW", Status: db.StatusPending})
+	st.SubmitReview(did, db.VerdictApprove, "")
+	reloadTasks()
+
+	render := func() *Buffer {
+		tmpl := Build(buildMain())
+		buf := NewBuffer(140, 40)
+		tmpl.Execute(buf, 140, 40)
+		return buf
+	}
+	glyphAt := func(buf *Buffer, title string) (rune, Color) {
+		for y := 0; y < 40; y++ {
+			var line string
+			for x := 0; x < 140; x++ {
+				line += string(buf.Get(x, y).Rune)
+			}
+			if strings.Contains(line, title) {
+				// the status glyph sits left of the title in the same row
+				for x := 0; x < 140; x++ {
+					c := buf.Get(x, y)
+					if c.Rune == '●' || c.Rune == '↻' || c.Rune == '✓' {
+						return c.Rune, c.Style.FG
+					}
+				}
+			}
+		}
+		t.Fatalf("%s row/glyph not rendered", title)
+		return 0, Color{}
+	}
+
+	buf := render()
+	if g, fg := glyphAt(buf, "PENDINGROW"); g != '●' || fg != cBright {
+		t.Fatalf("pending glyph = %q/%v, want ●/%v", g, fg, cBright)
+	}
+	if g, fg := glyphAt(buf, "REWORKROW"); g != '↻' || fg != cDel {
+		t.Fatalf("rework glyph = %q/%v, want ↻/%v", g, fg, cDel)
+	}
+	if g, fg := glyphAt(buf, "DONEROW"); g != '✓' || fg != cSubtle {
+		t.Fatalf("done glyph = %q/%v, want ✓/%v", g, fg, cSubtle)
+	}
+
+	// pointer colours: mutating the theme var recolors WITHOUT any reload/rebuild
+	cDel = Hex(0x123456)
+	buf = render()
+	if _, fg := glyphAt(buf, "REWORKROW"); fg != cDel {
+		t.Fatalf("theme-var change did not recolor live: fg=%v want %v", fg, cDel)
 	}
 }

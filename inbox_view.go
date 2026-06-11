@@ -13,8 +13,7 @@ type taskVM struct {
 	Title        string
 	When         string
 	Repo         string
-	Glyph        string
-	GlyphColor   Color
+	State        string // derived review state (pending/rework/done) — the TEMPLATE owns the glyph + colour (Switch with pointer FGs, so a theme switch recolors live)
 	RepoColor    Color
 	Pending      bool
 	HasDraft     bool   // unsubmitted feedback in progress → row pill
