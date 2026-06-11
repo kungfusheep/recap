@@ -11,9 +11,9 @@ import (
 	"github.com/kungfusheep/recap/todo"
 )
 
-// upcomingFromItems surfaces the next incomplete inboxUI.Tasks in file order, skips done
-// + non-task lines, caps at upcomingMax, and keeps the full text (the row clips to
-// the column width at render time — no hard-coded truncation).
+// upcomingFromItems surfaces ALL incomplete tasks in file order, skips done
+// + non-task lines, and keeps the full text. The render cap is the template's
+// (ForEach Limit(upcomingMax)) — data prep no longer truncates the list.
 func TestUpcomingFromItems(t *testing.T) {
 	items := []todo.Item{
 		{Raw: "# heading"},                          // non-task: skipped
@@ -23,10 +23,10 @@ func TestUpcomingFromItems(t *testing.T) {
 		{IsTask: true, Done: true, Text: "also done"},
 		{IsTask: true, Text: "third"},
 		{IsTask: true, Text: "fourth"},
-		{IsTask: true, Text: "fifth — should be cut by the cap"}, // beyond upcomingMax (4)
+		{IsTask: true, Text: "fifth — beyond upcomingMax, still in the data"},
 	}
 	got := upcomingFromItems(items)
-	want := []string{"first", "second", "third", "fourth"}
+	want := []string{"first", "second", "third", "fourth", "fifth — beyond upcomingMax, still in the data"}
 	if len(got) != len(want) {
 		t.Fatalf("got %d items, want %d: %v", len(got), len(want), got)
 	}
@@ -46,7 +46,7 @@ func TestUpcomingFromItems(t *testing.T) {
 }
 
 // buildUpcomingRows stores the raw task text + marks the in-flight row; the bullet/
-// spinner prefix is added in buildUpcomingBlob.
+// spinner prefix is the row template's concern.
 func TestBuildUpcomingRows(t *testing.T) {
 	inflight := fmt.Sprintf("todo:%08x", fnvHash("second"))
 	rows := buildUpcomingRows([]string{"first", "second", "third"}, inflight)
@@ -64,25 +64,60 @@ func TestBuildUpcomingRows(t *testing.T) {
 	}
 }
 
-// buildUpcomingBlob renders the rows to one multi-line string: a "·" bullet per row,
-// the in-flight row showing the current spinner frame so it animates in place.
-func TestBuildUpcomingBlob(t *testing.T) {
-	rows := []upcomingRow{{Line: "alpha"}, {Line: "beta", InFlight: true}}
-	blob := buildUpcomingBlob(rows, 0)
-	lines := strings.Split(blob, "\n")
-	if len(lines) != 2 {
-		t.Fatalf("want 2 lines, got %d: %q", len(lines), blob)
-	}
-	if lines[0] != "· alpha" {
-		t.Fatalf("non-flight row = %q, want '· alpha'", lines[0])
-	}
-	if !strings.HasSuffix(lines[1], " beta") || strings.HasPrefix(lines[1], "·") {
-		t.Fatalf("in-flight row should have a spinner prefix (not '·'), got %q", lines[1])
+// the band renders rows via ForEach + Limit(upcomingMax): items beyond the cap
+// don't render, in-flight rows show a spinner prefix instead of the bullet, and
+// the empty case shows the placeholder row.
+func TestUpcomingBandRendersCapped(t *testing.T) {
+	prev := upcomingItems
+	prevNone := upcomingNone
+	t.Cleanup(func() { upcomingItems = prev; upcomingNone = prevNone })
+
+	band := func() []string {
+		tmpl := Build(VBox.Width(40)(
+			If(&upcomingNone).Then(Text("· nothing upcoming")),
+			ForEach(&upcomingItems).Limit(upcomingMax)(func(r *upcomingRow) Component {
+				return HBox(
+					If(&r.InFlight).Then(Spinner(&spinFrame).Frames(SpinnerDots)).Else(Text("·")),
+					SpaceW(1),
+					Text(&r.Line),
+				)
+			}),
+		))
+		buf := NewBuffer(40, 10)
+		tmpl.Execute(buf, 40, 10)
+		var lines []string
+		for y := 0; y < 10; y++ {
+			if l := strings.TrimRight(buf.GetLine(y), " "); l != "" {
+				lines = append(lines, l)
+			}
+		}
+		return lines
 	}
 
-	// empty → a placeholder line (the section's fixed Height reserves the rest), never ""
-	if got := buildUpcomingBlob(nil, 0); got != "· nothing upcoming" {
-		t.Fatalf("empty upcoming blob = %q, want placeholder", got)
+	upcomingItems = buildUpcomingRows([]string{"one", "two", "three", "four", "five", "six"}, fmt.Sprintf("todo:%08x", fnvHash("two")))
+	upcomingNone = false
+	lines := band()
+	if len(lines) != upcomingMax {
+		t.Fatalf("rendered %d rows, want Limit(%d): %q", len(lines), upcomingMax, lines)
+	}
+	if lines[0] != "· one" {
+		t.Fatalf("row 0 = %q, want '· one'", lines[0])
+	}
+	if strings.HasPrefix(lines[1], "·") || !strings.HasSuffix(lines[1], " two") {
+		t.Fatalf("in-flight row should carry a spinner prefix, got %q", lines[1])
+	}
+	for _, l := range lines {
+		if strings.Contains(l, "five") || strings.Contains(l, "six") {
+			t.Fatalf("row beyond the Limit rendered: %q", l)
+		}
+	}
+
+	// empty → the placeholder row
+	upcomingItems = nil
+	upcomingNone = true
+	lines = band()
+	if len(lines) != 1 || lines[0] != "· nothing upcoming" {
+		t.Fatalf("empty band = %q, want the placeholder row", lines)
 	}
 }
 
@@ -99,7 +134,8 @@ func TestUpcomingSectionFixedHeight(t *testing.T) {
 		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
 		inboxUI.Rows = nil
 		hasUpcoming = false
-		upcomingBlob = ""
+		upcomingItems = nil
+		upcomingNone = false
 	})
 	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "INBOXMARKER", Status: db.StatusPending})
 	reloadTasks()
@@ -118,9 +154,9 @@ func TestUpcomingSectionFixedHeight(t *testing.T) {
 		return -1
 	}
 
-	upcomingBlob = "· one\n· two"
+	upcomingItems = buildUpcomingRows([]string{"one", "two"}, "")
 	y2 := inboxY()
-	upcomingBlob = "· one\n· two\n· three\n· four\n· five"
+	upcomingItems = buildUpcomingRows([]string{"one", "two", "three", "four", "five"}, "")
 	y5 := inboxY()
 
 	if y2 < 0 || y5 < 0 {

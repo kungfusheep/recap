@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync"
 
-	. "github.com/kungfusheep/glyph"
 	"github.com/kungfusheep/recap/config"
 	"github.com/kungfusheep/recap/todo"
 )
@@ -19,12 +18,12 @@ import (
 // selected repo changes and the result is swapped in on the render thread, the
 // same hand-off the SIGUSR1 inbox reload uses.
 var (
-	upcomingItems   []upcomingRow // the next ≤upcomingMax TODO tasks (plain bullets)
+	upcomingItems   []upcomingRow // ALL incomplete TODO tasks (the view's ForEach Limit caps the rendered rows)
+	upcomingNone    bool          // no incomplete tasks → the band shows a placeholder row
 	hasUpcoming     bool          // gates the whole section
 	currentRef      string        // the in-flight item's ref (amends:N / todo:hash) — for in-place flaring
 	hasCurrent      bool          // true when something is in flight; gates the spinner animation
 	upcomingWidth   int16         // inbox column's rendered width (from its NodeRef) — explicit width for the section so its rows don't content-size/truncate
-	upcomingBlob    string        // the rows as one multi-line string for the TextBlock (rebuilt per frame for the spinner)
 	upcomingReady   bool          // one-shot: force a second frame so the column's NodeRef width is known before sizing the section
 	upcomingRepo    string        // repo path currently shown (render-thread owned)
 	upcomingLoading string        // repo path being loaded (render-thread owned, dedupe)
@@ -33,11 +32,10 @@ var (
 	upcomingStaged *upcomingResult // handed off from the loader goroutine
 )
 
-// upcomingRow is one TODO line in the upcoming list. The whole list renders as a
-// single multi-line TextBlock (which wraps to the section's width) — a VBox/ForEach of
-// pointer-Text rows measures empty at build time and content-sizes/truncates, so this
-// is the reliable fill. The in-flight row flares in place via an animated spinner
-// glyph built into the blob each frame (see buildUpcomingBlob).
+// upcomingRow is one TODO line in the upcoming list. Rows render via a ForEach
+// with per-item field bindings (&r.Line/&r.InFlight are offset-resolved per row)
+// capped by Limit(upcomingMax) — the cap is a template concern. The in-flight row
+// flares in place: its bullet swaps for a Spinner bound to spinFrame.
 type upcomingRow struct {
 	Line     string // the raw task text (the bullet/spinner prefix is added in the blob)
 	InFlight bool   // this row is the in-flight item → spinner prefix instead of a bullet
@@ -79,6 +77,7 @@ func updateUpcoming() {
 		hasCurrent = currentRef != ""
 		markInFlight() // re-mark inbox rows now the fresh cursor ref has landed (no reload lag)
 		upcomingItems = buildUpcomingRows(staged.items, currentRef)
+		upcomingNone = len(upcomingItems) == 0
 		// show the section for any repo with a resolvable TODO path — NOT just when it
 		// has items — so it reserves a fixed block and the inbox below doesn't jump as
 		// you move between projects with different numbers of upcoming tasks.
@@ -138,33 +137,11 @@ func buildUpcomingRows(texts []string, currentRef string) []upcomingRow {
 	return rows
 }
 
-// buildUpcomingBlob renders the rows into one multi-line string for the TextBlock:
-// a "·" bullet per row, except the in-flight row gets the current spinner frame so it
-// animates in place. Cheap — rebuilt each frame so the spinner ticks.
-func buildUpcomingBlob(rows []upcomingRow, frame int) string {
-	if len(rows) == 0 {
-		return "· nothing upcoming" // the section's fixed Height reserves the rest
-	}
-	var b strings.Builder
-	for i, r := range rows {
-		if i > 0 {
-			b.WriteByte('\n')
-		}
-		if r.InFlight && len(SpinnerDots) > 0 {
-			b.WriteString(SpinnerDots[frame%len(SpinnerDots)])
-		} else {
-			b.WriteString("·")
-		}
-		b.WriteByte(' ')
-		b.WriteString(r.Line)
-	}
-	return b.String()
-}
-
-// upcomingFromItems picks the first upcomingMax incomplete tasks, in file order.
-// Full text — the row Text clips to the inbox column width at render time, so the
-// list uses whatever width the display gives it (no hard-coded truncation). Pure —
-// the testable core of loadUpcoming.
+// upcomingFromItems picks the incomplete tasks, in file order — ALL of them; the
+// view's ForEach caps the rendered rows (Limit(upcomingMax)), so the cap is a
+// template concern, not a data one. Full text — the row Text clips to the inbox
+// column width at render time, so the list uses whatever width the display gives
+// it (no hard-coded truncation). Pure — the testable core of loadUpcoming.
 func upcomingFromItems(items []todo.Item) []string {
 	var out []string
 	for _, it := range items {
@@ -172,9 +149,6 @@ func upcomingFromItems(items []todo.Item) []string {
 			continue
 		}
 		out = append(out, strings.TrimSpace(it.Text))
-		if len(out) == upcomingMax {
-			break
-		}
 	}
 	return out
 }

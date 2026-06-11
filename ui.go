@@ -598,8 +598,6 @@ func refreshDetail() {
 		upcomingWidth = w
 		uiApp.RequestRender()
 	}
-	// rebuild the upcoming text each frame so the in-flight spinner glyph animates.
-	upcomingBlob = buildUpcomingBlob(upcomingItems, spinFrame)
 	// a SIGUSR1 from another process (e.g. `recap add`) requests an inbox reload;
 	// do it here on the render thread, then force the detail to rebuild.
 	if reloadRequested.CompareAndSwap(true, false) {
@@ -1305,14 +1303,24 @@ func buildMain() Component {
 						// and truncates the rows; the removed divider HRule used to force
 						// the width. This restores it without the bleed.
 						Text("UPCOMING").FG(&cSubtle).Bold(),
-						// the whole list is ONE multi-line TextBlock — it reads its
-						// pointer and wraps to the width-set VBox, unlike a ForEach of
-						// pointer-Text rows (which measure empty at build → truncate). The
-						// in-flight row's spinner glyph is built into the blob each frame.
-						// FIXED HEIGHT (upcomingMax): fewer tasks leave blanks, more/wrapping clip, so
-						// the inbox below never shifts between projects with different upcoming counts.
+						// the cap lives in the template: ForEach binds ALL items,
+						// Limit(upcomingMax) caps the rendered rows. FIXED HEIGHT
+						// (upcomingMax): fewer tasks leave blanks, so the inbox below
+						// never shifts between projects with different upcoming
+						// counts. The in-flight row's bullet swaps for a Spinner
+						// bound to spinFrame (per-item field bindings are
+						// offset-resolved inside the ForEach).
 						VBox.Height(upcomingMax)(
-							TextBlock(&upcomingBlob).FG(&cSubtle),
+							If(&upcomingNone).Then(Text("· nothing upcoming").FG(&cSubtle)),
+							ForEach(&upcomingItems).Limit(upcomingMax)(func(r *upcomingRow) Component {
+								return HBox(
+									If(&r.InFlight).
+										Then(Spinner(&spinFrame).Frames(SpinnerDots).FG(&cSubtle)).
+										Else(Text("·").FG(&cSubtle)),
+									SpaceW(1),
+									Text(&r.Line).FG(&cSubtle),
+								)
+							}),
 						),
 					),
 				),
