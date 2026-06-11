@@ -8,34 +8,20 @@ import (
 	"time"
 )
 
-// isRecent: within the last day → true; older → false; blank/unparseable → recent (shown).
-func TestIsRecent(t *testing.T) {
-	now := time.Now()
-	if !isRecent(now.Add(-1 * time.Hour).Format("2006-01-02 15:04:05")) {
-		t.Fatal("an hour ago should be recent")
-	}
-	if isRecent(now.Add(-48 * time.Hour).Format("2006-01-02 15:04:05")) {
-		t.Fatal("two days ago should NOT be recent")
-	}
-	if !isRecent("") {
-		t.Fatal("blank stamp should default to recent (shown, never hidden)")
-	}
-}
-
-// openOrLoadMore: on a "load more" row it raises inboxUI.DoneOldLimit (and reloads); otherwise it
+// openOrLoadMore: on a "load more" row it raises inboxUI.DoneLimit (and reloads); otherwise it
 // opens the diff pane.
 func TestOpenOrLoadMore(t *testing.T) {
-	prev, prevLimit, prevPane := uiStore, inboxUI.DoneOldLimit, pane
+	prev, prevLimit, prevPane := uiStore, inboxUI.DoneLimit, pane
 	st := testStore(t)
 	uiStore = st
-	t.Cleanup(func() { uiStore = prev; inboxUI.DoneOldLimit = prevLimit; pane = prevPane; inboxUI.Rows = nil; inboxUI.Sel = 0 })
+	t.Cleanup(func() { uiStore = prev; inboxUI.DoneLimit = prevLimit; pane = prevPane; inboxUI.Rows = nil; inboxUI.Sel = 0 })
 
-	inboxUI.DoneOldLimit = 20
+	inboxUI.DoneLimit = 20
 	inboxUI.Rows = []taskVM{{LoadMore: true, RevIdx: -1}}
 	inboxUI.Sel = 0
 	openOrLoadMore()
-	if inboxUI.DoneOldLimit != 40 {
-		t.Fatalf("load-more row should raise inboxUI.DoneOldLimit to 40, got %d", inboxUI.DoneOldLimit)
+	if inboxUI.DoneLimit != 40 {
+		t.Fatalf("load-more row should raise inboxUI.DoneLimit to 40, got %d", inboxUI.DoneLimit)
 	}
 
 	inboxUI.Rows = []taskVM{{ID: 1, RevIdx: -1}}
@@ -47,44 +33,53 @@ func TestOpenOrLoadMore(t *testing.T) {
 	}
 }
 
-// reloadTasks shows recent done always but paginates completed items older than a day:
-// only inboxUI.DoneOldLimit of them render, the rest sit behind a "load more" row; raising the
-// limit reveals them. (#163)
-func TestReloadPaginatesOldDone(t *testing.T) {
-	prev, prevLimit := uiStore, inboxUI.DoneOldLimit
+// reloadTasks paginates ALL completed items — recency is no exemption: only
+// inboxUI.DoneLimit render (last-completed-first, so the visible page is the most
+// recent activity), the rest sit behind a "load more" row; raising the limit
+// reveals them. (#163, tightened by todo:8880fc29 — a busy day used to flood the
+// list because <24h done items bypassed the cap.)
+func TestReloadPaginatesDone(t *testing.T) {
+	prev, prevLimit := uiStore, inboxUI.DoneLimit
 	st := testStore(t)
 	uiStore = st
-	t.Cleanup(func() { uiStore = prev; inboxUI.DoneOldLimit = prevLimit; inboxUI.Rows = nil; inboxUI.Sel = 0 })
-	inboxUI.DoneOldLimit = 2
+	t.Cleanup(func() { uiStore = prev; inboxUI.DoneLimit = prevLimit; inboxUI.Rows = nil; inboxUI.Sel = 0 })
+	inboxUI.DoneLimit = 2
 
 	old := time.Now().Add(-72 * time.Hour).Format("2006-01-02 15:04:05")
 	for i := 0; i < 5; i++ {
 		id, _ := st.Add(db.Task{Repo: "r", Title: fmt.Sprintf("old%d", i), CreatedAt: old})
 		st.SubmitReview(id, db.VerdictApprove, "")
 	}
-	rid, _ := st.Add(db.Task{Repo: "r", Title: "recent"}) // CreatedAt = now → recent
+	rid, _ := st.Add(db.Task{Repo: "r", Title: "recentdone"}) // CreatedAt = now
 	st.SubmitReview(rid, db.VerdictApprove, "")
 
 	reloadTasks()
-	loadMore, lmTitle := 0, ""
+	loadMore, lmTitle, recentShown := 0, "", false
 	for _, r := range inboxUI.Rows {
 		if r.LoadMore {
 			loadMore++
 			lmTitle = r.Title
 		}
+		if r.Title == "recentdone" {
+			recentShown = true
+		}
 	}
 	if loadMore != 1 {
 		t.Fatalf("want 1 load-more row, got %d", loadMore)
 	}
-	if !strings.Contains(lmTitle, "3 older") { // 5 old − limit 2 = 3 hidden
-		t.Fatalf("load-more title = %q, want '3 older'", lmTitle)
+	if !strings.Contains(lmTitle, "4 more") { // 6 done − limit 2 = 4 hidden
+		t.Fatalf("load-more title = %q, want '4 more'", lmTitle)
+	}
+	// last-completed-first: the most recently reviewed item is on the visible page
+	if !recentShown {
+		t.Fatal("the most recently completed item should be on the first page")
 	}
 
-	inboxUI.DoneOldLimit = 10 // reveal all
+	inboxUI.DoneLimit = 10 // reveal all
 	reloadTasks()
 	for _, r := range inboxUI.Rows {
 		if r.LoadMore {
-			t.Fatal("no load-more row once all old done fit under the limit")
+			t.Fatal("no load-more row once all done fit under the limit")
 		}
 	}
 }

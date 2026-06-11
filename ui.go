@@ -479,18 +479,19 @@ func applyInbox(d *inboxData) {
 
 	inboxUI.Rows = inboxUI.Rows[:0]
 	prevSection := ""
-	oldDoneShown, oldDoneSkipped := 0, 0
+	doneShown, doneSkipped := 0, 0
 	for _, t := range inboxUI.Tasks {
 		st := state[t.ID]
-		// paginate completed items older than a day: show recent (<24h) done always, but
-		// only DoneOldLimit of the older ones — the rest hide behind a "load more" row.
-		// pinned items are never paginated away — they always stay visible up top.
-		if st == db.StateDone && !isRecent(t.CreatedAt) && !pinned[t.ID] {
-			if oldDoneShown >= inboxUI.DoneOldLimit {
-				oldDoneSkipped++
+		// paginate completed items: only DoneLimit render — the rest hide behind a
+		// "load more" row. The done sort is last-completed-first, so the visible
+		// page is always the most recent activity. Pinned items are never
+		// paginated away — they always stay visible up top.
+		if st == db.StateDone && !pinned[t.ID] {
+			if doneShown >= inboxUI.DoneLimit {
+				doneSkipped++
 				continue
 			}
-			oldDoneShown++
+			doneShown++
 		}
 		vm := taskVM{
 			ID:         t.ID,
@@ -562,12 +563,12 @@ func applyInbox(d *inboxData) {
 			}
 		}
 	}
-	// a "load more" row at the very bottom when older completed items are hidden.
-	if oldDoneSkipped > 0 {
+	// a "load more" row at the very bottom when completed items are hidden.
+	if doneSkipped > 0 {
 		inboxUI.Rows = append(inboxUI.Rows, taskVM{
 			LoadMore: true,
 			RevIdx:   -1,
-			Title:    fmt.Sprintf("load more  ·  %d older completed", oldDoneSkipped),
+			Title:    fmt.Sprintf("load more  ·  %d more completed", doneSkipped),
 		})
 	}
 
@@ -2224,24 +2225,11 @@ func rerun() {
 // completed items; any other row opens the diff pane.
 func openOrLoadMore() {
 	if r := selectedRow(); r != nil && r.LoadMore {
-		inboxUI.DoneOldLimit += 20
+		inboxUI.DoneLimit += 20
 		reloadTasks()
 		return
 	}
 	setPane(paneDiff)
-}
-
-// isRecent reports whether a "2006-01-02 15:04:05[...]" timestamp is within the last day.
-// Unparseable/blank stamps count as recent (shown), never hidden behind "load more".
-func isRecent(stamp string) bool {
-	if len(stamp) < 19 {
-		return true
-	}
-	tm, err := time.ParseInLocation("2006-01-02 15:04:05", stamp[:19], time.Local)
-	if err != nil {
-		return true
-	}
-	return time.Since(tm) < 24*time.Hour
 }
 
 func anyCommentableRow() bool {

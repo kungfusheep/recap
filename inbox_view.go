@@ -40,15 +40,16 @@ type inboxView struct {
 	// resets the diff scroll when this changes — so an inbox reload that adds an item but
 	// leaves the selected task unchanged keeps the reader's scroll position.
 	LastDiffKey string
-	// DoneOldLimit caps how many completed items OLDER THAN A DAY the inbox list renders;
-	// the rest sit behind a "load more" row (avoids rendering a huge done history). Recent
-	// (< 24h) completed items always show. "load more" raises this by a batch.
-	DoneOldLimit int
+	// DoneLimit caps how many completed items the inbox list renders; the rest
+	// sit behind a "load more" row (avoids rendering a huge done history). The
+	// done sort is last-completed-first, so the visible page is the most recent
+	// activity. "load more" raises this by a batch.
+	DoneLimit int
 }
 
 // inboxUI is the single instance the views bind against.
 var inboxUI = inboxView{
-	Expanded:     map[int64]bool{},
-	TaskByID:     map[int64]db.Task{},
-	DoneOldLimit: 20,
+	Expanded:  map[int64]bool{},
+	TaskByID:  map[int64]db.Task{},
+	DoneLimit: 10,
 }
