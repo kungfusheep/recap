@@ -750,15 +750,130 @@ func summaryBannerBy(t db.Task, title string) [][]Span {
 }
 
 // summaryBanner renders an agent-written summary as wrapped banner rows under a
-// titled header.
+// titled header, through the briefing mini-markup (bullets, `code`, **bold**,
+// Label: lead-ins) so structured summaries scan instead of reading as one slab.
 func summaryBanner(title, summary string) [][]Span {
 	var rows [][]Span
 	rows = append(rows, []Span{span(title, cHunk, true)})
-	for _, line := range wrapText(summary, 72) {
-		rows = append(rows, []Span{span("  "+line, cFG, false)})
-	}
+	rows = append(rows, summaryBody(summary, 72)...)
 	rows = append(rows, []Span{}) // blank separator before the diff
 	return rows
+}
+
+// summaryBody renders briefing text with a small scanning-friendly markup:
+//   - "- " at line start: a bullet row (coloured glyph, hanging indent)
+//   - "Label:" at line start (a short capitalised lead): bold
+//   - `code`: identifier colouring; **bold**: bold
+//
+// Lines wrap span-aware to width, preserving styles across the wrap. Plain
+// unstructured text renders exactly as before (one wrapped paragraph).
+func summaryBody(text string, width int) [][]Span {
+	var rows [][]Span
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			rows = append(rows, []Span{})
+			continue
+		}
+		if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "• ") {
+			body := strings.TrimSpace(trimmed[2:])
+			for i, w := range wrapSpans(markupSpans(body, true), width-4) {
+				if i == 0 {
+					rows = append(rows, append([]Span{span("  · ", cHunk, false)}, w...))
+				} else {
+					rows = append(rows, append([]Span{span("    ", cFG, false)}, w...))
+				}
+			}
+			continue
+		}
+		for _, w := range wrapSpans(markupSpans(trimmed, true), width-2) {
+			rows = append(rows, append([]Span{span("  ", cFG, false)}, w...))
+		}
+	}
+	return rows
+}
+
+// markupSpans tokenises one logical line: `code` gets identifier colour,
+// **bold** bolds, and (when leadLabel) a short "Label:" lead-in renders bold.
+func markupSpans(line string, leadLabel bool) []Span {
+	var out []Span
+	rest := line
+	// a short capitalised "Label:" lead (e.g. "Why:", "Verify:", "What changed:")
+	if leadLabel {
+		if i := strings.Index(rest, ":"); i > 0 && i <= 24 && rest[0] >= 'A' && rest[0] <= 'Z' && !strings.ContainsAny(rest[:i], "`*") {
+			out = append(out, span(rest[:i+1], cBright, true))
+			rest = rest[i+1:]
+		}
+	}
+	for rest != "" {
+		ci, bi := strings.Index(rest, "`"), strings.Index(rest, "**")
+		switch {
+		case ci >= 0 && (bi < 0 || ci < bi):
+			end := strings.Index(rest[ci+1:], "`")
+			if end < 0 {
+				out = append(out, span(rest, cFG, false))
+				rest = ""
+				continue
+			}
+			if ci > 0 {
+				out = append(out, span(rest[:ci], cFG, false))
+			}
+			out = append(out, span(rest[ci+1:ci+1+end], cHunk, false))
+			rest = rest[ci+2+end:]
+		case bi >= 0:
+			end := strings.Index(rest[bi+2:], "**")
+			if end < 0 {
+				out = append(out, span(rest, cFG, false))
+				rest = ""
+				continue
+			}
+			if bi > 0 {
+				out = append(out, span(rest[:bi], cFG, false))
+			}
+			out = append(out, span(rest[bi+2:bi+2+end], cBright, true))
+			rest = rest[bi+4+end:]
+		default:
+			out = append(out, span(rest, cFG, false))
+			rest = ""
+		}
+	}
+	return out
+}
+
+// wrapSpans wraps styled spans to width at word boundaries, preserving each
+// word's style across line breaks.
+func wrapSpans(spans []Span, width int) [][]Span {
+	type word struct {
+		text  string
+		style Style
+	}
+	var words []word
+	for _, sp := range spans {
+		for _, w := range strings.Fields(sp.Text) {
+			words = append(words, word{w, sp.Style})
+		}
+	}
+	if len(words) == 0 {
+		return nil
+	}
+	var out [][]Span
+	var line []Span
+	used := 0
+	for _, w := range words {
+		wl := len([]rune(w.text))
+		if used > 0 && used+1+wl > width {
+			out = append(out, line)
+			line, used = nil, 0
+		}
+		if used > 0 {
+			line = append(line, Span{Text: " " + w.text, Style: w.style})
+			used += 1 + wl
+		} else {
+			line = append(line, Span{Text: w.text, Style: w.style})
+			used += wl
+		}
+	}
+	return append(out, line)
 }
 
 // latestSubmitted returns the newest submitted/resolved review for a task as a

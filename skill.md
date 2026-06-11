@@ -85,6 +85,24 @@ for" — including relevant context from the working session that would mean not
 future git reader. Make the review fast: surface the decisions, trade-offs, and anything
 you're unsure about.
 
+**Format for scanning, not reading.** A wall of prose makes the reviewer dig; structure
+makes them fast. The TUI renders a small markup in summaries:
+
+```
+newlines        real line breaks (use them — one paragraph per idea)
+- bullet        bullet rows with hanging indent
+Label:          a short capitalised lead-in at line start renders bold
+                (Why: / What changed: / Verify: / Watch:)
+`code`          identifiers, commands, paths get the code colour
+**bold**        emphasis for the load-bearing phrase
+```
+
+Shape that works: a one-line headline first (what landed), then `Why:` if the motivation
+isn't obvious, a few `- ` bullets for the substance (one decision/trade-off each), and
+ALWAYS a `Verify:` line — the command or steps that re-prove it. Short lines, bold the
+one thing per bullet that matters. The goal: the reviewer knows what they're looking at
+before the diff scrolls.
+
 Order matters: **you commit first** (yourself — see Boundaries; don't defer it to the
 human), **then `recap done --sha HEAD`**, so the entry resolves to the real commit and its
 diff. Complete every item — the inbox is the audit trail. recap derives
