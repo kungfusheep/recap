@@ -37,6 +37,7 @@ type draftCommentVM struct {
 	Draft    bool // on the open draft (editable); else submitted (read-only)
 	Selected bool // updated each frame like the inbox rows, drives the fill
 	Visible  bool // false while this row's thread root is collapsed — the template's If skips it
+	Reply    bool // a nested reply row (depth > 0); rows are in thread order, so a thread = a root + its run of Reply rows
 }
 
 // draftView is the comments (draft) pane's state in one concrete struct (the
@@ -185,6 +186,7 @@ func threadComments(vms []draftCommentVM) []draftCommentVM {
 	var walk func(v draftCommentVM, depth int)
 	walk = func(v draftCommentVM, depth int) {
 		if depth > 0 { // a reply: relabel + indent, drop the repeated snippet
+			v.Reply = true
 			v.Location = "↳ " + dash(v.Who)
 			v.Indent = strings.Repeat("  ", depth)
 			v.Snippet = ""
@@ -207,38 +209,28 @@ func threadComments(vms []draftCommentVM) []draftCommentVM {
 }
 
 // setFoldFlags syncs each row's Visible flag + the roots' "▸ N replies" cues to
-// draftUI.Collapsed, in place. Pure viewing state over an unchanged row set: the
-// template renders a row through If(&row.Visible), so collapsing a thread never
-// rebuilds or re-fetches anything.
+// draftUI.Collapsed, in place. The rows are in THREAD ORDER (a root, then its run
+// of Reply rows), so one pass does it: remember the current root, hide its run
+// when collapsed, cue the root with the run's length.
 func setFoldFlags(vms []draftCommentVM) {
-	byID := make(map[int64]int, len(vms))
-	for i, v := range vms {
-		byID[v.ID] = i
-	}
-	rootOf := func(v draftCommentVM) int64 {
-		for v.ParentID != 0 {
-			i, ok := byID[v.ParentID]
-			if !ok {
-				break
-			}
-			v = vms[i]
+	root, replies := -1, 0
+	flush := func() { // finish the previous thread: cue its root if collapsed
+		if root >= 0 && replies > 0 && draftUI.Collapsed[vms[root].ID] {
+			vms[root].FoldCue = fmt.Sprintf("▸ %d repl%s", replies, map[bool]string{true: "y", false: "ies"}[replies == 1])
 		}
-		return v.ID
-	}
-	replies := map[int64]int{} // root id → descendant count
-	for i := range vms {
-		root := rootOf(vms[i])
-		if vms[i].ID != root {
-			replies[root]++
-		}
-		vms[i].Visible = vms[i].ID == root || !draftUI.Collapsed[root]
 	}
 	for i := range vms {
+		if !vms[i].Reply { // a new thread root
+			flush()
+			root, replies = i, 0
+			vms[i].Visible, vms[i].FoldCue = true, ""
+			continue
+		}
+		replies++
+		vms[i].Visible = !draftUI.Collapsed[vms[root].ID]
 		vms[i].FoldCue = ""
-		if n := replies[vms[i].ID]; n > 0 && draftUI.Collapsed[vms[i].ID] {
-			vms[i].FoldCue = fmt.Sprintf("▸ %d repl%s", n, map[bool]string{true: "y", false: "ies"}[n == 1])
-		}
 	}
+	flush()
 }
 
 // toggleCommentThread ('o' in the comments pane) collapses/expands the selected
@@ -249,27 +241,15 @@ func toggleCommentThread() {
 	if draftUI.Sel < 0 || draftUI.Sel >= len(draftUI.Comments) {
 		return
 	}
-	// walk up to the thread root: every visible reply's parent is also visible.
-	byID := make(map[int64]draftCommentVM, len(draftUI.Comments))
-	for _, v := range draftUI.Comments {
-		byID[v.ID] = v
+	// thread order again: the selected row's root is the nearest non-reply at or
+	// above the cursor.
+	root := draftUI.Sel
+	for root > 0 && draftUI.Comments[root].Reply {
+		root--
 	}
-	root := draftUI.Comments[draftUI.Sel]
-	for root.ParentID != 0 {
-		p, ok := byID[root.ParentID]
-		if !ok {
-			break
-		}
-		root = p
-	}
-	draftUI.Collapsed[root.ID] = !draftUI.Collapsed[root.ID]
+	draftUI.Collapsed[draftUI.Comments[root].ID] = !draftUI.Collapsed[draftUI.Comments[root].ID]
 	setFoldFlags(draftUI.Comments)
-	for i, v := range draftUI.Comments {
-		if v.ID == root.ID {
-			draftUI.Sel = i
-			break
-		}
-	}
+	draftUI.Sel = root
 }
 
 // draftRow renders one draft comment in the inbox's visual style: a filled card
