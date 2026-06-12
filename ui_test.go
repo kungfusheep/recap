@@ -2248,6 +2248,36 @@ func TestProposalSignOff(t *testing.T) {
 	if p2, _ := st.ProposalByID(pid2); p2.Status != db.ProposalOpen {
 		t.Fatalf("unconfirmed sign-off must not decide, got %q", p2.Status)
 	}
+
+	// THE VERDICT-INTEGRITY CONTRACT (m225): a REJECTION can never materialise.
+	// Confirmed decline → status declined, NO ADR file, NO todo line, and the
+	// parties hear DECLINED — never APPROVED.
+	todoBefore, _ := os.ReadFile(filepath.Join(targetTree, "TODO.md"))
+	for i, r := range inboxUI.Rows {
+		if r.Proposal && r.ID == pid2 {
+			inboxUI.Sel = i
+		}
+	}
+	syncSelectionFlags()
+	signOffProposal(selectedRow(), db.ProposalDeclined)
+	promptUI.Field.Value = "y"
+	promptUI.submit()
+	if p2, _ := st.ProposalByID(pid2); p2.Status != db.ProposalDeclined {
+		t.Fatalf("decline recorded as %q", p2.Status)
+	}
+	if _, err := os.Stat(filepath.Join(targetTree, "docs", "adr", fmt.Sprintf("%d-another.md", pid2))); err == nil {
+		t.Fatal("VERDICT INTEGRITY: a rejection materialised an ADR")
+	}
+	todoAfter, _ := os.ReadFile(filepath.Join(targetTree, "TODO.md"))
+	if string(todoAfter) != string(todoBefore) {
+		t.Fatalf("VERDICT INTEGRITY: a rejection queued implementation work:\n%s", todoAfter)
+	}
+	ms2, _ := st.Messages("")
+	for _, m := range ms2 {
+		if strings.Contains(m.Body, fmt.Sprintf("proposal #%d", pid2)) && strings.Contains(m.Body, "APPROVED") {
+			t.Fatalf("VERDICT INTEGRITY: rejection announced as approval: %q", m.Body)
+		}
+	}
 }
 
 // ]/[ jump handlers (todo:6a8f8b49): the list pane hops section headers, the
