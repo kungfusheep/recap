@@ -19,6 +19,7 @@ type Proposal struct {
 	Status       string // open | approved | declined
 	CreatedAt    string
 	DecidedAt    string
+	ClosedAt     string // when the human dismissed the DECIDED record from the list ("" = visible)
 }
 
 const (
@@ -102,12 +103,12 @@ func (s *Store) ProposalParties(id int64) ([]string, error) {
 	return out, rows.Err()
 }
 
-const proposalCols = `id, title, body, proposer_repo, COALESCE(proposer_who,''), target_repo, status, created_at, COALESCE(decided_at,'')`
+const proposalCols = `id, title, body, proposer_repo, COALESCE(proposer_who,''), target_repo, status, created_at, COALESCE(decided_at,''), COALESCE(closed_at,'')`
 
 func scanProposal(row interface{ Scan(...any) error }) (Proposal, error) {
 	var p Proposal
 	err := row.Scan(&p.ID, &p.Title, &p.Body, &p.ProposerRepo, &p.ProposerWho,
-		&p.TargetRepo, &p.Status, &p.CreatedAt, &p.DecidedAt)
+		&p.TargetRepo, &p.Status, &p.CreatedAt, &p.DecidedAt, &p.ClosedAt)
 	return p, err
 }
 
@@ -150,6 +151,25 @@ func (s *Store) DecideProposal(id int64, status string) error {
 		return fmt.Errorf("no OPEN proposal #%d", id)
 	}
 	return nil
+}
+
+// CloseProposal hides a DECIDED proposal's record from the list; reopening is
+// always possible (no one-way doors).
+func (s *Store) CloseProposal(id int64) error {
+	res, err := s.db.Exec(`UPDATE proposals SET closed_at = ? WHERE id = ? AND status != ? AND COALESCE(closed_at,'') = ''`,
+		NowStamp(), id, ProposalOpen)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("no decided, unclosed proposal #%d", id)
+	}
+	return nil
+}
+
+func (s *Store) ReopenProposal(id int64) error {
+	_, err := s.db.Exec(`UPDATE proposals SET closed_at = NULL WHERE id = ?`, id)
+	return err
 }
 
 // ProposalComment is one entry in a proposal's deliberation thread. The thread

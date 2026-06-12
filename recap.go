@@ -84,6 +84,8 @@ func main() {
 		err = cmdMessages(args)
 	case "todo":
 		err = cmdTodo(args)
+	case "reopen":
+		err = cmdReopen(args)
 	case "propose":
 		err = cmdPropose(args)
 	case "proposal":
@@ -1439,5 +1441,42 @@ func cmdMessages(args []string) error {
 		}
 		fmt.Printf("m%-4d %s  %s → %s%s  %s\n", m.ID, read, msgSender(m.FromWho, m.FromRepo), m.ToRepo, thread, firstLine(m.Body))
 	}
+	return nil
+}
+
+// cmdReopen restores a closed (dismissed) DONE task or DECIDED proposal to the
+// TUI list — the escape hatch that keeps `x` from being a one-way door.
+// Usage: recap reopen <task-id> | recap reopen P<proposal-id>
+func cmdReopen(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: recap reopen <task-id> | recap reopen P<id>")
+	}
+	st, err := db.Open()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	ref := args[0]
+	if strings.HasPrefix(strings.ToLower(ref), "p") {
+		id, err := parseID(ref[1:])
+		if err != nil {
+			return err
+		}
+		if err := st.ReopenProposal(id); err != nil {
+			return err
+		}
+		notify.Reload()
+		fmt.Printf("reopened proposal #%d — back in the DECIDED list\n", id)
+		return nil
+	}
+	id, err := parseID(ref)
+	if err != nil {
+		return err
+	}
+	if err := st.ReopenTask(id); err != nil {
+		return err
+	}
+	notify.Reload()
+	fmt.Printf("reopened #%d — back in the list\n", id)
 	return nil
 }

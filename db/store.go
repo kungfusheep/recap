@@ -59,6 +59,7 @@ type Task struct {
 	ParentID  int64  // the task this one fixes forward (0 = none)
 	Summary   string // agent-written reviewer briefing (richer than the commit msg)
 	InboxAt   string // when the task last entered the inbox (FIFO sort key; falls back to CreatedAt)
+	ClosedAt  string // when the human dismissed this DONE item from the list ("" = visible)
 }
 
 // Review is a batch of reviewer feedback against a task: a verdict, an overall
@@ -166,6 +167,8 @@ var addColumns = []struct{ table, col, decl string }{
 	{"proposal_comments", "line", "INTEGER"},
 	{"proposal_comments", "snippet", "TEXT"},
 	{"proposal_comments", "parent_id", "INTEGER"},
+	{"tasks", "closed_at", "TEXT"},
+	{"proposals", "closed_at", "TEXT"},
 }
 
 func (s *Store) hasColumn(table, col string) (bool, error) {
@@ -210,6 +213,24 @@ func (s *Store) migrate() error {
 		}
 	}
 	return nil
+}
+
+// CloseTask hides a task from the list (the human dismissing a reviewed DONE
+// item); ReopenTask brings it back — closing is never a one-way door.
+func (s *Store) CloseTask(id int64) error {
+	res, err := s.db.Exec(`UPDATE tasks SET closed_at = ? WHERE id = ? AND COALESCE(closed_at,'') = ''`, NowStamp(), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("no open task #%d to close", id)
+	}
+	return nil
+}
+
+func (s *Store) ReopenTask(id int64) error {
+	_, err := s.db.Exec(`UPDATE tasks SET closed_at = NULL WHERE id = ?`, id)
+	return err
 }
 
 // Path resolves the global review db location: $RECAP_DB or ~/.config/recap/recap.db.
@@ -297,11 +318,11 @@ func (s *Store) Add(t Task) (int64, error) {
 func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 	var t Task
 	err := row.Scan(&t.ID, &t.Repo, &t.RepoPath, &t.SHA, &t.Title, &t.Criterion,
-		&t.CheckCmd, &t.Result, &t.Status, &t.CreatedAt, &t.ParentID, &t.Summary, &t.InboxAt)
+		&t.CheckCmd, &t.Result, &t.Status, &t.CreatedAt, &t.ParentID, &t.Summary, &t.InboxAt, &t.ClosedAt)
 	return t, err
 }
 
-const taskCols = `id, repo, repo_path, sha, title, criterion, check_cmd, result, status, created_at, COALESCE(parent_id,0), COALESCE(summary,''), COALESCE(inbox_at,'')`
+const taskCols = `id, repo, repo_path, sha, title, criterion, check_cmd, result, status, created_at, COALESCE(parent_id,0), COALESCE(summary,''), COALESCE(inbox_at,''), COALESCE(closed_at,'')`
 
 // Get returns one task by id.
 func (s *Store) Get(id int64) (Task, error) {

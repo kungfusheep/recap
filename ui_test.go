@@ -2316,3 +2316,72 @@ func TestUpcomingBandAlwaysPresent(t *testing.T) {
 		t.Fatal("UPCOMING block missing at launch — the band must render before any data loads")
 	}
 }
+
+// x closes DONE tasks and DECIDED proposals out of the list (todo:0a8ba4f4);
+// reopen brings them back — no one-way doors.
+func TestCloseDoneAndDecided(t *testing.T) {
+	prevApp, prevStore, prevOmni, prevLayer, prevKick := uiApp, uiStore, omni, diffUI.Layer, propDetailKick
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	diffUI.Layer = NewLayer()
+	diffUI.Layer.Render = func() {}
+	t.Cleanup(func() {
+		uiApp, uiStore, omni, diffUI.Layer, propDetailKick = prevApp, prevStore, prevOmni, prevLayer, prevKick
+		inboxUI = inboxView{Expanded: map[int64]bool{}, TaskByID: map[int64]db.Task{}, PropByID: map[int64]db.Proposal{}, DoneLimit: 10}
+		propUI = propView{Commented: map[int]bool{}}
+		statusMsg = ""
+	})
+	t.Setenv("RECAP_DB", filepath.Join(t.TempDir(), "recap.db"))
+	tid, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "done work", Status: db.StatusPending})
+	if _, err := submitReview(st, tid, db.VerdictApprove, ""); err != nil {
+		t.Fatal(err)
+	}
+	pid, _ := st.AddProposal(db.Proposal{Title: "p", Body: "b", ProposerRepo: "tui", TargetRepo: "tui"}, nil)
+	if err := st.DecideProposal(pid, db.ProposalApproved); err != nil {
+		t.Fatal(err)
+	}
+	propDetailKick = func(p db.Proposal, key string, reset bool) {}
+	reloadTasks()
+
+	sel := func(match func(taskVM) bool) bool {
+		for i, r := range inboxUI.Rows {
+			if match(r) {
+				inboxUI.Sel = i
+				return true
+			}
+		}
+		return false
+	}
+	if !sel(func(r taskVM) bool { return !r.Proposal && r.ID == tid && r.Header }) {
+		t.Fatalf("done task row missing: %+v", inboxUI.Rows)
+	}
+	closeSelected()
+	if sel(func(r taskVM) bool { return !r.Proposal && r.ID == tid }) {
+		t.Fatal("closed done task still renders")
+	}
+	if !sel(func(r taskVM) bool { return r.Proposal && r.ID == pid }) {
+		t.Fatalf("decided proposal row missing: %+v", inboxUI.Rows)
+	}
+	closeSelected()
+	if sel(func(r taskVM) bool { return r.Proposal && r.ID == pid }) {
+		t.Fatal("closed decided proposal still renders")
+	}
+	// reopen restores both
+	if err := st.ReopenTask(tid); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ReopenProposal(pid); err != nil {
+		t.Fatal(err)
+	}
+	reloadTasks()
+	if !sel(func(r taskVM) bool { return !r.Proposal && r.ID == tid }) || !sel(func(r taskVM) bool { return r.Proposal && r.ID == pid }) {
+		t.Fatal("reopen did not restore the rows")
+	}
+	// an OPEN proposal refuses to close (verdicts first)
+	pid2, _ := st.AddProposal(db.Proposal{Title: "open one", Body: "b", ProposerRepo: "tui", TargetRepo: "tui"}, nil)
+	if err := st.CloseProposal(pid2); err == nil {
+		t.Fatal("closing an OPEN proposal should refuse")
+	}
+}

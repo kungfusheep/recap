@@ -240,6 +240,14 @@ func fetchInbox(repoFilter string, pins map[int64]bool) *inboxData {
 	}
 	d.identName, d.identColor = loadIdentity(uiRepo)
 	d.tasks, _ = uiStore.List("", repoFilter)
+	// closed items are dismissed history — they never render
+	keep := d.tasks[:0]
+	for _, t := range d.tasks {
+		if t.ClosedAt == "" {
+			keep = append(keep, t)
+		}
+	}
+	d.tasks = keep
 	d.state = make(map[int64]string, len(d.tasks))
 	d.drafts = map[int64]int{}
 	d.revs = map[int64][]db.Revision{}
@@ -265,8 +273,8 @@ func fetchInbox(repoFilter string, pins map[int64]bool) *inboxData {
 			}
 			if p.Status == db.ProposalOpen {
 				d.props = append(d.props, p)
-			} else {
-				d.decided = append(d.decided, p)
+			} else if p.ClosedAt == "" {
+				d.decided = append(d.decided, p) // closed records are dismissed
 			}
 		}
 		// open proposals read FIFO like the inbox: oldest arrival first
@@ -720,6 +728,35 @@ func collapseAllRevisions() {
 	}
 	inboxUI.DetailDirty = true
 	onInboxSelChanged()
+}
+
+// closeSelected dismisses the selected DONE task or DECIDED proposal from the
+// list (todo:0a8ba4f4) — the record stays in the db, and `recap reopen` brings
+// it back (no one-way doors).
+func closeSelected() {
+	row := selectedRow()
+	if row == nil {
+		return
+	}
+	switch {
+	case row.Proposal && row.State != "proposal":
+		if err := uiStore.CloseProposal(row.ID); err != nil {
+			toast("close: " + err.Error())
+			return
+		}
+		toast(fmt.Sprintf("closed P%d  ·  recap reopen P%d to restore", row.ID, row.ID))
+	case !row.Proposal && row.Header && row.State == db.StateDone:
+		if err := uiStore.CloseTask(row.ID); err != nil {
+			toast("close: " + err.Error())
+			return
+		}
+		toast(fmt.Sprintf("closed #%d  ·  recap reopen %d to restore", row.ID, row.ID))
+	default:
+		toast("(only DONE tasks and DECIDED proposals close)")
+		return
+	}
+	inboxUI.KeepSelOnReload = true
+	reloadTasks()
 }
 
 // jumpInboxSection moves the selection to the next/previous section header
@@ -1530,6 +1567,7 @@ func buildMain() Component {
 					Key("Z", collapseAllRevisions),           // fold/unfold ALL revision expansions
 					Key("]", func() { jumpInboxSection(1) }), // next / prev section
 					Key("[", func() { jumpInboxSection(-1) }),
+					Key("x", closeSelected), // dismiss a DONE task / DECIDED proposal
 					Key("X", func() { // decline the selected proposal (verdicts stay human)
 						if row := selectedRow(); row != nil && row.Proposal {
 							signOffProposal(row, db.ProposalDeclined)
@@ -1685,6 +1723,7 @@ var helpActionRows = []helpRow{
 	{"O", "open [[file]] link"},
 	{"a", "approve / sign off"},
 	{"X", "decline proposal"},
+	{"x", "close done / decided"},
 	{"S", "submit (amends)"},
 	{"U", "unsubmit → inbox"},
 	{"?", "help"},
