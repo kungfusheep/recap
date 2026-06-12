@@ -24,9 +24,11 @@ type taskVM struct {
 	InFlight     bool // this task is the in-flight amends item → flare it in place (spinner)
 	HasGroup     bool
 	GroupLabel   string
-	Header       bool // a normal task header row (vs a revision child or load-more row)
-	LoadMore     bool // a "load more" pseudo-row at the bottom of the paginated done section
-	Proposal     bool // an open proposal row — ID is the PROPOSAL id (PropByID resolves it, not TaskByID)
+	Header       bool   // a normal task header row (vs a revision child or load-more row)
+	LoadMore     bool   // a "load more" pseudo-row at the bottom of the paginated done section
+	Proposal     bool   // an open proposal row — ID is the PROPOSAL id (PropByID resolves it, not TaskByID)
+	SectionRow   bool   // a COLLAPSED section's stub row — o/Enter/z unfolds it
+	SecCue       string // stub only: "▸ N hidden"
 
 	// revision threading (mail-style): a task with >1 diff is expandable with `o`.
 	// A header row (RevIdx < 0) shows the latest diff by default; expanding splices

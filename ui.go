@@ -466,6 +466,36 @@ func applyInbox(d *inboxData) {
 	inboxUI.Rows = inboxUI.Rows[:0]
 	prevSection := ""
 	doneShown, doneSkipped := 0, 0
+	// any section can fold (c486): an EXPANDED section renders exactly as
+	// before (label on its first item row), a FOLDED one renders a single
+	// selectable stub carrying "▸ N hidden" — z folds the section you're on,
+	// o/Enter/z on the stub unfolds. Session state, default expanded.
+	sectionIdx, sectionHidden := -1, 0
+	flushSection := func() {
+		if sectionIdx >= 0 {
+			inboxUI.Rows[sectionIdx].SecCue = fmt.Sprintf("▸ %d hidden", sectionHidden)
+		}
+		sectionIdx, sectionHidden = -1, 0
+	}
+	firstOfSection := false
+	startSection := func(label string) {
+		flushSection()
+		prevSection = label
+		firstOfSection = true
+		if collapsedSections[label] {
+			inboxUI.Rows = append(inboxUI.Rows, taskVM{SectionRow: true, HasGroup: true, GroupLabel: label, RevIdx: -1})
+			sectionIdx = len(inboxUI.Rows) - 1
+		}
+	}
+	folded := func() bool { return prevSection != "" && collapsedSections[prevSection] }
+	// label the first VISIBLE item row of an expanded section (the pre-fold look)
+	markGroup := func(vm *taskVM) {
+		if firstOfSection {
+			vm.HasGroup, vm.GroupLabel = true, prevSection
+			firstOfSection = false
+		}
+	}
+
 	// open proposals lead the list: documents awaiting the human's verdict sit
 	// above the task queue. Row ID is the PROPOSAL id (its own sequence), so the
 	// rows resolve through PropByID and selection-restore matches on the flag.
@@ -473,6 +503,13 @@ func applyInbox(d *inboxData) {
 	propOpen = len(d.props)
 	for _, p := range d.props {
 		inboxUI.PropByID[p.ID] = p
+		if prevSection != "PROPOSALS" {
+			startSection("PROPOSALS")
+		}
+		if folded() {
+			sectionHidden++
+			continue
+		}
 		color := cBright
 		if _, ic := loadIdentity(p.ProposerRepo); ic.Mode != 0 {
 			color = ic // proposer's identity colour tints the meta line
@@ -490,14 +527,24 @@ func applyInbox(d *inboxData) {
 			RevIdx:    -1,
 			When:      hhmm(p.CreatedAt),
 		}
-		if prevSection != "PROPOSALS" {
-			vm.HasGroup, vm.GroupLabel = true, "PROPOSALS"
-			prevSection = "PROPOSALS"
-		}
+		markGroup(&vm)
 		inboxUI.Rows = append(inboxUI.Rows, vm)
 	}
 	for _, t := range inboxUI.Tasks {
 		st := state[t.ID]
+		// section first: pinned items group under "PINNED" regardless of state;
+		// everything else by state label.
+		section := stateLabel(st)
+		if pinned[t.ID] {
+			section = "PINNED"
+		}
+		if section != prevSection {
+			startSection(section)
+		}
+		if folded() {
+			sectionHidden++
+			continue
+		}
 		// paginate completed items: only DoneLimit render — the rest hide behind a
 		// "load more" row. The done sort is last-completed-first, so the visible
 		// page is always the most recent activity. Pinned items are never
@@ -553,17 +600,7 @@ func applyInbox(d *inboxData) {
 				vm.ExpandPill = fmt.Sprintf("▸ %d", len(revs))
 			}
 		}
-		// section header: pinned items group under "PINNED" regardless of their state;
-		// everything else groups by state label. A header emits whenever the section changes.
-		section := stateLabel(st)
-		if pinned[t.ID] {
-			section = "PINNED"
-		}
-		if section != prevSection {
-			vm.HasGroup = true
-			vm.GroupLabel = section
-			prevSection = section
-		}
+		markGroup(&vm)
 		inboxUI.Rows = append(inboxUI.Rows, vm)
 
 		// expanded → splice a child row per revision, latest first (mail's order).
@@ -582,19 +619,27 @@ func applyInbox(d *inboxData) {
 			}
 		}
 	}
-	// a "load more" row at the very bottom when completed items are hidden.
-	if doneSkipped > 0 {
+	// a "load more" row at the very bottom when completed items are hidden
+	// (suppressed while the DONE section itself is folded).
+	if doneSkipped > 0 && !collapsedSections["DONE"] {
 		inboxUI.Rows = append(inboxUI.Rows, taskVM{
 			LoadMore: true,
 			RevIdx:   -1,
 			Title:    fmt.Sprintf("load more  ·  %d more completed", doneSkipped),
 		})
 	}
-	// signed-off proposals trail the list (c476): the decision record stays
-	// visible — verdict glyph + when it was decided; the detail pane still
-	// renders the document and thread.
-	for i, p := range d.decided {
+	// signed-off proposals trail the list (c476): ONE section covers both
+	// verdicts — the ✓/✕ row glyphs carry the outcome, so APPROVED and
+	// DECLINED don't need separate chrome (c486).
+	for _, p := range d.decided {
 		inboxUI.PropByID[p.ID] = p
+		if prevSection != "DECIDED PROPOSALS" {
+			startSection("DECIDED PROPOSALS")
+		}
+		if folded() {
+			sectionHidden++
+			continue
+		}
 		color := cBright
 		if _, ic := loadIdentity(p.ProposerRepo); ic.Mode != 0 {
 			color = ic
@@ -611,11 +656,10 @@ func applyInbox(d *inboxData) {
 			RevIdx:    -1,
 			When:      shortStamp(p.DecidedAt),
 		}
-		if i == 0 {
-			vm.HasGroup, vm.GroupLabel = true, "DECIDED PROPOSALS"
-		}
+		markGroup(&vm)
 		inboxUI.Rows = append(inboxUI.Rows, vm)
 	}
+	flushSection()
 
 	// restore the selection to the same row (task + revision) it was on before, so
 	// items arriving above it don't yank the view; fall back to clamping if it's gone.
@@ -727,6 +771,10 @@ func selectedTask() (db.Task, bool) {
 // toggleExpand expands/collapses the selected row's task into its revisions, then
 // parks the selection on that task's header so navigation stays oriented.
 func toggleExpand() {
+	if row := selectedRow(); row != nil && row.SectionRow {
+		toggleSection(row.GroupLabel)
+		return
+	}
 	t, ok := selectedTask()
 	if !ok {
 		return
@@ -781,6 +829,39 @@ func collapseAllRevisions() {
 	}
 	inboxUI.DetailDirty = true
 	onInboxSelChanged()
+}
+
+// collapsedSections holds the folded section labels (c486) — session state,
+// default expanded. o/Enter on a section row toggles.
+var collapsedSections = map[string]bool{}
+
+// toggleSection folds/unfolds a section by label and parks the cursor on the
+// section's row (the stub when folding, the first item when unfolding).
+func toggleSection(label string) {
+	if label == "" {
+		return
+	}
+	collapsedSections[label] = !collapsedSections[label]
+	inboxUI.KeepSelOnReload = true
+	reloadTasks()
+	for i := range inboxUI.Rows {
+		if inboxUI.Rows[i].HasGroup && inboxUI.Rows[i].GroupLabel == label {
+			inboxUI.Sel = i
+			break
+		}
+	}
+	onInboxSelChanged()
+}
+
+// foldSectionHere folds/unfolds the section the cursor sits in (z) — from any
+// of its rows, not just the labelled first one.
+func foldSectionHere() {
+	for i := inboxUI.Sel; i >= 0 && i < len(inboxUI.Rows); i-- {
+		if inboxUI.Rows[i].HasGroup {
+			toggleSection(inboxUI.Rows[i].GroupLabel)
+			return
+		}
+	}
 }
 
 // closeSelected dismisses the selected DONE task or DECIDED proposal from the
@@ -1620,7 +1701,8 @@ func buildMain() Component {
 					Key("Z", collapseAllRevisions),           // fold/unfold ALL revision expansions
 					Key("]", func() { jumpInboxSection(1) }), // next / prev section
 					Key("[", func() { jumpInboxSection(-1) }),
-					Key("x", closeSelected), // dismiss a DONE task / DECIDED proposal
+					Key("x", closeSelected),   // dismiss a DONE task / DECIDED proposal
+					Key("z", foldSectionHere), // fold/unfold the section under the cursor
 					Key("X", func() { // decline the selected proposal (verdicts stay human)
 						if row := selectedRow(); row != nil && row.Proposal {
 							signOffProposal(row, db.ProposalDeclined)
@@ -1777,6 +1859,7 @@ var helpActionRows = []helpRow{
 	{"a", "approve / sign off"},
 	{"X", "decline proposal"},
 	{"x", "close done / decided"},
+	{"z", "fold section"},
 	{"S", "submit (amends)"},
 	{"U", "unsubmit → inbox"},
 	{"?", "help"},
@@ -1949,7 +2032,18 @@ func taskRow(r *taskVM) Component {
 	return VBox(
 		If(&r.HasGroup).Then(
 			VBox.PaddingTRBL(1, 0, 0, 0)(
-				Text(&r.GroupLabel).FG(&cMuted).Bold(),
+				// a folded section's stub is SELECTABLE (band when under the
+				// cursor); an expanded section's label stays outside any band.
+				If(&r.SectionRow).Then(
+					HBox.Fill(If(&r.Selected).Then(&curSelBG).Else(&cPaneBG))(
+						Text(&r.GroupLabel).FG(&cMuted).Bold(),
+						SpaceW(2),
+						Text(&r.SecCue).FG(&cSubtle),
+						Space(),
+					),
+				).Else(
+					Text(&r.GroupLabel).FG(&cMuted).Bold(),
+				),
 			),
 		),
 		// exactly one of these is set per row. Independent Ifs (NOT nested If/Else): the nested
@@ -2332,6 +2426,10 @@ func rerun() {
 // openOrLoadMore is the list's Enter: a "load more" row reveals the next batch of older
 // completed items; any other row opens the diff pane.
 func openOrLoadMore() {
+	if r := selectedRow(); r != nil && r.SectionRow {
+		toggleSection(r.GroupLabel)
+		return
+	}
 	if r := selectedRow(); r != nil && r.LoadMore {
 		inboxUI.DoneLimit += 20
 		reloadTasks()

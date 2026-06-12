@@ -2445,3 +2445,94 @@ func TestArrivalNotifications(t *testing.T) {
 		t.Fatalf("no-change apply must not re-toast (still the 3 fading): %v", v)
 	}
 }
+
+// Sections fold (c486 — the real ask behind #300): z on any row folds its
+// section into a selectable stub carrying "▸ N hidden"; o/Enter/z on the stub
+// unfolds. One DECIDED PROPOSALS section covers approved and declined (the
+// ✓/✕ row glyphs carry the verdict).
+func TestSectionFolding(t *testing.T) {
+	prevApp, prevStore, prevOmni, prevLayer, prevKick := uiApp, uiStore, omni, diffUI.Layer, propDetailKick
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	diffUI.Layer = NewLayer()
+	diffUI.Layer.Render = func() {}
+	t.Cleanup(func() {
+		uiApp, uiStore, omni, diffUI.Layer, propDetailKick = prevApp, prevStore, prevOmni, prevLayer, prevKick
+		inboxUI = inboxView{Expanded: map[int64]bool{}, TaskByID: map[int64]db.Task{}, PropByID: map[int64]db.Proposal{}, DoneLimit: 10}
+		propUI = propView{Commented: map[int]bool{}}
+		collapsedSections = map[string]bool{}
+		statusMsg = ""
+	})
+	t.Setenv("RECAP_DB", filepath.Join(t.TempDir(), "recap.db"))
+
+	// two done tasks, one pending, one decided proposal
+	for i := 0; i < 2; i++ {
+		id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: fmt.Sprintf("done %d", i), Status: db.StatusPending})
+		if _, err := submitReview(st, id, db.VerdictApprove, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "live one", Status: db.StatusPending})
+	pid, _ := st.AddProposal(db.Proposal{Title: "p", Body: "b", ProposerRepo: "tui", TargetRepo: "tui"}, nil)
+	st.DecideProposal(pid, db.ProposalDeclined)
+	propDetailKick = func(p db.Proposal, key string, reset bool) {}
+	reloadTasks()
+
+	countState := func(state string) int {
+		n := 0
+		for _, r := range inboxUI.Rows {
+			if r.State == state && r.Header {
+				n++
+			}
+		}
+		return n
+	}
+	if countState(db.StateDone) != 2 || countState("proposal-declined") != 1 {
+		t.Fatalf("precondition rows wrong: %+v", inboxUI.Rows)
+	}
+
+	// z from a row INSIDE the done section folds it
+	for i, r := range inboxUI.Rows {
+		if r.State == db.StateDone && r.Header && !r.HasGroup {
+			inboxUI.Sel = i // a mid-section row, not the labelled first one
+		}
+	}
+	foldSectionHere()
+	if countState(db.StateDone) != 0 {
+		t.Fatal("folded DONE items still render")
+	}
+	var stub *taskVM
+	for i := range inboxUI.Rows {
+		if inboxUI.Rows[i].SectionRow && inboxUI.Rows[i].GroupLabel == "DONE" {
+			stub = &inboxUI.Rows[i]
+		}
+	}
+	if stub == nil || stub.SecCue != "▸ 2 hidden" {
+		t.Fatalf("DONE stub wrong: %+v", stub)
+	}
+	if inboxUI.Rows[inboxUI.Sel].GroupLabel != "DONE" {
+		t.Fatalf("cursor should park on the folded section, got %+v", inboxUI.Rows[inboxUI.Sel])
+	}
+	// o on the stub unfolds
+	toggleExpand()
+	if countState(db.StateDone) != 2 {
+		t.Fatal("unfold did not restore the DONE items")
+	}
+	// the decided proposals section folds the same way
+	collapsedSections["DECIDED PROPOSALS"] = true
+	reloadTasks()
+	if countState("proposal-declined") != 0 {
+		t.Fatal("folded DECIDED PROPOSALS still renders items")
+	}
+	found := false
+	for _, r := range inboxUI.Rows {
+		if r.SectionRow && r.GroupLabel == "DECIDED PROPOSALS" && r.SecCue == "▸ 1 hidden" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("decided stub missing: %+v", inboxUI.Rows)
+	}
+}
