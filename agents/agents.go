@@ -37,6 +37,7 @@ type Agent struct {
 	FlareAge time.Duration // how fresh the flare is
 	LastWork string        // most recent recorded task title across repos
 	LastAt   string        // its timestamp
+	ActiveAt time.Time     // freshest activity signal: cursor-file touch or last task
 }
 
 // Snapshot gathers every named agent. st may be nil (no last-work column).
@@ -81,6 +82,17 @@ func Snapshot(st *db.Store) ([]Agent, error) {
 		if t, ok := latest[repo]; ok && t.CreatedAt > a.LastAt {
 			a.LastAt, a.LastWork = t.CreatedAt, t.Title
 		}
+		// last-active: a cursor file's mtime is the loop's latest state change
+		// in this repo (even a stale flare marks WHEN it went quiet); a repo
+		// with no cursor (idle/parked) falls back to its last recorded task.
+		if ts, ok := cursor.Touched(repo); ok && ts.After(a.ActiveAt) {
+			a.ActiveAt = ts
+		}
+		if t, ok := latest[repo]; ok {
+			if ts, err := time.ParseInLocation("2006-01-02 15:04:05", t.CreatedAt, time.Local); err == nil && ts.After(a.ActiveAt) {
+				a.ActiveAt = ts
+			}
+		}
 	}
 
 	out := make([]Agent, 0, len(byName))
@@ -88,7 +100,14 @@ func Snapshot(st *db.Store) ([]Agent, error) {
 		sort.Strings(a.Repos)
 		out = append(out, *a)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	// most recently active first (the reviewer reads the dashboard top-down for
+	// "who's doing something"); name breaks ties so the order is stable.
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].ActiveAt.Equal(out[j].ActiveAt) {
+			return out[i].ActiveAt.After(out[j].ActiveAt)
+		}
+		return out[i].Name < out[j].Name
+	})
 	return out, nil
 }
 

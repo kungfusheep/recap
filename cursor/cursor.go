@@ -47,6 +47,21 @@ func Load(repo string) (ref, title string) {
 	return strings.TrimSpace(parts[0]), ""
 }
 
+// Touched returns the cursor file's last write time and whether a cursor file
+// exists at all — distinct from Age so a missing file (idle/parked repo; Save
+// with an empty ref removes it) never reads as "touched just now".
+func Touched(repo string) (time.Time, bool) {
+	p, err := path(repo)
+	if err != nil {
+		return time.Time{}, false
+	}
+	fi, err := os.Stat(p)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return fi.ModTime(), true
+}
+
 // Title is the flare text — the repo's current item title, "" when idle.
 func Title(repo string) string {
 	_, title := Load(repo)
