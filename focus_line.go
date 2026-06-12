@@ -12,11 +12,11 @@ import (
 // it crosses.
 //
 // Position and width are glyph-animated floats (Animate compiled through the
-// effect pipeline, the FocusShade-Strength pattern), so the slide renders at
-// SUB-CELL resolution using the BRAILLE bottom-dot row — ⣀ for full cells,
-// ⢀/⡀ for half-covered edge cells — which steps at half-cell resolution with
-// UNIFORM height (the quadrant caps tried first read as bumps; braille's
-// bottom dots keep one visual weight across body and edges).
+// effect pipeline, the FocusShade-Strength pattern); the line renders as a
+// SOLID ▁ at whole-cell edges — the rounded span of the animated position.
+// (Sub-cell edge caps were tried twice: quadrants read as height bumps,
+// braille dots read as on/off toggling instead of motion — c424 settled on
+// the flat line.)
 type FocusLine struct {
 	xArg, wArg any
 	x, w       EffectFloat64
@@ -39,27 +39,14 @@ func (f FocusLine) Apply(buf *Buffer, ctx PostContext) {
 		return
 	}
 	y := ctx.Height - 1
-	start, end := x, x+w
-	for cx := int(math.Floor(start)); cx < int(math.Ceil(end)) && cx < ctx.Width; cx++ {
+	start := int(math.Round(x))
+	end := int(math.Round(x + w))
+	for cx := start; cx < end && cx < ctx.Width; cx++ {
 		if cx < 0 {
 			continue
 		}
-		lo, hi := math.Max(start, float64(cx)), math.Min(end, float64(cx+1))
-		cov := hi - lo
-		if cov <= 0.25 {
-			continue // sliver — leave the cell alone
-		}
-		var r rune
-		switch {
-		case cov >= 0.75:
-			r = '⣀' // both bottom dots
-		case lo > float64(cx): // covered part is the cell's right side: leading edge
-			r = '⢀' // right bottom dot
-		default: // covered part is the cell's left side: trailing edge
-			r = '⡀' // left bottom dot
-		}
 		cell := buf.Get(cx, y)
-		cell.Rune = r
+		cell.Rune = '▁'
 		if f.FG != nil {
 			cell.Style.FG = *f.FG
 		}

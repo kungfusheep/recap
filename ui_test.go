@@ -1436,7 +1436,7 @@ func TestFocusBarTracksPane(t *testing.T) {
 		x, w = -1, 0
 		for cx := 0; cx < W; cx++ {
 			c := buf.Get(cx, H-1)
-			if (c.Rune == '⣀' || c.Rune == '⢀' || c.Rune == '⡀') && c.Style.FG == cFG {
+			if c.Rune == '▁' && c.Style.FG == cFG {
 				if x < 0 {
 					x = cx
 				}
@@ -1473,16 +1473,17 @@ func TestFocusBarTracksPane(t *testing.T) {
 		t.Fatalf("inked line over the diff column must keep cBG beneath, got %v", bg)
 	}
 
-	// SUB-CELL: a fractional mid-slide position draws quadrant caps at the edges
+	// mid-slide fractional positions round to whole cells: a solid ▁ span,
+	// no mixed-height caps, no dot toggling (c424)
 	buf = render(10.5, 20)
-	if got := buf.Get(10, H-1).Rune; got != '⢀' {
-		t.Fatalf("leading fractional edge = %q, want ⢀", got)
+	if got := buf.Get(11, H-1).Rune; got != '▁' {
+		t.Fatalf("rounded leading cell = %q, want ▁", got)
 	}
-	if got := buf.Get(11, H-1).Rune; got != '⣀' {
-		t.Fatalf("body cell = %q, want ⣀", got)
+	if got := buf.Get(30, H-1).Rune; got != '▁' {
+		t.Fatalf("rounded trailing cell = %q, want ▁", got)
 	}
-	if got := buf.Get(30, H-1).Rune; got != '⡀' {
-		t.Fatalf("trailing fractional edge = %q, want ⡀", got)
+	if got := buf.Get(10, H-1).Rune; got == '▁' {
+		t.Fatalf("cell left of the rounded span should be un-inked")
 	}
 
 	// a SET status message floats one row above and never cuts the panes short
