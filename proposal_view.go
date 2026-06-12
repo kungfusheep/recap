@@ -444,11 +444,35 @@ func openPropLineComment() {
 // implementation todo on the TARGET repo's queue (its loop is the managing
 // agent). Decline records the verdict and tells the parties; no artifacts.
 
+// signOffProposal CONFIRMS before deciding (the P7 lesson: a verdict is
+// irreversible and materialises artifacts — it must never ride a single
+// keypress; the human once approved a proposal while meaning to agree with
+// the thread's withdrawal recommendation).
 func signOffProposal(row *taskVM, verdict string) {
 	p, ok := inboxUI.PropByID[row.ID]
 	if !ok {
 		return
 	}
+	word := "APPROVE"
+	if verdict == db.ProposalDeclined {
+		word = "DECLINE"
+	}
+	promptUI.open(
+		fmt.Sprintf("%s proposal #%d? type y to confirm", word, p.ID),
+		"", p.Title, "",
+		func() {
+			v := strings.ToLower(strings.TrimSpace(promptUI.Field.Value))
+			if v != "y" && v != "yes" {
+				toast("sign-off cancelled")
+				return
+			}
+			decideProposal(p, verdict)
+		},
+	)
+}
+
+// decideProposal is the confirmed verdict: record it and materialise.
+func decideProposal(p db.Proposal, verdict string) {
 	if err := uiStore.DecideProposal(p.ID, verdict); err != nil {
 		toast("sign-off: " + err.Error())
 		return

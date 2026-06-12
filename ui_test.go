@@ -2166,7 +2166,12 @@ func TestProposalSignOff(t *testing.T) {
 		t.Fatalf("precondition: proposal row selected, got %+v", selectedRow())
 	}
 
-	approveSelected() // a on a proposal row IS the sign-off
+	approveSelected() // a on a proposal row opens the CONFIRM prompt (the P7 lesson)
+	if !promptUI.Open {
+		t.Fatal("sign-off must confirm, never ride a single keypress")
+	}
+	promptUI.Field.Value = "y"
+	promptUI.submit()
 
 	p, _ := st.ProposalByID(pid)
 	if p.Status != db.ProposalApproved {
@@ -2223,6 +2228,21 @@ func TestProposalSignOff(t *testing.T) {
 	// double-decide refused (X after a)
 	if err := st.DecideProposal(pid, db.ProposalDeclined); err == nil {
 		t.Fatal("double-decide should refuse")
+	}
+	// and a dismissed confirm decides NOTHING
+	pid2, _ := st.AddProposal(db.Proposal{Title: "another", Body: "b", ProposerRepo: "tui", TargetRepo: "tui"}, nil)
+	reloadTasks()
+	for i, r := range inboxUI.Rows {
+		if r.Proposal && r.ID == pid2 {
+			inboxUI.Sel = i
+		}
+	}
+	syncSelectionFlags()
+	approveSelected()
+	promptUI.Field.Value = "no thanks"
+	promptUI.submit()
+	if p2, _ := st.ProposalByID(pid2); p2.Status != db.ProposalOpen {
+		t.Fatalf("unconfirmed sign-off must not decide, got %q", p2.Status)
 	}
 }
 
