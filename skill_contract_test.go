@@ -305,8 +305,9 @@ func TestSkillContract_ProposalSlice1(t *testing.T) {
 	}
 }
 
-// slice 2: comments thread on the proposal, fan to every other party through
-// the queue, and @repo mentions join the conversation with an invite.
+// slice 2 (digest model, c429): comments thread on the proposal; each party
+// gets at most ONE unread attention ping per proposal — never per-comment spam
+// — and @repo mentions join the parties (the ping is their invite).
 func TestSkillContract_ProposalComments(t *testing.T) {
 	dbPath := contractDB(t)
 	mustRun(t, dbPath, "propose", "--target", "tui", "--title", "preserve bg",
@@ -315,21 +316,20 @@ func TestSkillContract_ProposalComments(t *testing.T) {
 	if !strings.Contains(out, "commented on proposal #1") {
 		t.Fatalf("comment failed:\n%s", out)
 	}
-	// thread shows in proposal show
+	// a second comment must NOT add more pings while the first sits unread
+	mustRun(t, dbPath, "proposal", "comment", "1", "--body", "second thought")
+	msgs := mustRun(t, dbPath, "messages", "--all")
+	for _, repo := range []string{"tui", "mail", "calendar"} {
+		if n := strings.Count(msgs, "→ "+repo); n != 1 {
+			t.Fatalf("digest model broken: %s has %d pings, want exactly 1:\n%s", repo, n, msgs)
+		}
+	}
+	// thread shows both comments; @calendar joined the parties
 	show := mustRun(t, dbPath, "proposal", "show", "1")
-	if !strings.Contains(show, "thread (1)") || !strings.Contains(show, "what about quantize?") {
+	if !strings.Contains(show, "thread (2)") || !strings.Contains(show, "second thought") {
 		t.Fatalf("thread missing from show:\n%s", show)
 	}
-	// @calendar joined as a party and was invited
 	if !strings.Contains(show, "calendar") {
 		t.Fatalf("@mention did not join the parties:\n%s", show)
-	}
-	msgs := mustRun(t, dbPath, "messages", "--all")
-	if !strings.Contains(msgs, "you were @mentioned on proposal #1") {
-		t.Fatalf("no @mention invite in the queue:\n%s", msgs)
-	}
-	// the comment fanned to the other parties (tui + mail at least)
-	if !strings.Contains(msgs, "[proposal #1]") {
-		t.Fatalf("comment not fanned to parties:\n%s", msgs)
 	}
 }

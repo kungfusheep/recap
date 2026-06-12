@@ -47,13 +47,14 @@ func cmdPropose(args []string) error {
 	if err != nil {
 		return err
 	}
-	// notify the target + tagged repos through the durable queue
+	// one attention ping per party through the durable queue (digest model:
+	// further activity won't re-ping while this sits unread)
 	parties, _ := st.ProposalParties(id)
 	for _, r := range parties {
 		if r == currentRepo() {
 			continue
 		}
-		st.SendMessage(currentRepo(), identityWho(), r, 0, 0,
+		st.SendProposalPing(id, currentRepo(), identityWho(), r,
 			fmt.Sprintf("proposal #%d awaits your review: %q (target: %s) — recap proposal show %d", id, *title, *target, id))
 	}
 	notify.Reload()
@@ -95,10 +96,17 @@ func cmdProposal(args []string) error {
 		}
 		fmt.Printf("\n%s\n", p.Body)
 		if cs, _ := st.ProposalComments(id); len(cs) > 0 {
+			seen := st.PartyWatermark(id, currentRepo())
 			fmt.Printf("\nthread (%d):\n", len(cs))
+			marked := false
 			for _, c := range cs {
+				if !marked && c.ID > seen && seen > 0 {
+					fmt.Println("  ── new since your last look ──")
+					marked = true
+				}
 				fmt.Printf("  • [%s] %s@%s: %s\n", c.CreatedAt, dash(c.WhoName), c.WhoRepo, c.Body)
 			}
+			st.AdvancePartyWatermark(id, currentRepo(), cs[len(cs)-1].ID)
 		}
 		return nil
 	case "ls":
@@ -135,27 +143,25 @@ func cmdProposal(args []string) error {
 		if _, err := st.AddProposalComment(id, currentRepo(), identityWho(), *body); err != nil {
 			return err
 		}
-		// @mentions join the conversation: each @repo becomes a party and gets
-		// an invite through the queue.
+		// @mentions join the conversation: each @repo becomes a party; the ping
+		// below is their invite.
 		p, _ := st.ProposalByID(id)
 		for _, m := range atMentions(*body) {
-			if err := st.AddProposalParty(id, m); err == nil {
-				st.SendMessage(currentRepo(), identityWho(), m, 0, 0,
-					fmt.Sprintf("you were @mentioned on proposal #%d (%q) — recap proposal show %d", id, p.Title, id))
-			}
+			st.AddProposalParty(id, m)
 		}
-		// fan the comment to every OTHER party — recap holds the thread, the
-		// queue carries the notification + content.
+		// digest model (c429): ONE attention ping per party per proposal — if a
+		// party already has an unread ping, nothing more is sent; they read the
+		// whole thread since their last look when they next open it.
 		parties, _ := st.ProposalParties(id)
 		for _, r := range parties {
 			if r == currentRepo() {
 				continue
 			}
-			st.SendMessage(currentRepo(), identityWho(), r, 0, 0,
-				fmt.Sprintf("[proposal #%d] %s: %s — thread: recap proposal show %d", id, identityWho(), firstLine(*body), id))
+			st.SendProposalPing(id, currentRepo(), identityWho(), r,
+				fmt.Sprintf("proposal #%d (%q) has new activity — recap proposal show %d", id, p.Title, id))
 		}
 		notify.Reload()
-		fmt.Printf("commented on proposal #%d (fanned to %d parties)\n", id, len(parties)-1)
+		fmt.Printf("commented on proposal #%d\n", id)
 		return nil
 	default:
 		return fmt.Errorf("unknown proposal subcommand %q (show|ls|comment)", args[0])

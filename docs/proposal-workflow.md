@@ -69,14 +69,17 @@ section + doc-rendering detail mode.
 2. **Who is "the managing agent"?** — ANSWERED (c427): the agent doing the
    work in that repo — i.e. the TARGET repo's loop. Sign-off appends the todo
    to the target repo's TODO; no assignment flag.
-3. **ADR numbering**: per-repo sequence scanned from `docs/adr/` at write
-   time, or recap-global? Lean: per-repo scan — repos stay self-consistent.
-4. **Comment fan-out volume**: every comment to every party could get noisy
-   on a hot proposal. Batch per parking-wake (the queue already coalesces),
-   or fan every comment? Lean: fan everything, let the queue coalesce.
-5. **Does the tui proposal-file flow migrate?** The 001-oscillators pile
-   predates this; presumably new proposals use recap and in-flight ones
-   finish as files. Glyph Smith should weigh in (tagged in spirit).
+3. **ADR numbering** — ANSWERED (thread): recap-global; gaps inside a repo
+   are fine. Implementation: the ADR number IS the proposal id
+   (`docs/adr/<id>-slug.md`) — global by construction, and the file traces
+   straight back to its deliberation.
+4. **Comment fan-out volume** — ANSWERED (thread): the digest model. One
+   attention ping per party per proposal (no new ping while one sits unread);
+   `proposal show` delivers everything since the party's last look, with a
+   "new since your last look" divider and a per-party watermark.
+5. **Does the tui proposal-file flow migrate?** — ANSWERED (thread): yes,
+   migrate them. 001-oscillators imported as a recap proposal; tui's loop
+   retires the file in its own tree.
 
 ## Slices (each lands reviewable, in order)
 
@@ -84,9 +87,10 @@ section + doc-rendering detail mode.
    no TUI) — usable via messages immediately. **DONE** (proposals table,
    propose/show/ls verbs, tag delivery via the message queue, DecideProposal
    ready for slice 4).
-2. tag delivery + comment fan-out + @mentions. **DONE** (`proposal comment`
-   threads on the proposal, fans to every other party via the queue, @repo
-   joins + invites; commenting itself makes you a party).
+2. tag delivery + comment digests + @mentions. **DONE** (`proposal comment`
+   threads on the proposal; ONE unread attention ping per party per proposal
+   — the digest model — with @repo joining the parties and `show` advancing a
+   per-party watermark behind a "new since your last look" divider).
 3. TUI: inbox section + document detail rendering.
 4. sign-off: ADR writer + managing-repo todo append.
 5. skill section + broadcast.

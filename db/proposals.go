@@ -231,3 +231,41 @@ func (s *Store) LatestTaskPerRepo() (map[string]Task, error) {
 	}
 	return out, rows.Err()
 }
+
+// SendProposalPing queues ONE attention message for a proposal — and only if
+// the party has no unread ping for it already. The reviewer's digest model
+// (c429): a party gets pinged once, and reads everything since their last look
+// when they next open the proposal — no per-comment notification spam.
+func (s *Store) SendProposalPing(proposalID int64, fromRepo, fromWho, toRepo, body string) error {
+	var pending int64
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM messages
+		WHERE to_repo = ? AND proposal_id = ? AND COALESCE(read_agent,'') = ''`,
+		toRepo, proposalID).Scan(&pending)
+	if err != nil {
+		return err
+	}
+	if pending > 0 {
+		return nil // an unread ping already carries their attention
+	}
+	_, err = s.db.Exec(`INSERT INTO messages
+		(from_repo, from_who, to_repo, body, created_at, proposal_id)
+		VALUES (?,?,?,?,?,?)`,
+		fromRepo, fromWho, toRepo, body, NowStamp(), proposalID)
+	return err
+}
+
+// PartyWatermark returns the last comment id the party has seen on a proposal.
+func (s *Store) PartyWatermark(proposalID int64, repo string) int64 {
+	var w int64
+	s.db.QueryRow(`SELECT COALESCE(last_seen_comment_id, 0) FROM proposal_parties
+		WHERE proposal_id = ? AND repo = ?`, proposalID, repo).Scan(&w)
+	return w
+}
+
+// AdvancePartyWatermark records that the party has seen the thread up to id.
+func (s *Store) AdvancePartyWatermark(proposalID int64, repo string, id int64) error {
+	_, err := s.db.Exec(`UPDATE proposal_parties SET last_seen_comment_id = ?
+		WHERE proposal_id = ? AND repo = ? AND COALESCE(last_seen_comment_id,0) < ?`,
+		id, proposalID, repo, id)
+	return err
+}
