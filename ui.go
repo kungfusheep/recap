@@ -632,6 +632,11 @@ func syncSelectionFlags() {
 var (
 	focusBarX int16
 	focusBarW int16
+	// focusBarBG matches the FOCUSED pane's fill so the glyph row reads as part
+	// of the pane (terminal cells can't keep the underlying bg on overwrite —
+	// transparent rune writes are with glyph's intake; exact when settled, only
+	// approximate mid-slide).
+	focusBarBG Color
 )
 
 // focusBarTween builds the underline's tween: x and width share duration + ease
@@ -676,6 +681,12 @@ func applyPaneFocus() {
 	}
 	if r.W > 0 {
 		focusBarX, focusBarW = int16(r.X), int16(r.W)
+	}
+	switch pane {
+	case paneDiff:
+		focusBarBG = cBG
+	default:
+		focusBarBG = cPaneBG // list + comments columns share the pane fill
 	}
 }
 
@@ -1440,13 +1451,13 @@ func buildMain() Component {
 				// a flow row here would cut the pane backgrounds off the screen
 				// edge (the c404 artifact); overlay cells with default BG keep the
 				// pane's own colour beneath the text.
-				If(&statusMsg).Then(HBox(SpaceW(3), Text(&statusMsg).FG(&cSubtle))),
+				If(&statusMsg).Then(HBox.Fill(&cPaneBG)(SpaceW(3), Text(&statusMsg).FG(&cSubtle))),
 				HBox.Height(1)(
 					// a present dyn width means "explicitly sized" even at 0 (glyph
 					// honours the binding both ways since the eligibility fix), so
 					// the spacer needs no escape hatch — bind and go.
 					VBox.Width(focusBarTween(&focusBarX)).Height(1)(),
-					VBox.Width(focusBarTween(&focusBarW)).Height(1)(
+					VBox.Width(focusBarTween(&focusBarW)).Height(1).Fill(&focusBarBG)(
 						HRule().Char('▁').FG(&cFG),
 					),
 				),

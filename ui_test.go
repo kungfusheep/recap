@@ -1470,10 +1470,14 @@ func TestFocusBarTracksPane(t *testing.T) {
 	if x == listPaneRef.X {
 		t.Fatal("bar did not move off the list pane")
 	}
-	// the glyph BLENDS: under the list column the bar cell keeps the pane's own
-	// background (the overlay writes FG+rune only; default BG preserves the cell)
+	if bg := buf.Get(diffPaneRef.X+2, H-1).Style.BG; bg != cBG {
+		t.Fatalf("bar cells over the diff column should wear cBG, got %v", bg)
+	}
+	// the bar row reads as part of the pane: its cells wear the focused pane's
+	// fill (terminal cells can't keep an underlying bg on overwrite, so the bar
+	// carries the matching colour — never a default-bg block).
 	if bg := buf.Get(2, H-1).Style.BG; bg != cPaneBG {
-		t.Fatalf("bottom row under the list column lost its pane background: %v want %v", bg, cPaneBG)
+		t.Fatalf("bar cells over the list column should wear cPaneBG, got %v", bg)
 	}
 
 	// a SET status message must not cut the panes short (the c404 artifact): it
