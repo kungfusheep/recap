@@ -36,7 +36,8 @@ type taskVM struct {
 	Expanded   bool   // header only: its revisions are spliced in below
 	Grouped    bool   // child only: drives the indented, distinct-bg rendering
 	ExpandPill string // header only: revision-count cue, e.g. "▸ 3" / "▾ 3"
-	RevLabel   string // child only: e.g. "rev 2 · a1b2c3 · added line two"
+	RevLabel   string // child only: e.g. "rev 2 · a1b2c3 · 12:45 · added line two"
+	RevWhen    string // child only: the revision's full submitted-at stamp (detail meta)
 	Summary    string // this row's reviewer briefing (header = latest revision's; child = its own)
 }
 

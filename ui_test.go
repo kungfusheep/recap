@@ -1822,3 +1822,73 @@ func TestToastRendersBottomRight(t *testing.T) {
 		t.Fatalf("toast rendered at (%d,%d) — expected the bottom-right corner", foundX, foundY)
 	}
 }
+
+// Revision times are visible (todo:22cea19f): a revised task's row time shows
+// when the work LAST changed (not first arrival), each expanded child carries
+// its own submitted stamp in the label, and selecting a child moves the detail
+// meta time to that revision.
+func TestRevisionTimesVisible(t *testing.T) {
+	prevStore, prevApp, prevOmni, prevLayer := uiStore, uiApp, omni, diffUI.Layer
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	diffUI.Layer = NewLayer()
+	diffUI.Layer.Render = func() {}
+	t.Cleanup(func() {
+		uiStore, uiApp, omni, diffUI.Layer = prevStore, prevApp, prevOmni, prevLayer
+		inboxUI.Rows = nil
+		inboxUI.Expanded = map[int64]bool{}
+	})
+	yesterday := time.Now().Add(-26 * time.Hour).Format("2006-01-02 15:04:05")
+	id, err := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "revised work", Status: db.StatusPending, CreatedAt: yesterday})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddRevision(id, "deadbeef1234567", "fix forward"); err != nil {
+		t.Fatal(err)
+	}
+	inboxUI.Expanded[id] = true
+	reloadTasks()
+
+	var header, child *taskVM
+	for i := range inboxUI.Rows {
+		switch {
+		case inboxUI.Rows[i].ID == id && inboxUI.Rows[i].Header:
+			header = &inboxUI.Rows[i]
+		case inboxUI.Rows[i].ID == id && inboxUI.Rows[i].RevIdx == 1:
+			child = &inboxUI.Rows[i]
+		}
+	}
+	if header == nil || child == nil {
+		t.Fatalf("rows missing: header=%v child=%v", header, child)
+	}
+	// header time = the LATEST revision (today, HH:MM), not yesterday's arrival
+	if strings.Contains(header.When, "Jan") || strings.Contains(header.When, time.Now().Add(-26*time.Hour).Format("Jan")) || len(header.When) != 5 {
+		t.Fatalf("header time should be the latest revision's HH:MM today, got %q", header.When)
+	}
+	// the child label carries its submitted stamp; the base child carries yesterday's date
+	if !strings.Contains(child.RevLabel, hhmm(child.RevWhen)) {
+		t.Fatalf("rev child label missing its stamp: %q (when %q)", child.RevLabel, child.RevWhen)
+	}
+	var base *taskVM
+	for i := range inboxUI.Rows {
+		if inboxUI.Rows[i].ID == id && inboxUI.Rows[i].RevIdx == 0 {
+			base = &inboxUI.Rows[i]
+		}
+	}
+	if base == nil || !strings.Contains(base.RevLabel, time.Now().Add(-26*time.Hour).Format("Jan 2")) {
+		t.Fatalf("base revision label should carry yesterday's date: %+v", base)
+	}
+	// selecting the child moves the detail meta time to the revision's stamp
+	for i := range inboxUI.Rows {
+		if inboxUI.Rows[i].ID == id && inboxUI.Rows[i].RevIdx == 1 {
+			inboxUI.Sel = i
+		}
+	}
+	inboxUI.DetailDirty = true
+	refreshDetailNow()
+	if metaWhen != child.RevWhen {
+		t.Fatalf("detail meta time should follow the revision: got %q want %q", metaWhen, child.RevWhen)
+	}
+}

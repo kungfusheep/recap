@@ -488,7 +488,7 @@ func applyInbox(d *inboxData) {
 			RevIdx:    -1, // task header row
 			Header:    true,
 		}
-		vm.When = hhmm(t.CreatedAt)
+		vm.When = shortStamp(t.CreatedAt)
 		// unsubmitted draft feedback → a pill on the row (doesn't affect state).
 		if n := d.drafts[t.ID]; n > 0 {
 			vm.HasDraft = true
@@ -506,6 +506,9 @@ func applyInbox(d *inboxData) {
 		if len(revs) > 0 {
 			vm.DiffSHA = revs[len(revs)-1].SHA     // latest
 			vm.Summary = revs[len(revs)-1].Summary // briefing follows the latest revision
+			// the row's time follows the work, not the first appearance: a task
+			// that was revised shows WHEN it last changed (todo:22cea19f).
+			vm.When = shortStamp(revs[len(revs)-1].CreatedAt)
 		} else {
 			vm.Summary = t.Summary
 		}
@@ -540,6 +543,7 @@ func applyInbox(d *inboxData) {
 					DiffSHA:  r.SHA,
 					Grouped:  true,
 					RevLabel: revLabel(j, r),
+					RevWhen:  r.CreatedAt, // full stamp — the detail meta shows it when this row is selected
 					Summary:  r.Summary,
 				})
 			}
@@ -581,8 +585,8 @@ func applyInbox(d *inboxData) {
 }
 
 // revLabel is a revision child row's caption: "original" for the base diff (the
-// task's own commit), "rev N" for each fix-forward, plus the short sha and the
-// revision summary when present.
+// task's own commit), "rev N" for each fix-forward, plus the short sha, WHEN it
+// was submitted, and the revision summary when present.
 func revLabel(idx int, r db.Revision) string {
 	head := fmt.Sprintf("rev %d", idx)
 	if r.Base {
@@ -592,13 +596,17 @@ func revLabel(idx int, r db.Revision) string {
 	if len(sha) > 7 {
 		sha = sha[:7]
 	}
-	if r.Summary != "" {
-		return fmt.Sprintf("%s · %s · %s", head, sha, r.Summary)
-	}
+	parts := []string{head}
 	if sha != "" {
-		return fmt.Sprintf("%s · %s", head, sha)
+		parts = append(parts, sha)
 	}
-	return head
+	if when := shortStamp(r.CreatedAt); when != "" {
+		parts = append(parts, when)
+	}
+	if r.Summary != "" {
+		parts = append(parts, r.Summary)
+	}
+	return strings.Join(parts, " · ")
 }
 
 // selectedRow returns the currently selected flattened row (header or revision
@@ -816,6 +824,9 @@ func refreshDetailNow() {
 		detailTitle = t.Title + "  ·  " + row.RevLabel
 	}
 	metaRepo, metaWhen = t.Repo, t.CreatedAt
+	if row.RevIdx >= 0 && row.RevWhen != "" {
+		metaWhen = row.RevWhen // the meta time follows the REVISION in view
+	}
 	metaResult = dash(t.Result)
 	metaResultColor = resultColor(t.Result)
 	// the briefing follows the row in view: the header shows the latest revision's
@@ -1323,6 +1334,20 @@ func hhmm(stamp string) string {
 		return ""
 	}
 	return stamp[11:16]
+}
+
+// shortStamp reads as a time today ("12:45") and gains the date once it isn't
+// ("Jun 11 12:45") — a bare HH:MM across days is exactly what made revision
+// times unreadable (todo:22cea19f).
+func shortStamp(stamp string) string {
+	ts, err := time.ParseInLocation("2006-01-02 15:04:05", stamp, time.Local)
+	if err != nil {
+		return hhmm(stamp)
+	}
+	if ts.Format("2006-01-02") == time.Now().Format("2006-01-02") {
+		return ts.Format("15:04")
+	}
+	return ts.Format("Jan 2 15:04")
 }
 
 // --- view ------------------------------------------------------------------
