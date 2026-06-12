@@ -89,7 +89,6 @@ var (
 
 	helpOpen bool // ? cheatsheet overlay
 
-	spinFrame          int // animation frame for the in-flight spinner flare
 	detailTitle        string
 	metaRepo, metaWhen string
 	metaResult         string
@@ -155,23 +154,13 @@ func runUI() error {
 		}
 	}()
 
-	// animate the in-flight spinner flare, but only while there's an in-flight marker
-	// (no idle re-renders) and not while an external $EDITOR owns the terminal (else
-	// the flare draws over vim).
+	// the gated ticker now serves ONLY the notification feed's fade — the
+	// in-flight spinners self-animate since glyph ADR 1 (visible == animating,
+	// frame derived from the frame clock; the hand-fed spinFrame counter and
+	// its hasCurrent re-render branch are deleted).
 	go func() {
 		for range time.Tick(120 * time.Millisecond) {
-			live := false
-			if hasCurrent { // App.Suspend() gates the actual draw while $EDITOR owns the screen
-				spinFrame++
-				live = true
-			}
-			// the notification feed fades on the same gated ticker — tick()
-			// stages the fade frame and reports whether anything still lives,
-			// so an idle app with an empty feed requests no frames.
 			if statusFeed.tick() {
-				live = true
-			}
-			if live {
 				uiApp.RequestRender()
 			}
 		}
@@ -1498,14 +1487,14 @@ func buildMain() Component {
 						// (upcomingMax): fewer tasks leave blanks, so the inbox below
 						// never shifts between projects with different upcoming
 						// counts. The in-flight row's bullet swaps for a Spinner
-						// bound to spinFrame (per-item field bindings are
+						// self-animating (glyph ADR 1; per-item field bindings are
 						// offset-resolved inside the ForEach).
 						VBox.Height(upcomingMax)(
 							If(&upcomingNone).Then(Text("· nothing upcoming").FG(&cSubtle)),
 							ForEach(&upcomingItems).Limit(upcomingMax)(func(r *upcomingRow) Component {
 								return HBox(
 									If(&r.InFlight).
-										Then(Spinner(&spinFrame).Frames(SpinnerDots).FG(&cSubtle)).
+										Then(Spinner().Frames(SpinnerDots).FG(&cSubtle)).
 										Else(Text("·").FG(&cSubtle)),
 									SpaceW(1),
 									Text(&r.Line).FG(&cSubtle),
@@ -1533,8 +1522,8 @@ func buildMain() Component {
 					Key("u", undoLast), // undo the last approve/submit/pin
 					Key("c", openComment),
 					Key("v", rerun),
-					Key("o", toggleExpand),         // expand a task into its revision diffs
-					Key("p", togglePin),            // pin/unpin → floats to the PINNED section
+					Key("o", toggleExpand),                   // expand a task into its revision diffs
+					Key("p", togglePin),                      // pin/unpin → floats to the PINNED section
 					Key("Z", collapseAllRevisions),           // fold/unfold ALL revision expansions
 					Key("]", func() { jumpInboxSection(1) }), // next / prev section
 					Key("[", func() { jumpInboxSection(-1) }),
@@ -1811,7 +1800,7 @@ func taskRow(r *taskVM) Component {
 			// right ("mental" spacing). Width(1) clamps it so the dot/spinner stay 1 col.
 			HBox.Width(1)(
 				If(&r.InFlight).
-					Then(Spinner(&spinFrame).Frames(SpinnerDots).FG(&cBright)).
+					Then(Spinner().Frames(SpinnerDots).FG(&cBright)).
 					Else(Switch(&r.State).
 						Case(db.StateRework, Text("↻").FG(&cDel)).
 						Case(db.StateDone, Text("✓").FG(&cSubtle)).

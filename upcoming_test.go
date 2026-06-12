@@ -77,7 +77,7 @@ func TestUpcomingBandRendersCapped(t *testing.T) {
 			If(&upcomingNone).Then(Text("· nothing upcoming")),
 			ForEach(&upcomingItems).Limit(upcomingMax)(func(r *upcomingRow) Component {
 				return HBox(
-					If(&r.InFlight).Then(Spinner(&spinFrame).Frames(SpinnerDots)).Else(Text("·")),
+					If(&r.InFlight).Then(Spinner().Frames(SpinnerDots)).Else(Text("·")),
 					SpaceW(1),
 					Text(&r.Line),
 				)

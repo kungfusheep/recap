@@ -34,7 +34,7 @@ var (
 // upcomingRow is one TODO line in the upcoming list. Rows render via a ForEach
 // with per-item field bindings (&r.Line/&r.InFlight are offset-resolved per row)
 // capped by Limit(upcomingMax) — the cap is a template concern. The in-flight row
-// flares in place: its bullet swaps for a Spinner bound to spinFrame.
+// flares in place: its bullet swaps for a self-animating Spinner (glyph ADR 1).
 type upcomingRow struct {
 	Line     string // the raw task text (the bullet/spinner prefix is added in the blob)
 	InFlight bool   // this row is the in-flight item → spinner prefix instead of a bullet
