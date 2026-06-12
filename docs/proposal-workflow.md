@@ -64,9 +64,8 @@ section + doc-rendering detail mode.
 
 ## Open questions for steer
 
-1. **Storage**: `kind` column on tasks (proposals ride every existing query)
-   vs a separate table (cleaner separation, more plumbing). Lean: task kind —
-   the inbox, reviews, and comments then work unmodified.
+1. **Storage** — ANSWERED (c426): a separate `proposals` table, for room to
+   grow. Landed in slice 1.
 2. **Who is "the managing agent"?** Default the target repo's loop, or named
    explicitly at sign-off (`recap review approve N --assign tui`)?
 3. **ADR numbering**: per-repo sequence scanned from `docs/adr/` at write
@@ -81,7 +80,9 @@ section + doc-rendering detail mode.
 ## Slices (each lands reviewable, in order)
 
 1. db: proposal rows + parties; `recap propose` + `proposal show` (CLI-only,
-   no TUI) — usable via messages immediately.
+   no TUI) — usable via messages immediately. **DONE** (proposals table,
+   propose/show/ls verbs, tag delivery via the message queue, DecideProposal
+   ready for slice 4).
 2. tag delivery + comment fan-out + @mentions.
 3. TUI: inbox section + document detail rendering.
 4. sign-off: ADR writer + managing-repo todo append.

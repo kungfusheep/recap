@@ -83,6 +83,10 @@ func main() {
 		err = cmdMessages(args)
 	case "todo":
 		err = cmdTodo(args)
+	case "propose":
+		err = cmdPropose(args)
+	case "proposal":
+		err = cmdProposal(args)
 	case "listeners":
 		err = cmdListeners(args)
 	case "skill":
@@ -167,6 +171,13 @@ usage:
                          the target's owner opted in (recap todo --open, run in
                          that repo; --close revokes) — propose via recap send
                          instead and the owner queues agreed work.
+
+  recap propose --target R --title T (--body B | --file F) [--tag a,b]
+                         open a cross-repo work proposal: a document under
+                         multi-party review, stored in recap (no repo artifacts
+                         until sign-off). Tagged repos are notified via the
+                         message queue.
+  recap proposal show <id> | recap proposal ls [--all]
 
   recap listeners        show repos with a live parked loop right now
   recap messages [--all] the message ledger, both directions (m-ids, read state)

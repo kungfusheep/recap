@@ -274,3 +274,33 @@ func TestSkillContract_TodoCreatesWork(t *testing.T) {
 		t.Errorf("recap help does not mention the todo verb:\n%s", h)
 	}
 }
+
+// slice 1 of the proposal workflow: propose opens a document under review,
+// notifies parties through the message queue, and show/ls read it back.
+func TestSkillContract_ProposalSlice1(t *testing.T) {
+	dbPath := contractDB(t)
+	out := mustRun(t, dbPath, "propose", "--target", "tui", "--title", "preserve bg",
+		"--body", "## Problem\nplain writes drop the cell bg", "--tag", "mail")
+	if !strings.Contains(out, "proposal #1 opened") {
+		t.Fatalf("propose did not open #1:\n%s", out)
+	}
+	// the tagged + target repos got durable queue messages
+	for _, repo := range []string{"tui", "mail"} {
+		msgs := mustRun(t, dbPath, "messages", "--all")
+		if !strings.Contains(msgs, "→ "+repo) || !strings.Contains(msgs, "proposal #1 awaits your review") {
+			t.Fatalf("no notification message for %s:\n%s", repo, msgs)
+		}
+	}
+	show := mustRun(t, dbPath, "proposal", "show", "1")
+	for _, want := range []string{"OPEN", "preserve bg", "target:   tui", "plain writes drop the cell bg"} {
+		if !strings.Contains(show, want) {
+			t.Fatalf("proposal show missing %q:\n%s", want, show)
+		}
+	}
+	if ls := mustRun(t, dbPath, "proposal", "ls"); !strings.Contains(ls, "preserve bg") {
+		t.Fatalf("proposal ls missing the open item:\n%s", ls)
+	}
+	if h := mustRun(t, dbPath, "help"); !strings.Contains(h, "recap propose") {
+		t.Errorf("help does not advertise propose:\n%s", h)
+	}
+}

@@ -127,3 +127,47 @@ func TestEditOwnComment(t *testing.T) {
 		t.Fatal("editing an agent comment must be refused")
 	}
 }
+
+// proposals: open with deduped parties, list/fetch, decide once (open→decided
+// is one-way; double-decide refused), parties grow idempotently.
+func TestProposalLifecycle(t *testing.T) {
+	st := testStoreDB(t)
+	id, err := st.AddProposal(Proposal{
+		Title: "PreserveBG write mode", Body: "## Problem\n…",
+		ProposerRepo: "recap", ProposerWho: "Kestrel", TargetRepo: "tui",
+	}, []string{"mail", "recap", " "}) // proposer dup + blank are dropped
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	parties, _ := st.ProposalParties(id)
+	if len(parties) != 3 { // recap, tui, mail
+		t.Fatalf("parties = %v, want 3 deduped", parties)
+	}
+	if err := st.AddProposalParty(id, "mail"); err != nil {
+		t.Fatalf("idempotent party add: %v", err)
+	}
+	if parties, _ = st.ProposalParties(id); len(parties) != 3 {
+		t.Fatalf("party re-add duplicated: %v", parties)
+	}
+
+	open, _ := st.Proposals(ProposalOpen)
+	if len(open) != 1 || open[0].Status != ProposalOpen {
+		t.Fatalf("open list = %+v", open)
+	}
+	if err := st.DecideProposal(id, "maybe"); err == nil {
+		t.Fatal("invalid status must be refused")
+	}
+	if err := st.DecideProposal(id, ProposalApproved); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if err := st.DecideProposal(id, ProposalDeclined); err == nil {
+		t.Fatal("double-decide must be refused")
+	}
+	p, _ := st.ProposalByID(id)
+	if p.Status != ProposalApproved || p.DecidedAt == "" {
+		t.Fatalf("decided proposal = %+v", p)
+	}
+	if open, _ = st.Proposals(ProposalOpen); len(open) != 0 {
+		t.Fatalf("approved proposal still listed open: %+v", open)
+	}
+}

@@ -247,6 +247,9 @@ func OpenAt(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if _, err := db.Exec(proposalSchema); err != nil {
+		return nil, fmt.Errorf("init proposals schema: %w", err)
+	}
 	s := &Store{db: db}
 	if err := s.migrate(); err != nil {
 		db.Close()
