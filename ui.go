@@ -129,8 +129,8 @@ func runUI() error {
 		upcomingWidth = int16(float32(w) * inboxColPct)
 		// initial focus underline: the list pane owns focus at startup, before
 		// any layout has populated the NodeRefs.
-		if pane == paneList && focusBarX == 0 {
-			focusBarW = upcomingWidth
+		if pane == paneList && focusLineX == 0 {
+			focusLineW = float64(upcomingWidth)
 		}
 	}
 	applyTermWidth(uiApp.Size().Width)
@@ -629,17 +629,17 @@ func syncSelectionFlags() {
 // bottom of the app slides to the focused pane's rect. Set at focus events
 // (applyPaneFocus) from the panes' NodeRefs (layout output); the template
 // animates toward them (VBox.Width(Animate(&…)), the glyph tween primitive).
+// focusLineX/focusLineW are the focus underline's tween TARGETS (floats — the
+// FocusLine effect renders at sub-cell resolution). Set at focus events from
+// the panes' NodeRefs; the effect's compiled Animate tweens slide toward them.
 var (
-	focusBarX int16
-	focusBarW int16
-	// focusLineRef is the invisible tween carrier's rect — the FocusLine
-	// screen effect inks the ▁ across it each frame.
-	focusLineRef NodeRef
+	focusLineX float64
+	focusLineW float64
 )
 
-// focusBarTween builds the underline's tween: x and width share duration + ease
-// so the bar slides as one shape.
-func focusBarTween(target *int16) any {
+// focusLineTween builds the underline's tween: x and width share duration +
+// ease so the line slides as one shape.
+func focusLineTween(target *float64) any {
 	return Animate.Duration(300 * time.Millisecond).Ease(EaseOutCubic)(target)
 }
 
@@ -678,7 +678,7 @@ func applyPaneFocus() {
 		r = draftUI.PaneRef
 	}
 	if r.W > 0 {
-		focusBarX, focusBarW = int16(r.X), int16(r.W)
+		focusLineX, focusLineW = float64(r.X), float64(r.W)
 	}
 }
 
@@ -1441,23 +1441,17 @@ func buildMain() Component {
 			VBox(
 				// transient status (errors/confirmations) floats over the pane —
 				// a flow row here would cut the pane backgrounds off the screen
-				// edge (the c404 artifact); overlay cells with default BG keep the
-				// pane's own colour beneath the text.
+				// edge (the c404 artifact). It sits over the list column's corner,
+				// one row above the focus line.
 				If(&statusMsg).Then(HBox.Fill(&cPaneBG)(SpaceW(3), Text(&statusMsg).FG(&cSubtle))),
-				HBox.Height(1)(
-					// a present dyn width means "explicitly sized" even at 0 (glyph
-					// honours the binding both ways since the eligibility fix), so
-					// the spacer needs no escape hatch — bind and go.
-					VBox.Width(focusBarTween(&focusBarX)).Height(1)(),
-					VBox.Width(focusBarTween(&focusBarW)).Height(1).NodeRef(&focusLineRef)(),
-				),
+				SpaceH(1), // the focus line's row — drawn by the FocusLine effect
 			),
 		),
 		// per-column focus fade: unfocused columns dim (mail's FocusShade)
 		columnShades(),
 		// the focus underline is INKED by a post-process over the invisible
 		// tween carrier — rune+FG only, every cell's background preserved.
-		ScreenEffect(NewFocusLine(&focusLineRef, &cFG)),
+		ScreenEffect(NewFocusLine(focusLineTween(&focusLineX), focusLineTween(&focusLineW), &cFG)),
 		// floating comment prompts (add/edit + read), over the inbox/diff
 		inputPromptOverlay(),
 		readCommentOverlay(),

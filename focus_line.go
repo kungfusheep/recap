@@ -1,44 +1,69 @@
 package main
 
 import (
+	"math"
+
 	. "github.com/kungfusheep/glyph"
 )
 
-// FocusLine draws the focus underline as a POST-PROCESS: a ▁ (lower one-eighth)
-// glyph across the carrier ref's rect, written into the EXISTING cells — rune +
-// foreground only, each cell's background preserved. The carrier is an invisible
-// width-tweened box (glyph animations own the slide); this effect just inks the
-// line wherever the carrier currently sits, so the line blends over any pane it
-// crosses, mid-slide included. No block, ever — c408's shape.
+// FocusLine draws the focus underline as a POST-PROCESS along the screen's
+// bottom row: a ▁ (lower one-eighth) line inked into the EXISTING cells — rune
+// + foreground only, every cell's background preserved, blending over any pane
+// it crosses.
+//
+// Position and width are glyph-animated floats (Animate compiled through the
+// effect pipeline, the FocusShade-Strength pattern), so the slide renders at
+// SUB-CELL resolution: edge cells with partial coverage draw quadrant caps
+// (▗ leading / ▖ trailing — the block set has no partial-width lower-eighths,
+// so the quadrant pair is the finest cap available; settled edges are integral
+// and render pure ▁).
 type FocusLine struct {
-	Ref *NodeRef
-	FG  *Color
+	xArg, wArg any
+	x, w       EffectFloat64
+	FG         *Color
 }
 
-func NewFocusLine(ref *NodeRef, fg *Color) FocusLine {
-	return FocusLine{Ref: ref, FG: fg}
+func NewFocusLine(x, w any, fg *Color) FocusLine {
+	return FocusLine{xArg: x, wArg: w, FG: fg}
 }
 
-func (f FocusLine) CompileEffect(c EffectCompiler) Effect { return f }
+func (f FocusLine) CompileEffect(c EffectCompiler) Effect {
+	f.x = c.Float64(f.xArg)
+	f.w = c.Float64(f.wArg)
+	return f
+}
 
 func (f FocusLine) Apply(buf *Buffer, ctx PostContext) {
-	if f.Ref == nil || f.Ref.W <= 0 || f.Ref.H <= 0 {
+	x, w := f.x.Float64(), f.w.Float64()
+	if w <= 0 || ctx.Height == 0 {
 		return
 	}
-	y := f.Ref.Y + f.Ref.H - 1 // the carrier's bottom row
-	if y < 0 || y >= ctx.Height {
-		return
-	}
-	for x := f.Ref.X; x < f.Ref.X+f.Ref.W && x < ctx.Width; x++ {
-		if x < 0 {
+	y := ctx.Height - 1
+	start, end := x, x+w
+	for cx := int(math.Floor(start)); cx < int(math.Ceil(end)) && cx < ctx.Width; cx++ {
+		if cx < 0 {
 			continue
 		}
-		cell := buf.Get(x, y)
-		cell.Rune = '▁'
+		lo, hi := math.Max(start, float64(cx)), math.Min(end, float64(cx+1))
+		cov := hi - lo
+		if cov <= 0.25 {
+			continue // sliver — leave the cell alone
+		}
+		var r rune
+		switch {
+		case cov >= 0.75:
+			r = '▁'
+		case lo > float64(cx): // covered part is the cell's right side: leading cap
+			r = '▗'
+		default: // covered part is the cell's left side: trailing cap
+			r = '▖'
+		}
+		cell := buf.Get(cx, y)
+		cell.Rune = r
 		if f.FG != nil {
 			cell.Style.FG = *f.FG
 		}
 		// background + attrs untouched: the line inks over whatever is beneath
-		buf.Set(x, y, cell)
+		buf.Set(cx, y, cell)
 	}
 }

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	. "github.com/kungfusheep/glyph"
 )
@@ -1404,10 +1403,9 @@ func TestHelpOverlayNoTruncation(t *testing.T) {
 	}
 }
 
-// the focus underline: a 1-row cFG bar at the bottom whose x/width match the
-// focused pane and ANIMATE to the next pane on focus change — driven by glyph
-// tweens toward targets applyPaneFocus sets (todo:e99fee66's constraint).
-// Asserted on rendered buffer cells, before and after the tween settles.
+// the focus underline: inked on the bottom row by the FocusLine effect at the
+// pane's x/width (targets set at focus events), backgrounds preserved, and
+// SUB-CELL edges via quadrant caps when the animated position is fractional.
 func TestFocusBarTracksPane(t *testing.T) {
 	prevApp, prevStore, prevOmni := uiApp, uiStore, omni
 	st := testStore(t)
@@ -1418,8 +1416,8 @@ func TestFocusBarTracksPane(t *testing.T) {
 		uiApp, uiStore, omni = prevApp, prevStore, prevOmni
 		inboxUI.Rows = nil
 		pane = paneList
-		focusBarX, focusBarW = 0, 0
-		applyPaneFocus()
+		focusLineX, focusLineW = 0, 0
+		statusMsg = ""
 	})
 	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	reloadTasks()
@@ -1427,20 +1425,18 @@ func TestFocusBarTracksPane(t *testing.T) {
 
 	const W, H = 140, 40
 	tmpl := Build(buildMain())
-	render := func() *Buffer {
+	render := func(x, w float64) *Buffer {
 		buf := NewBuffer(W, H)
 		tmpl.Execute(buf, W, H)
-		// the line is a post-process in the app pipeline; apply it the same way
-		// the App would, over the tween carrier's current rect.
-		NewFocusLine(&focusLineRef, &cFG).Apply(buf, PostContext{Width: W, Height: H})
+		fl := FocusLine{FG: &cFG, x: StaticEffectFloat64(x), w: StaticEffectFloat64(w)}
+		fl.Apply(buf, PostContext{Width: W, Height: H})
 		return buf
 	}
-	barSpan := func(buf *Buffer) (x, w int) {
-		y := H - 1
+	span := func(buf *Buffer) (x, w int) {
 		x, w = -1, 0
 		for cx := 0; cx < W; cx++ {
-			c := buf.Get(cx, y)
-			if c.Rune == '▁' && c.Style.FG == cFG {
+			c := buf.Get(cx, H-1)
+			if (c.Rune == '▁' || c.Rune == '▗' || c.Rune == '▖') && c.Style.FG == cFG {
 				if x < 0 {
 					x = cx
 				}
@@ -1450,45 +1446,50 @@ func TestFocusBarTracksPane(t *testing.T) {
 		return
 	}
 
-	render() // first layout populates the pane NodeRefs
+	render(0, 0) // first layout populates the pane NodeRefs
 	applyPaneFocus()
-	render()                           // a tween starts when an Execute observes the changed target
-	time.Sleep(350 * time.Millisecond) // let it settle
-	buf := render()
-	x, w := barSpan(buf)
+	if focusLineX != float64(listPaneRef.X) || focusLineW != float64(listPaneRef.W) {
+		t.Fatalf("focus event targets = %v/%v, want pane rect %d/%d", focusLineX, focusLineW, listPaneRef.X, listPaneRef.W)
+	}
+	buf := render(focusLineX, focusLineW)
+	x, w := span(buf)
 	if x != listPaneRef.X || w != listPaneRef.W {
-		t.Fatalf("list-focused bar = x%d w%d, want pane rect x%d w%d", x, w, listPaneRef.X, listPaneRef.W)
+		t.Fatalf("list-focused line = x%d w%d, want pane rect x%d w%d", x, w, listPaneRef.X, listPaneRef.W)
 	}
-
-	// focus the diff pane: the bar's TARGETS move at the event; after the tween
-	// settles the bar sits under the middle column.
-	setPane(paneDiff)
-	render() // observe the retarget → tween starts
-	time.Sleep(350 * time.Millisecond)
-	buf = render()
-	x, w = barSpan(buf)
-	if x != diffPaneRef.X || w != diffPaneRef.W {
-		t.Fatalf("diff-focused bar = x%d w%d, want pane rect x%d w%d", x, w, diffPaneRef.X, diffPaneRef.W)
-	}
-	if x == listPaneRef.X {
-		t.Fatal("bar did not move off the list pane")
-	}
-	if bg := buf.Get(diffPaneRef.X+2, H-1).Style.BG; bg != cBG {
-		t.Fatalf("inked line over the diff column must keep cBG beneath, got %v", bg)
-	}
-	// the line is INKED over existing cells: the underlying pane background is
-	// genuinely preserved (rune+FG only — no block, c408's shape).
 	if bg := buf.Get(2, H-1).Style.BG; bg != cPaneBG {
 		t.Fatalf("inked line over the list column must keep cPaneBG beneath, got %v", bg)
 	}
 
-	// a SET status message must not cut the panes short (the c404 artifact): it
-	// floats in the overlay, the pane background still reaches the bottom row.
+	setPane(paneDiff)
+	if focusLineX != float64(diffPaneRef.X) || focusLineW != float64(diffPaneRef.W) {
+		t.Fatalf("diff focus targets = %v/%v, want %d/%d", focusLineX, focusLineW, diffPaneRef.X, diffPaneRef.W)
+	}
+	buf = render(focusLineX, focusLineW)
+	x, w = span(buf)
+	if x != diffPaneRef.X || w != diffPaneRef.W {
+		t.Fatalf("diff-focused line = x%d w%d, want pane rect x%d w%d", x, w, diffPaneRef.X, diffPaneRef.W)
+	}
+	if bg := buf.Get(diffPaneRef.X+2, H-1).Style.BG; bg != cBG {
+		t.Fatalf("inked line over the diff column must keep cBG beneath, got %v", bg)
+	}
+
+	// SUB-CELL: a fractional mid-slide position draws quadrant caps at the edges
+	buf = render(10.5, 20)
+	if got := buf.Get(10, H-1).Rune; got != '▗' {
+		t.Fatalf("leading fractional edge = %q, want ▗", got)
+	}
+	if got := buf.Get(11, H-1).Rune; got != '▁' {
+		t.Fatalf("body cell = %q, want ▁", got)
+	}
+	if got := buf.Get(30, H-1).Rune; got != '▖' {
+		t.Fatalf("trailing fractional edge = %q, want ▖", got)
+	}
+
+	// a SET status message floats one row above and never cuts the panes short
 	statusMsg = "recorded #1"
-	defer func() { statusMsg = "" }()
-	buf = render()
+	buf = render(focusLineX, focusLineW)
 	if bg := buf.Get(2, H-1).Style.BG; bg != cPaneBG {
-		t.Fatalf("status message cut the pane off the bottom row: bg=%v want %v", bg, cPaneBG)
+		t.Fatalf("status message cut the pane off the bottom row: bg=%v", bg)
 	}
 	found := false
 	for y := H - 3; y < H; y++ {
