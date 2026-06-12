@@ -2112,3 +2112,92 @@ func TestDraftVimJumps(t *testing.T) {
 		t.Fatalf("G should land on the last VISIBLE row, got %d", draftUI.Sel)
 	}
 }
+
+// Slice 4 — sign-off (c473: "how do i sign off a proposal??"): pressing a on a
+// proposal row approves it, which MATERIALISES the decision — an ADR in the
+// target repo (proposal id = ADR number), an implementation todo on the target
+// repo's TODO, and a direct message to every party. The decided proposal
+// leaves the open list.
+func TestProposalSignOff(t *testing.T) {
+	prevApp, prevStore, prevOmni, prevLayer, prevKick := uiApp, uiStore, omni, diffUI.Layer, propDetailKick
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	diffUI.Layer = NewLayer()
+	diffUI.Layer.Render = func() {}
+	t.Cleanup(func() {
+		uiApp, uiStore, omni, diffUI.Layer, propDetailKick = prevApp, prevStore, prevOmni, prevLayer, prevKick
+		inboxUI = inboxView{Expanded: map[int64]bool{}, TaskByID: map[int64]db.Task{}, PropByID: map[int64]db.Proposal{}, DoneLimit: 10}
+		propUI = propView{Commented: map[int]bool{}}
+		draftUI = draftView{LastSel: -1, Collapsed: map[int64]bool{}}
+		propOpen = 0
+		statusMsg = ""
+	})
+	t.Setenv("RECAP_DB", filepath.Join(t.TempDir(), "recap.db"))
+	targetTree := t.TempDir()
+	// the target repo's TODO resolves through the config template
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	os.WriteFile(cfgPath, []byte("todo_template = \""+filepath.Join(targetTree, "TODO.md")+"\"\n"), 0o644)
+	t.Setenv("RECAP_CONFIG", cfgPath)
+	os.WriteFile(filepath.Join(targetTree, "TODO.md"), []byte("- [ ] existing item\n"), 0o644)
+
+	// the target repo is known via a recorded task (RepoPathFor resolution)
+	st.Add(db.Task{Repo: "tui", RepoPath: targetTree, Title: "prior work", Status: db.StatusPending})
+	pid, err := st.AddProposal(db.Proposal{
+		Title: "Oscillators & Gates!", Body: "# the plan\n\ndo the thing",
+		ProposerRepo: "tui", ProposerWho: "Glyph Smith", TargetRepo: "tui",
+	}, []string{"recap"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	propDetailKick = func(p db.Proposal, key string, reset bool) {}
+	reloadTasks()
+	inboxUI.Sel = 0
+	syncSelectionFlags()
+	if row := selectedRow(); row == nil || !row.Proposal {
+		t.Fatalf("precondition: proposal row selected, got %+v", selectedRow())
+	}
+
+	approveSelected() // a on a proposal row IS the sign-off
+
+	p, _ := st.ProposalByID(pid)
+	if p.Status != db.ProposalApproved {
+		t.Fatalf("status = %q, want approved", p.Status)
+	}
+	adr := filepath.Join(targetTree, "docs", "adr", fmt.Sprintf("%d-oscillators-gates.md", pid))
+	b, err := os.ReadFile(adr)
+	if err != nil {
+		t.Fatalf("ADR not written: %v", err)
+	}
+	for _, want := range []string{"# ADR 1: Oscillators & Gates!", "status: accepted", "do the thing", "Glyph Smith@tui"} {
+		if !strings.Contains(string(b), want) {
+			t.Fatalf("ADR missing %q:\n%s", want, b)
+		}
+	}
+	tb, _ := os.ReadFile(filepath.Join(targetTree, "TODO.md"))
+	if !strings.Contains(string(tb), "implement approved proposal #1: Oscillators & Gates!") {
+		t.Fatalf("implementation todo not queued:\n%s", tb)
+	}
+	// every party hears the verdict directly
+	ms, _ := st.Messages("")
+	heard := map[string]bool{}
+	for _, m := range ms {
+		if strings.Contains(m.Body, "APPROVED") {
+			heard[m.ToRepo] = true
+		}
+	}
+	if !heard["tui"] || !heard["recap"] {
+		t.Fatalf("parties not notified of the verdict: %v", heard)
+	}
+	// the decided proposal leaves the open list
+	for _, r := range inboxUI.Rows {
+		if r.Proposal {
+			t.Fatalf("decided proposal still in the inbox: %+v", r)
+		}
+	}
+	// double-decide refused (X after a)
+	if err := st.DecideProposal(pid, db.ProposalDeclined); err == nil {
+		t.Fatal("double-decide should refuse")
+	}
+}

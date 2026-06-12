@@ -96,7 +96,11 @@ section + doc-rendering detail mode.
    pane renders the document — headings, code fences, briefing markup — plus
    the deliberation thread; `c` threads a human comment and pings every
    party through the digest model).
-4. sign-off: ADR writer + managing-repo todo append.
+4. sign-off: ADR writer + managing-repo todo append. **DONE** (a on a
+   proposal row approves, X declines — verdicts stay human in the TUI;
+   approval writes docs/adr/<proposal-id>-<slug>.md into the target repo,
+   queues the implementation todo on the target's TODO, and every party
+   hears the verdict as a direct message).
 5. skill section + broadcast. **DONE** (skill.md "Proposals" section — verbs,
    digest etiquette, the don't-pre-build rule; fleet broadcast m145–m151 to
    live listeners + every known agent repo durably).

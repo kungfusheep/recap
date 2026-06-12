@@ -279,6 +279,17 @@ func (s *Store) LatestActivityPerRepo() (map[string]RepoActivity, error) {
 	return out, rows.Err()
 }
 
+// RepoPathFor resolves a repo display name to its working-tree path via the
+// repo's most recent task (the sign-off writer needs somewhere to put the ADR).
+func (s *Store) RepoPathFor(repo string) (string, error) {
+	var p string
+	err := s.db.QueryRow(`SELECT repo_path FROM tasks WHERE repo = ? ORDER BY id DESC LIMIT 1`, repo).Scan(&p)
+	if err != nil || p == "" {
+		return "", fmt.Errorf("no known working tree for %s (no recorded tasks)", repo)
+	}
+	return p, nil
+}
+
 // LatestTaskPerRepo returns each repo's most recent task — the "last thing
 // they did" line on the agent dashboard.
 func (s *Store) LatestTaskPerRepo() (map[string]Task, error) {

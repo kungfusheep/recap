@@ -2,12 +2,16 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
 	. "github.com/kungfusheep/glyph"
+	"github.com/kungfusheep/recap/config"
 	"github.com/kungfusheep/recap/db"
 	"github.com/kungfusheep/recap/notify"
+	"github.com/kungfusheep/recap/todo"
 )
 
 // The proposal detail pane — the SAME aesthetic as the task diff/comments
@@ -430,4 +434,125 @@ func openPropLineComment() {
 		return
 	}
 	uiApp.EnterJumpMode()
+}
+
+// --- sign-off (slice 4) --------------------------------------------------------
+//
+// Verdicts stay human: a/X on a proposal row in the TUI. Approval MATERIALISES
+// the decision — an ADR in the target repo (docs/adr/<proposal-id>-<slug>.md;
+// the proposal id IS the ADR number, recap-global, gaps fine) and an
+// implementation todo on the TARGET repo's queue (its loop is the managing
+// agent). Decline records the verdict and tells the parties; no artifacts.
+
+func signOffProposal(row *taskVM, verdict string) {
+	p, ok := inboxUI.PropByID[row.ID]
+	if !ok {
+		return
+	}
+	if err := uiStore.DecideProposal(p.ID, verdict); err != nil {
+		toast("sign-off: " + err.Error())
+		return
+	}
+	msg := fmt.Sprintf("proposal #%d (%q) DECLINED — thread: recap proposal show %d", p.ID, p.Title, p.ID)
+	if verdict == db.ProposalApproved {
+		msg = fmt.Sprintf("proposal #%d (%q) APPROVED", p.ID, p.Title)
+		if rel, err := writeProposalADR(p); err != nil {
+			toast("ADR not written: " + err.Error())
+		} else {
+			msg += " — ADR " + rel
+		}
+		if err := queueProposalTodo(p); err != nil {
+			toast("todo not queued: " + err.Error())
+		} else {
+			msg += fmt.Sprintf(", implementation todo queued on %s", p.TargetRepo)
+		}
+	}
+	// a verdict is a TERMINAL event — every party hears it directly (a plain
+	// message, not the digest ping, so it can never coalesce away).
+	parties, _ := uiStore.ProposalParties(p.ID)
+	for _, r := range parties {
+		if r == "" {
+			continue
+		}
+		_, _ = uiStore.SendMessage("", "you", r, 0, 0, msg)
+	}
+	notify.Reload()
+	toast(msg)
+	inboxUI.KeepSelOnReload = true // the decided proposal leaves the open list
+	reloadTasks()
+}
+
+// writeProposalADR materialises the decision record in the TARGET repo.
+func writeProposalADR(p db.Proposal) (string, error) {
+	rp, err := uiStore.RepoPathFor(p.TargetRepo)
+	if err != nil {
+		return "", err
+	}
+	rel := filepath.Join("docs", "adr", fmt.Sprintf("%d-%s.md", p.ID, slugify(p.Title)))
+	full := filepath.Join(rp, rel)
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		return "", err
+	}
+	comments, _ := uiStore.ProposalComments(p.ID)
+	parties, _ := uiStore.ProposalParties(p.ID)
+	var b strings.Builder
+	fmt.Fprintf(&b, "# ADR %d: %s\n\n", p.ID, p.Title)
+	fmt.Fprintf(&b, "- status: accepted\n- date: %s\n", db.NowStamp())
+	fmt.Fprintf(&b, "- proposer: %s\n", propSender(p.ProposerWho, p.ProposerRepo))
+	fmt.Fprintf(&b, "- parties: %s\n", strings.Join(parties, ", "))
+	fmt.Fprintf(&b, "- deliberation: recap proposal show %d (%d comments)\n\n", p.ID, len(comments))
+	b.WriteString(p.Body)
+	if !strings.HasSuffix(p.Body, "\n") {
+		b.WriteString("\n")
+	}
+	if err := os.WriteFile(full, []byte(b.String()), 0o644); err != nil {
+		return "", err
+	}
+	return rel, nil
+}
+
+// queueProposalTodo appends the implementation item to the TARGET repo's TODO —
+// the managing agent's loop picks it up through its normal todo tier.
+func queueProposalTodo(p db.Proposal) error {
+	rp, err := uiStore.RepoPathFor(p.TargetRepo)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return err
+	}
+	path, err := todo.PathFor(cfg.TODOTemplate, rp)
+	if err != nil || path == "" {
+		return fmt.Errorf("no TODO path resolves for %s", p.TargetRepo)
+	}
+	items, err := todo.Read(path)
+	if err != nil {
+		return err
+	}
+	text := fmt.Sprintf("implement approved proposal #%d: %s (ADR docs/adr/%d-%s.md)", p.ID, p.Title, p.ID, slugify(p.Title))
+	return todo.Write(path, todo.Add(items, text))
+}
+
+// slugify reduces a title to a filename slug.
+func slugify(s string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(s) {
+		switch {
+		case r >= 'a' && r <= 'z' || r >= '0' && r <= '9':
+			b.WriteRune(r)
+			dash = false
+		default:
+			if !dash && b.Len() > 0 {
+				b.WriteByte('-')
+				dash = true
+			}
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if len(out) > 48 {
+		out = strings.Trim(out[:48], "-")
+	}
+	return out
 }

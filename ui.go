@@ -1486,6 +1486,11 @@ func buildMain() Component {
 					Key("o", toggleExpand),         // expand a task into its revision diffs
 					Key("p", togglePin),            // pin/unpin → floats to the PINNED section
 					Key("Z", collapseAllRevisions), // fold/unfold ALL revision expansions
+					Key("X", func() { // decline the selected proposal (verdicts stay human)
+						if row := selectedRow(); row != nil && row.Proposal {
+							signOffProposal(row, db.ProposalDeclined)
+						}
+					}),
 				)),
 			),
 			// middle — detail + diff (no side padding; scrollbar flush right).
@@ -1572,7 +1577,7 @@ func buildMain() Component {
 					If(&pane).Eq(paneDraft).Then(On(
 						Key("j", func() { moveDraft(1) }),
 						Key("k", func() { moveDraft(-1) }),
-						Key("gg", draftSelTop), // vim: first/last comment
+						Key("g", draftSelTop), // vim: first/last comment
 						Key("G", draftSelBottom),
 						Key("<Enter>", openCommentView),
 						Key("r", replyToComment),            // reply to the selected comment (threads under it)
@@ -1631,7 +1636,8 @@ var helpActionRows = []helpRow{
 	{"c", "comment"},
 	{"e / d", "edit / delete"},
 	{"O", "open [[file]] link"},
-	{"a", "approve"},
+	{"a", "approve / sign off"},
+	{"X", "decline proposal"},
 	{"S", "submit (amends)"},
 	{"U", "unsubmit → inbox"},
 	{"?", "help"},
@@ -2065,6 +2071,12 @@ func undoLast() {
 // approveSelected quick-approves the selected task by submitting an approve
 // review, so its derived state becomes APPROVED (no direct status flip).
 func approveSelected() {
+	// a proposal row: approve IS the sign-off (slice 4) — the decision
+	// materialises (ADR + managing todo + party notifications).
+	if row := selectedRow(); row != nil && row.Proposal {
+		signOffProposal(row, db.ProposalApproved)
+		return
+	}
 	t, ok := selectedTask()
 	if !ok {
 		return
