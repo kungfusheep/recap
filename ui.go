@@ -140,7 +140,8 @@ func runUI() error {
 	// live refresh: register this TUI so `recap add` can SIGUSR1 us to reload the
 	// inbox without a restart. The signal handler kicks its own fetch (events own
 	// their work): queries run here on the signal goroutine against a mutex-copied
-	// filter/pins snapshot, the result stages, and the frame seam swaps it in.
+	// filter/pins snapshot, and the result PUSHES its own application at the
+	// render thread (app.Apply, ADR 2) — no staging mailbox, no frame-seam sweep.
 	cleanup := notify.Register()
 	defer cleanup()
 	sigReload := make(chan os.Signal, 1)
@@ -149,8 +150,13 @@ func runUI() error {
 	go func() {
 		for range sigReload {
 			f, p := inboxSnap()
-			stageInbox(fetchInbox(f, p))
-			uiApp.RequestRender() // App.Suspend() gates the draw if vim owns the screen; Resume repaints on exit
+			d := fetchInbox(f, p)
+			uiApp.Apply(func() { // App.Suspend() gates the draw if vim owns the screen
+				applyInbox(d)
+				invalidateUpcoming() // force the in-flight cursor + upcoming to reflect current state
+				inboxUI.DetailDirty = true
+				onInboxReloaded()
+			})
 		}
 	}()
 
@@ -316,25 +322,6 @@ func fetchInbox(repoFilter string, pins map[int64]bool) *inboxData {
 			d.repos = append(d.repos, t.Repo)
 		}
 	}
-	return d
-}
-
-var (
-	inboxStagedMu sync.Mutex
-	inboxStaged   *inboxData
-)
-
-func stageInbox(d *inboxData) {
-	inboxStagedMu.Lock()
-	inboxStaged = d
-	inboxStagedMu.Unlock()
-}
-
-func takeStagedInbox() *inboxData {
-	inboxStagedMu.Lock()
-	d := inboxStaged
-	inboxStaged = nil
-	inboxStagedMu.Unlock()
 	return d
 }
 
@@ -916,31 +903,14 @@ func jumpInboxSection(d int) {
 	}
 }
 
-// refreshDetail updates selection fill + the right-hand detail when selection,
-// filter, or task set changes — never per-frame git calls.
-// refreshDetail is the OnBeforeRender hook — after the event-home decomposition
-// it carries ONLY pure derivation and the staged-apply seam (loader results are
-// staged off-thread and swapped here, the first thing the next frame does; this
-// seam collapses to app.Post(fn) when glyph grows it). Events own their work:
-// selection handlers run their selection's consequences, setPane applies focus
-// colours, the SIGUSR1 handler kicks its own fetch.
+// refreshDetail is the OnBeforeRender hook. After ADR 2 every loader pushes
+// its own application through app.Apply (drained by glyph at frame top before
+// this runs), so the staging mailboxes are gone; only the toast feed's
+// cross-thread mailbox remains, pending its own pass. Events own their work:
+// selection handlers run their selection's consequences, setPane applies
+// focus colours, the SIGUSR1 handler kicks its own fetch.
 func refreshDetail() {
-	// staged-apply seam ONLY: swap in finished loader results (fetched
-	// off-thread). No polls, no derivation — events own everything else.
-	if d := takeStagedInbox(); d != nil {
-		applyInbox(d)
-		invalidateUpcoming() // force the in-flight cursor + upcoming list to reflect current state (e.g. after `recap next`)
-		inboxUI.DetailDirty = true
-		onInboxReloaded()
-	}
-	drainUpcoming()
 	drainFeed()
-	drainPropDetail()
-	// a result whose key no longer matches the shown selection is stale — the
-	// newer kick's result is already on its way; drop it.
-	if staged := takeStagedDetail(); staged != nil && staged.key == inboxUI.LastDiffKey {
-		applyDetail(staged)
-	}
 }
 
 // syncSelectionFlags re-marks the inbox rows' Selected flags — called by the

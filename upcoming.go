@@ -5,7 +5,6 @@ import (
 	"github.com/kungfusheep/recap/cursor"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/kungfusheep/recap/config"
 	"github.com/kungfusheep/recap/todo"
@@ -26,8 +25,9 @@ var (
 	upcomingRepo    string        // repo path currently shown (render-thread owned)
 	upcomingLoading string        // repo path being loaded (render-thread owned, dedupe)
 
-	upcomingMu     sync.Mutex
-	upcomingStaged *upcomingResult // handed off from the loader goroutine
+	// upcomingGen guards relevance for Apply-pushed loads: invalidateUpcoming
+	// bumps it, and a load kicked under an older generation drops its result.
+	upcomingGen int
 )
 
 // upcomingRow is one TODO line in the upcoming list. Rows render via a ForEach
@@ -48,34 +48,29 @@ type upcomingResult struct {
 
 const upcomingMax = 4 // how many upcoming tasks to surface
 
-// invalidateUpcoming forces the next updateUpcoming to reload from disk: clears the
-// shown-repo + in-flight guard and discards any stale staged result. Call it after
-// anything that changes the source (the `recap next` cursor, an in-app TODO edit, or a
-// SIGUSR1 reload) so the upcoming section + spinner reflect current state on push.
+// invalidateUpcoming forces the next kickUpcoming to reload from disk: clears
+// the shown-repo + in-flight guard and bumps the generation so an in-flight
+// load's Apply drops its now-stale result. Call it after anything that changes
+// the source (the `recap next` cursor, an in-app TODO edit, or a SIGUSR1
+// reload) so the upcoming section + spinner reflect current state on push.
 func invalidateUpcoming() {
 	upcomingRepo = ""
 	upcomingLoading = ""
-	upcomingMu.Lock()
-	upcomingStaged = nil
-	upcomingMu.Unlock()
+	upcomingGen++
 }
 
-// drainUpcoming swaps in a finished async load — the staged-apply seam, run at
-// the top of each frame (render thread).
-func drainUpcoming() {
-	upcomingMu.Lock()
-	staged := upcomingStaged
-	upcomingStaged = nil
-	upcomingMu.Unlock()
-	if staged == nil {
+// applyUpcoming lands a finished async load — render thread (an Apply
+// closure); a result from a superseded generation is dropped.
+func applyUpcoming(gen int, r *upcomingResult) {
+	if gen != upcomingGen {
 		return
 	}
-	upcomingRepo = staged.repo
+	upcomingRepo = r.repo
 	upcomingLoading = "" // load landed — clear the in-flight guard so forced reloads work
-	currentRef = staged.ref
+	currentRef = r.ref
 	hasCurrent = currentRef != ""
 	markInFlight() // re-mark inbox rows now the fresh cursor ref has landed (no reload lag)
-	upcomingItems = buildUpcomingRows(staged.items, currentRef)
+	upcomingItems = buildUpcomingRows(r.items, currentRef)
 	upcomingNone = len(upcomingItems) == 0
 }
 
@@ -102,15 +97,14 @@ func kickUpcoming() {
 	}
 	upcomingLoading = repoPath
 	repo := repoPath
+	gen := upcomingGen
 	app := uiApp // snapshot: the goroutine must not read the mutable global
 	go func() {
 		ref, _ := cursor.Load(filepath.Base(repo)) // the displayed repo's in-flight item ref
 		items, hasPath := loadUpcoming(repo)       // TODO tasks — file read + parse, off the render thread
-		upcomingMu.Lock()
-		upcomingStaged = &upcomingResult{repo: repo, ref: ref, items: items, hasPath: hasPath}
-		upcomingMu.Unlock()
+		r := &upcomingResult{repo: repo, ref: ref, items: items, hasPath: hasPath}
 		if app != nil {
-			app.RequestRender()
+			app.Apply(func() { applyUpcoming(gen, r) })
 		}
 	}()
 }

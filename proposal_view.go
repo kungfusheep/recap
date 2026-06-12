@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	. "github.com/kungfusheep/glyph"
 	"github.com/kungfusheep/recap/config"
@@ -73,33 +72,15 @@ type propResult struct {
 	washes     map[int]bool
 }
 
-var (
-	propMu     sync.Mutex
-	propStaged *propResult
-)
-
-func stageProp(r *propResult) {
-	propMu.Lock()
-	propStaged = r
-	propMu.Unlock()
-}
-
-func takeStagedProp() *propResult {
-	propMu.Lock()
-	r := propStaged
-	propStaged = nil
-	propMu.Unlock()
-	return r
-}
-
-// propDetailKick dispatches the proposal fetch — the staged hand-off seam,
-// proposal-owned. A package var so tests can run it synchronously.
+// propDetailKick dispatches the proposal fetch: goroutine acquisition, then
+// the application pushed at the render thread (app.Apply, ADR 2) — relevance
+// checked inside the closure. A package var so tests can run it synchronously.
 var propDetailKick = func(p db.Proposal, key string, reset bool) {
 	app := uiApp // snapshot: the goroutine must not read the mutable global
 	go func() {
-		stageProp(fetchPropDetail(p, key, reset))
+		r := fetchPropDetail(p, key, reset)
 		if app != nil {
-			app.RequestRender()
+			app.Apply(func() { applyPropDetail(r) })
 		}
 	}()
 }
@@ -141,11 +122,10 @@ func fetchPropDetail(p db.Proposal, key string, reset bool) *propResult {
 // proposal, so anchor locations read "document · line N".
 const propDocFile = "document"
 
-// drainPropDetail swaps a staged fetch into the pane — render thread, called
-// from the staged-apply seam. A result keyed for a selection we've moved off
-// is dropped (the newer kick's result is on its way).
-func drainPropDetail() {
-	r := takeStagedProp()
+// applyPropDetail applies a fetched result — render thread (an Apply
+// closure). A result keyed for a selection we've moved off is dropped (the
+// newer kick's result is on its way).
+func applyPropDetail(r *propResult) {
 	if r == nil {
 		return
 	}

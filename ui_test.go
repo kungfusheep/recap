@@ -1638,7 +1638,7 @@ func TestProposalInboxSection(t *testing.T) {
 	}
 
 	// synchronous kick keeps refreshDetailNow deterministic.
-	propDetailKick = func(p db.Proposal, key string, reset bool) { stageProp(fetchPropDetail(p, key, reset)) }
+	propDetailKick = func(p db.Proposal, key string, reset bool) { applyPropDetail(fetchPropDetail(p, key, reset)) }
 
 	reloadTasks()
 	uiApp.SetView(buildMain())
@@ -1668,7 +1668,6 @@ func TestProposalInboxSection(t *testing.T) {
 	if !propUI.Active {
 		t.Fatal("proposal selection should activate the proposal pane")
 	}
-	drainPropDetail()
 	if detailTitle != "oscillators" {
 		t.Fatalf("detailTitle = %q", detailTitle)
 	}
@@ -1721,7 +1720,6 @@ func TestProposalInboxSection(t *testing.T) {
 	if cs, _ := st.ProposalComments(pid); len(cs) != 2 || cs[1].Line != 3 || cs[1].Snippet != "body text" {
 		t.Fatalf("line comment not anchored: %+v", cs)
 	}
-	drainPropDetail()
 	if !propUI.Commented[3] {
 		t.Fatal("commented document line should wash")
 	}
@@ -1822,7 +1820,6 @@ func TestProposalInboxSection(t *testing.T) {
 
 	// c462: threaded replies — r on a pane row nests the reply under it,
 	// routed at the PROPOSAL (never the task comment tables)
-	drainPropDetail()
 	draftUI.Sel = 0 // Kestrel's root comment
 	rootID := draftUI.Comments[0].ID
 	replyToComment()
@@ -1831,7 +1828,6 @@ func TestProposalInboxSection(t *testing.T) {
 	}
 	promptUI.Field.Value = "agreed — **bold call** and `clean code`"
 	promptUI.submit()
-	drainPropDetail()
 	if cs, _ := st.ProposalComments(pid); len(cs) != 5 || cs[4].ParentID != rootID {
 		t.Fatalf("reply not threaded at the proposal: %+v", cs)
 	}

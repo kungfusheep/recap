@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"sync"
 
 	. "github.com/kungfusheep/glyph"
 	"github.com/kungfusheep/recap/db"
@@ -11,10 +10,9 @@ import (
 
 // The detail pane's content (review banner, comment rows, the diff itself) needs
 // db queries and git subprocesses — acquisition, which never runs in the render
-// path. refreshDetail only DETECTS the change and kicks a load; fetchDetail runs
-// on a goroutine and stages a result; the next frame swaps it in (applyDetail).
-// The same staged hand-off the upcoming section uses, keyed so a result that
-// lands after the selection moved on is dropped instead of applied.
+// path. refreshDetailNow only DETECTS the change and kicks a load; fetchDetail
+// runs on a goroutine and pushes applyDetail through app.Apply (ADR 2), keyed
+// so a result that lands after the selection moved on is dropped, not applied.
 
 type detailResult struct {
 	key       string // diff key (task:rev:sha) at kick time — stale results are dropped
@@ -29,36 +27,23 @@ type detailResult struct {
 	comments  []db.TaskComment
 }
 
-var (
-	detailMu     sync.Mutex
-	detailStaged *detailResult
-)
-
-// detailKick dispatches the acquisition. A package var so tests can swap in a
-// synchronous version and keep refreshDetail deterministic.
+// detailKick dispatches the acquisition: fetch on a goroutine, then PUSH the
+// application at the render thread (app.Apply, ADR 2) with the staleness key
+// checked inside the closure — a result whose key no longer matches the shown
+// selection is dropped; the newer kick's result is already on its way. A
+// package var so tests can swap in a synchronous version.
 var detailKick = func(t db.Task, row taskVM, key string, reset bool) {
 	app := uiApp // snapshot: the goroutine must not read the mutable global
 	go func() {
-		stageDetail(fetchDetail(t, row, key, reset))
+		r := fetchDetail(t, row, key, reset)
 		if app != nil {
-			app.RequestRender()
+			app.Apply(func() {
+				if r.key == inboxUI.LastDiffKey {
+					applyDetail(r)
+				}
+			})
 		}
 	}()
-}
-
-func stageDetail(r *detailResult) {
-	detailMu.Lock()
-	detailStaged = r
-	detailMu.Unlock()
-}
-
-// takeStagedDetail pops the staged result (nil when none) — render thread.
-func takeStagedDetail() *detailResult {
-	detailMu.Lock()
-	r := detailStaged
-	detailStaged = nil
-	detailMu.Unlock()
-	return r
 }
 
 // fetchDetail does the I/O off the render thread: the review-context banner
