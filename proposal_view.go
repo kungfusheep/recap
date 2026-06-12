@@ -67,6 +67,7 @@ type propView struct {
 	Note      string // thread column header pill ("3 comments")
 
 	Focused float64 // scrollbar fade target, mirrors the diff pane's cue
+	PaneRef NodeRef // thread column's screen rect — focus line + shade target
 }
 
 var propUI = propView{Commented: map[int]bool{}}
@@ -383,7 +384,7 @@ func propThreadRow(c *propThreadVM) Component {
 // comments is selected — the comments pane's aesthetic, proposal-owned.
 func propThreadPane() Component {
 	return If(&propUI.HasThread).Then(
-		VBox.Grow(2).Fill(&cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0)(
+		VBox.Grow(2).Fill(&cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0).NodeRef(&propUI.PaneRef)(
 			HBox(SpaceW(3), Text("thread").FG(&cBright).Bold(), Space(), Text(&propUI.Note).FG(&cSubtle), SpaceW(2)),
 			SpaceH(2),
 			List(&propUI.Thread).

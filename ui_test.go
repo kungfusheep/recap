@@ -1743,6 +1743,16 @@ func TestProposalInboxSection(t *testing.T) {
 	if !foundWho {
 		t.Fatal("agent name missing from the rendered thread column")
 	}
+	// todo:7b4ae660 — the focus line follows focus into the thread pane on
+	// FIRST open: paneDraft must target the proposal thread's own ref, never
+	// the task draft ref (zero until a task with comments is visited).
+	propUI.PaneRef = NodeRef{X: 100, W: 30}
+	draftUI.PaneRef = NodeRef{}
+	setPane(paneDraft)
+	if focusLineX != 100 || focusLineW != 30 {
+		t.Fatalf("focus line should target the thread pane: x=%v w=%v", focusLineX, focusLineW)
+	}
+	setPane(paneList)
 
 	// `c`: the human comment threads, joins no phantom "" party, and pings each
 	// party once — a second comment while pings sit unread adds NO new pings.

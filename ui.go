@@ -780,6 +780,12 @@ func applyPaneFocus() {
 		r = diffPaneRef
 	case paneDraft:
 		r = draftUI.PaneRef
+		if propUI.Active {
+			// the proposal thread is its own column — without this the focus
+			// line read the TASK draft ref, which is zero until a task with
+			// comments has been visited (the first-open dead line).
+			r = propUI.PaneRef
+		}
 	}
 	if r.W > 0 {
 		focusLineX, focusLineW = float64(r.X), float64(r.W)
@@ -1673,6 +1679,8 @@ func columnShades() Component {
 		If(&pane).Ne(paneDiff).Then(ScreenEffect(mk(&diffPaneRef))),
 		// the draft column only exists when draftUI.Has; otherwise its ref is stale.
 		If(&draftUI.Has).Then(If(&pane).Ne(paneDraft).Then(ScreenEffect(mk(&draftUI.PaneRef)))),
+		// the proposal thread column shades the same way (its own ref).
+		If(&propUI.HasThread).Then(If(&pane).Ne(paneDraft).Then(ScreenEffect(mk(&propUI.PaneRef)))),
 	)
 }
 
