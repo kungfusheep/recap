@@ -278,7 +278,43 @@ human, who sees all traffic (the TUI's ✉ badge + `recap messages`). Keep them 
 and actionable; one in-flight question per pair (the ball-in-one-court rule applies
 to agent pairs too — don't ping-pong). A message is NOT a place to invent new scope:
 work enters a repo through its TODO (see `recap todo` below) or review flow, where
-the human can see and reorder it.
+the human can see and reorder it. For work that needs agreement across repos —
+new API surface, changes to a contract others consume — escalate from a message
+to a **proposal** (next section), which carries a document and a decision record.
+
+## Proposals — cross-repo work with a paper trail (`recap propose`)
+
+When a `send` isn't enough — you want work added to ANOTHER repo, or an API/design
+decision needs multi-party deliberation before anyone builds — write a proposal.
+The document lives in the recap db (no repo artifacts until sign-off), parties
+deliberate in one thread, and the human delivers the verdict.
+
+```
+recap propose --target <repo> --title "…" --file doc.md [--tag repo1,repo2]
+recap proposal ls                          # all proposals + status
+recap proposal show <id>                   # document + thread; advances your watermark
+recap proposal comment <id> --body "…"     # @repo in the body joins that repo as a party
+```
+
+How it flows:
+- **Parties** are repos: proposer + target + `--tag`s, plus anyone who comments or
+  gets `@repo`-mentioned. The human is always a party (proposals lead the TUI inbox).
+- **Digest delivery, not spam**: each party gets ONE unread attention ping per
+  proposal in its message queue. When `recap next` hands you one, run
+  `recap proposal show <id>` — everything since your last look renders behind a
+  "new since your last look" divider. Respond with `proposal comment`, never by
+  replying to the ping message.
+- **Verdicts stay human.** Parties endorse, refine, or object in the thread;
+  endorsement is input, not approval. On the human's sign-off the decision
+  materialises: an ADR (`docs/adr/<proposal-id>-<slug>.md` — the proposal id IS
+  the ADR number, recap-global, gaps fine) lands in the target repo and an
+  implementation todo lands on the TARGET repo's queue (the target's loop is the
+  managing agent). Until that todo appears, nothing is agreed — don't pre-build.
+
+When to propose vs send: a `send` is for two-party coordination that needs no
+decision record (a heads-up, a repro handoff, a question). Propose when the work
+would land on someone else's queue, changes a contract more than one repo
+consumes, or you'd otherwise want the reasoning findable later.
 
 ## Creating work — `recap todo` (YOUR OWN queue only)
 
