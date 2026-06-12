@@ -187,8 +187,12 @@ func (s *Store) AddProposalComment(proposalID int64, whoRepo, whoName, body stri
 	if err != nil {
 		return 0, err
 	}
-	if err := s.AddProposalParty(proposalID, whoRepo); err != nil {
-		return 0, err
+	// the human comments with no repo — parties are repos, so an empty whoRepo
+	// must not join (it would create a phantom "" party that pings would skip).
+	if whoRepo != "" {
+		if err := s.AddProposalParty(proposalID, whoRepo); err != nil {
+			return 0, err
+		}
 	}
 	return res.LastInsertId()
 }

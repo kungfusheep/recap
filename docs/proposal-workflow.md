@@ -91,6 +91,10 @@ section + doc-rendering detail mode.
    threads on the proposal; ONE unread attention ping per party per proposal
    — the digest model — with @repo joining the parties and `show` advancing a
    per-party watermark behind a "new since your last look" divider).
-3. TUI: inbox section + document detail rendering.
+3. TUI: inbox section + document detail rendering. **DONE** (open proposals
+   lead the list as a PROPOSALS section with a ◆ header badge; the detail
+   pane renders the document — headings, code fences, briefing markup — plus
+   the deliberation thread; `c` threads a human comment and pings every
+   party through the digest model).
 4. sign-off: ADR writer + managing-repo todo append.
 5. skill section + broadcast.

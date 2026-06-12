@@ -219,7 +219,8 @@ type inboxData struct {
 	unread     int           // cross-repo unread peer messages — the ✉ badge
 	drafts     map[int64]int // open draft comment counts (row pill)
 	revs       map[int64][]db.Revision
-	repos      []string // distinct repos from the unfiltered set (filter cycle)
+	props      []db.Proposal // open proposals — the PROPOSALS section at the top of the list
+	repos      []string      // distinct repos from the unfiltered set (filter cycle)
 	identName  string
 	identColor Color
 }
@@ -253,6 +254,15 @@ func fetchInbox(repoFilter string, pins map[int64]bool) *inboxData {
 		}
 	}
 	d.lastRev, _ = uiStore.LatestReviewIDs()
+	// open proposals: cross-repo documents, so the repo filter matches the
+	// TARGET (the repo that would own the work).
+	if props, err := uiStore.Proposals(db.ProposalOpen); err == nil {
+		for _, p := range props {
+			if repoFilter == "" || p.TargetRepo == repoFilter {
+				d.props = append(d.props, p)
+			}
+		}
+	}
 	// distinct repos for the filter cycle (from the unfiltered set)
 	all, _ := uiStore.List("", "")
 	seen := map[string]bool{}
@@ -339,8 +349,10 @@ func applyInbox(d *inboxData) {
 	// inserts items above it doesn't shift the selection out from under the reader.
 	var prevID int64 = -1
 	prevRev := -99
+	prevProp := false
 	if inboxUI.Sel >= 0 && inboxUI.Sel < len(inboxUI.Rows) {
 		prevID, prevRev = inboxUI.Rows[inboxUI.Sel].ID, inboxUI.Rows[inboxUI.Sel].RevIdx
+		prevProp = inboxUI.Rows[inboxUI.Sel].Proposal
 	}
 	inboxUI.Tasks = d.tasks
 	state := d.state
@@ -411,6 +423,36 @@ func applyInbox(d *inboxData) {
 	inboxUI.Rows = inboxUI.Rows[:0]
 	prevSection := ""
 	doneShown, doneSkipped := 0, 0
+	// open proposals lead the list: documents awaiting the human's verdict sit
+	// above the task queue. Row ID is the PROPOSAL id (its own sequence), so the
+	// rows resolve through PropByID and selection-restore matches on the flag.
+	inboxUI.PropByID = make(map[int64]db.Proposal, len(d.props))
+	propOpen = len(d.props)
+	for _, p := range d.props {
+		inboxUI.PropByID[p.ID] = p
+		color := cBright
+		if _, ic := loadIdentity(p.ProposerRepo); ic.Mode != 0 {
+			color = ic // proposer's identity colour tints the meta line
+		}
+		vm := taskVM{
+			ID:        p.ID,
+			IDText:    fmt.Sprintf("P%d", p.ID),
+			Title:     p.Title,
+			Repo:      fmt.Sprintf("%s → %s", p.ProposerRepo, p.TargetRepo),
+			RepoColor: color,
+			State:     "proposal",
+			Pending:   true, // bold title — it's awaiting the verdict
+			Proposal:  true,
+			Header:    true,
+			RevIdx:    -1,
+			When:      hhmm(p.CreatedAt),
+		}
+		if prevSection != "PROPOSALS" {
+			vm.HasGroup, vm.GroupLabel = true, "PROPOSALS"
+			prevSection = "PROPOSALS"
+		}
+		inboxUI.Rows = append(inboxUI.Rows, vm)
+	}
 	for _, t := range inboxUI.Tasks {
 		st := state[t.ID]
 		// paginate completed items: only DoneLimit render — the rest hide behind a
@@ -510,7 +552,7 @@ func applyInbox(d *inboxData) {
 		inboxUI.KeepSelOnReload = false // one-shot; external reloads still track by id
 	} else if prevID >= 0 {
 		for i, r := range inboxUI.Rows {
-			if r.ID == prevID && r.RevIdx == prevRev {
+			if r.ID == prevID && r.RevIdx == prevRev && r.Proposal == prevProp {
 				inboxUI.Sel = i
 				break
 			}
@@ -562,7 +604,10 @@ func selectedRow() *taskVM {
 // header or one of its revision children is selected. Actions operate on this.
 func selectedTask() (db.Task, bool) {
 	r := selectedRow()
-	if r == nil {
+	if r == nil || r.Proposal {
+		// a proposal row's ID is a PROPOSAL id — it must never resolve through
+		// TaskByID (the sequences are independent, so a bare lookup could land on
+		// an unrelated task and route task actions at it).
 		return db.Task{}, false
 	}
 	t, ok := inboxUI.TaskByID[r.ID]
@@ -693,6 +738,9 @@ func refreshHeader() {
 	if msgUnread > 0 {
 		inboxUI.CountText += fmt.Sprintf("  ✉ %d", msgUnread)
 	}
+	if propOpen > 0 {
+		inboxUI.CountText += fmt.Sprintf("  ◆ %d", propOpen)
+	}
 }
 
 // onInboxSelChanged runs an inbox selection change's consequences — flags, the
@@ -714,6 +762,25 @@ func refreshDetailNow() {
 	inboxUI.LastSel, inboxUI.LastLen, inboxUI.LastFilter, inboxUI.DetailDirty = inboxUI.Sel, len(inboxUI.Tasks), inboxUI.RepoFilter, false
 
 	row := selectedRow()
+	// a proposal row: the detail pane shows the document + thread, fetched
+	// through the same staged seam. The key holds across thread growth (a
+	// comment sets DetailDirty, which re-kicks without resetting the scroll).
+	if row != nil && row.Proposal {
+		p, okp := inboxUI.PropByID[row.ID]
+		diffKey := fmt.Sprintf("prop:%d", row.ID)
+		resetScroll := diffKey != inboxUI.LastDiffKey
+		inboxUI.LastDiffKey = diffKey
+		if !okp {
+			return
+		}
+		detailTitle = p.Title
+		metaRepo = fmt.Sprintf("%s → %s", p.ProposerRepo, p.TargetRepo)
+		metaWhen = p.CreatedAt
+		metaResult = p.Status
+		metaResultColor = proposalStatusColor(p.Status)
+		propDetailKick(p, diffKey, resetScroll)
+		return
+	}
 	t, ok := selectedTask()
 	// only reset the diff scroll when the SHOWN diff (task:rev:sha) actually changes — so an
 	// inbox reload that left the selected task unchanged keeps the reader's scroll position.
@@ -1609,6 +1676,7 @@ func taskRow(r *taskVM) Component {
 					Else(Switch(&r.State).
 						Case(db.StateRework, Text("↻").FG(&cDel)).
 						Case(db.StateDone, Text("✓").FG(&cSubtle)).
+						Case("proposal", Text("◆").FG(&cHunk)).
 						Default(Text("●").FG(&cBright))),
 			),
 			SpaceW(1),
@@ -1813,6 +1881,10 @@ func saveEditedComment() {
 }
 
 func openComment() {
+	if row := selectedRow(); row != nil && row.Proposal {
+		commentOnProposal(row)
+		return
+	}
 	if _, ok := selectedTask(); ok {
 		promptUI.open("comment", "", "", "", saveGeneralComment)
 	}

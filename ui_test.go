@@ -1584,3 +1584,112 @@ func TestAgentDashboard(t *testing.T) {
 		}
 	}
 }
+
+// Slice 3 of the proposal workflow (c442: "i can't see them anywhere in the
+// inbox"): open proposals lead the inbox as a PROPOSALS section, the detail
+// pane renders the document + thread, a proposal row never resolves through
+// TaskByID (proposal and task ids are independent sequences), and `c` threads
+// a human comment that pings each party exactly once (the digest model).
+func TestProposalInboxSection(t *testing.T) {
+	prevApp, prevStore, prevOmni, prevLayer, prevKick := uiApp, uiStore, omni, diffUI.Layer, propDetailKick
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	diffUI.Layer = NewLayer()
+	diffUI.Layer.Render = func() {}
+	t.Cleanup(func() {
+		uiApp, uiStore, omni, diffUI.Layer, propDetailKick = prevApp, prevStore, prevOmni, prevLayer, prevKick
+		inboxUI = inboxView{Expanded: map[int64]bool{}, TaskByID: map[int64]db.Task{}, PropByID: map[int64]db.Proposal{}, DoneLimit: 10}
+		promptUI.Field = InputState{}
+		propOpen = 0
+		statusMsg = ""
+	})
+	t.Setenv("RECAP_DB", filepath.Join(t.TempDir(), "recap.db"))
+
+	// task #1 exists so proposal #1 COLLIDES on raw id — the falsifiable check
+	// that proposal rows resolve through PropByID, never TaskByID.
+	if _, err := st.Add(db.Task{Repo: "recap", RepoPath: "/tmp/r", Title: "an ordinary task", Status: db.StatusPending}); err != nil {
+		t.Fatal(err)
+	}
+	pid, err := st.AddProposal(db.Proposal{
+		Title: "oscillators", Body: "# heading\n\nbody text",
+		ProposerRepo: "tui", ProposerWho: "Glyph Smith", TargetRepo: "tui",
+	}, []string{"recap"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddProposalComment(pid, "recap", "Kestrel", "endorse: the seam collapses"); err != nil {
+		t.Fatal(err)
+	}
+
+	// synchronous kick keeps refreshDetailNow deterministic.
+	propDetailKick = func(p db.Proposal, key string, reset bool) { stageDetail(fetchProposalDetail(p, key, reset)) }
+
+	reloadTasks()
+	uiApp.SetView(buildMain())
+
+	if len(inboxUI.Rows) < 2 {
+		t.Fatalf("expected proposal + task rows, got %d", len(inboxUI.Rows))
+	}
+	row := inboxUI.Rows[0]
+	if !row.Proposal || row.GroupLabel != "PROPOSALS" || row.IDText != "P1" || row.State != "proposal" {
+		t.Fatalf("proposal row malformed: %+v", row)
+	}
+	if !strings.Contains(inboxUI.CountText, "◆ 1") {
+		t.Fatalf("header missing the open-proposal badge: %q", inboxUI.CountText)
+	}
+
+	inboxUI.Sel = 0
+	syncSelectionFlags()
+	if _, ok := selectedTask(); ok {
+		t.Fatal("selectedTask resolved a PROPOSAL row to a task (id collision)")
+	}
+
+	inboxUI.DetailDirty = true
+	refreshDetailNow()
+	staged := takeStagedDetail()
+	if staged == nil {
+		t.Fatal("no staged proposal detail after refresh")
+	}
+	applyDetail(staged)
+	if detailTitle != "oscillators" {
+		t.Fatalf("detailTitle = %q", detailTitle)
+	}
+	text := flattenSpans(diffUI.Banner)
+	for _, want := range []string{"proposal #1", "heading", "body text", "thread (1)", "Kestrel@recap", "endorse"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("detail missing %q:\n%s", want, text)
+		}
+	}
+
+	// `c`: the human comment threads, joins no phantom "" party, and pings each
+	// party once — a second comment while pings sit unread adds NO new pings.
+	openComment()
+	if !promptUI.Open {
+		t.Fatal("comment prompt did not open for the proposal row")
+	}
+	promptUI.Field.Value = "ruling: direction approved"
+	promptUI.submit()
+	cs, _ := st.ProposalComments(pid)
+	if len(cs) != 2 || cs[1].WhoName != "you" || cs[1].WhoRepo != "" {
+		t.Fatalf("human comment not threaded: %+v", cs)
+	}
+	parties, _ := st.ProposalParties(pid)
+	for _, p := range parties {
+		if p == "" {
+			t.Fatal("phantom empty party joined from the human comment")
+		}
+	}
+	openComment()
+	promptUI.Field.Value = "second ruling"
+	promptUI.submit()
+	ms, _ := st.Messages("")
+	pings := map[string]int{}
+	for _, m := range ms {
+		pings[m.ToRepo]++
+	}
+	if pings["tui"] != 1 || pings["recap"] != 1 {
+		t.Fatalf("digest model broken — expected exactly one unread ping per party, got %v", pings)
+	}
+}

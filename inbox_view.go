@@ -26,6 +26,7 @@ type taskVM struct {
 	GroupLabel   string
 	Header       bool // a normal task header row (vs a revision child or load-more row)
 	LoadMore     bool // a "load more" pseudo-row at the bottom of the paginated done section
+	Proposal     bool // an open proposal row — ID is the PROPOSAL id (PropByID resolves it, not TaskByID)
 
 	// revision threading (mail-style): a task with >1 diff is expandable with `o`.
 	// A header row (RevIdx < 0) shows the latest diff by default; expanding splices
@@ -64,6 +65,9 @@ type inboxView struct {
 	// TaskByID resolves the selected row's task without re-querying (rebuilt each
 	// reloadTasks). Rows carry only a task ID; this maps back to the full db.Task.
 	TaskByID map[int64]db.Task
+	// PropByID resolves a proposal row's document the same way (proposal ids and
+	// task ids are independent sequences, so proposal rows must never hit TaskByID).
+	PropByID map[int64]db.Proposal
 
 	Count                 int // number of pending (inbox) tasks — shown in the header
 	CountText, FilterText string
@@ -88,5 +92,6 @@ type inboxView struct {
 var inboxUI = inboxView{
 	Expanded:  map[int64]bool{},
 	TaskByID:  map[int64]db.Task{},
+	PropByID:  map[int64]db.Proposal{},
 	DoneLimit: 10,
 }
