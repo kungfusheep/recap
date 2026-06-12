@@ -46,7 +46,7 @@ recap next --wait
 It long-polls — blocks until review feedback or new work appears, then returns the next
 item and you carry straight on. That is how an idle agent comes back to life the moment
 the reviewer submits `request_changes`: no restart, no "shall I continue?", no handshake.
-On the rare timeout it returns idle; just call `recap next --wait` again. Treat reaching
+On the rare timeout it returns idle; call `recap next --wait` again. Treat reaching
 the end of the queue as the cue to **wait**, never as permission to leave.
 
 **A user message still takes precedence.** If the human says something mid-loop, handle it
@@ -102,6 +102,13 @@ isn't obvious, a few `- ` bullets for the substance (one decision/trade-off each
 ALWAYS a `Verify:` line — the command or steps that re-prove it. Short lines, bold the
 one thing per bullet that matters. The goal: the reviewer knows what they're looking at
 before the diff scrolls.
+
+**Write like an engineer, not a brochure** (glyph's writing guide, applied to
+briefings): name the MECHANISM, not the abstract outcome ("the loader stages the
+result and the frame top swaps it in", never "the UI stays in sync"); cut "just",
+"simply", and every generic intensifier (powerful/seamless/robust say nothing —
+if it's good, show it); don't announce what you're about to say, say it; if two
+sentences make the same point, keep one.
 
 Order matters: **you commit first** (yourself — see Boundaries; don't defer it to the
 human), **then `recap done --sha HEAD`**, so the entry resolves to the real commit and its
@@ -257,7 +264,7 @@ recap read m<N>                         # clear a received message from your que
 ```
 
 Messages are **durable and addressed to a repo, not a process**: if no loop is
-running there, the note simply waits — its next `recap next` (or parked `--wait`)
+running there, the note waits — its next `recap next` (or parked `--wait`)
 picks it up. Received messages surface in your queue between reviewer replies and
 todos; the work order shows the sender (`name@repo`) and the reply command.
 
@@ -331,6 +338,10 @@ How it flows:
 - **Amendments are proposal COMMENTS, not document edits** — the ADR's
   deliberation pointer carries the history (P3's marker-semantics amendment
   is the worked example).
+- **The document follows the TARGET repo's writing guide** where one exists
+  (tui: `.claude/writing.md` — short declarative sentences, mechanism over
+  outcome, no em-dashes, no intensifiers, no "just"/"simply"). The approved
+  document lands verbatim as that repo's ADR; write it in that repo's voice.
 
 **A todo that asks for a proposal resolves THROUGH the proposal**: pass
 `--resolves todo:<ref>` to `recap propose` — the todo ticks, the queue advances,
