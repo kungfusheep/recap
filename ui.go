@@ -1478,30 +1478,30 @@ func buildMain() Component {
 				// rule: an auto-stretch HRule in a left-padded box overshoots and
 				// bleeds into the next column, so whitespace separates instead.
 				VBox.Width(&upcomingWidth).PaddingTRBL(0, 2, 2, 3).Gap(1)(
-						// explicit width from the column's NodeRef (upcomingWidth) — a
-						// plain VBox/ForEach content-sizes to the short "UPCOMING" label
-						// and truncates the rows; the removed divider HRule used to force
-						// the width. This restores it without the bleed.
-						Text("UPCOMING").FG(&cSubtle).Bold(),
-						// the cap lives in the template: ForEach binds ALL items,
-						// Limit(upcomingMax) caps the rendered rows. FIXED HEIGHT
-						// (upcomingMax): fewer tasks leave blanks, so the inbox below
-						// never shifts between projects with different upcoming
-						// counts. The in-flight row's bullet swaps for a Spinner
-						// self-animating (glyph ADR 1; per-item field bindings are
-						// offset-resolved inside the ForEach).
-						VBox.Height(upcomingMax)(
-							If(&upcomingNone).Then(Text("· nothing upcoming").FG(&cSubtle)),
-							ForEach(&upcomingItems).Limit(upcomingMax)(func(r *upcomingRow) Component {
-								return HBox(
-									If(&r.InFlight).
-										Then(Spinner().Frames(SpinnerDots).FG(&cSubtle)).
-										Else(Text("·").FG(&cSubtle)),
-									SpaceW(1),
-									Text(&r.Line).FG(&cSubtle),
-								)
-							}),
-						),
+					// explicit width from the column's NodeRef (upcomingWidth) — a
+					// plain VBox/ForEach content-sizes to the short "UPCOMING" label
+					// and truncates the rows; the removed divider HRule used to force
+					// the width. This restores it without the bleed.
+					Text("UPCOMING").FG(&cSubtle).Bold(),
+					// the cap lives in the template: ForEach binds ALL items,
+					// Limit(upcomingMax) caps the rendered rows. FIXED HEIGHT
+					// (upcomingMax): fewer tasks leave blanks, so the inbox below
+					// never shifts between projects with different upcoming
+					// counts. The in-flight row's bullet swaps for a Spinner
+					// self-animating (glyph ADR 1; per-item field bindings are
+					// offset-resolved inside the ForEach).
+					VBox.Height(upcomingMax)(
+						If(&upcomingNone).Then(Text("· nothing upcoming").FG(&cSubtle)),
+						ForEach(&upcomingItems).Limit(upcomingMax)(func(r *upcomingRow) Component {
+							return HBox(
+								If(&r.InFlight).
+									Then(Spinner().Frames(SpinnerDots).FG(&cSubtle)).
+									Else(Text("·").FG(&cSubtle)),
+								SpaceW(1),
+								Text(&r.Line).FG(&cSubtle),
+							)
+						}),
+					),
 				),
 				List(&inboxUI.Rows).
 					Selection(&inboxUI.Sel).

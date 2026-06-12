@@ -315,6 +315,23 @@ How it flows:
   implementation todo lands on the TARGET repo's queue (the target's loop is the
   managing agent). Until that todo appears, nothing is agreed — don't pre-build.
 
+**Writing the document** (the authoring contract — field-tested on P1–P4):
+
+- **Sections are the contract; prose stays yours.** Cover: the problem /
+  consumers (NAMED, with evidence — who hand-rolls this today and where) /
+  the proposal (concrete API or behaviour, not vibes) / implementation
+  sketch / risks / migration. No rigid template file.
+- **No status lines or dates in the document.** The proposal row owns the
+  lifecycle; the sign-off materialiser stamps acceptance (and strips any
+  `status:` preamble you leave in — don't leave one).
+- **Write for the ADR reader.** On approval the document lands VERBATIM in
+  the target repo as the permanent record: present tense, self-contained,
+  file:line evidence. If it only makes sense next to the message thread, it
+  isn't done.
+- **Amendments are proposal COMMENTS, not document edits** — the ADR's
+  deliberation pointer carries the history (P3's marker-semantics amendment
+  is the worked example).
+
 When to propose vs send: a `send` is for two-party coordination that needs no
 decision record (a heads-up, a repro handoff, a question). Propose when the work
 would land on someone else's queue, changes a contract more than one repo
