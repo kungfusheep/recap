@@ -1792,7 +1792,7 @@ func TestProposalInboxSection(t *testing.T) {
 	if !promptUI.Open {
 		t.Fatal("reply prompt did not open from the thread pane")
 	}
-	promptUI.Field.Value = "agreed — proceeding"
+	promptUI.Field.Value = "agreed — **bold call** and `clean code`"
 	promptUI.submit()
 	drainPropDetail()
 	if len(propUI.Thread) < 2 || !propUI.Thread[1].Reply || propUI.Thread[1].ParentID != rootID {
@@ -1800,6 +1800,29 @@ func TestProposalInboxSection(t *testing.T) {
 	}
 	if propUI.Thread[1].Indent == "" || propUI.Thread[1].Who != "You" {
 		t.Fatalf("reply row should indent and read as You: %+v", propUI.Thread[1])
+	}
+	// c463: thread bodies render through the summary markup — the markers are
+	// consumed and the styled words survive as spans
+	bodyText := ""
+	for _, r := range propUI.Thread[1].BodyRows {
+		for _, sp := range r.Spans {
+			bodyText += sp.Text
+		}
+	}
+	if !strings.Contains(bodyText, "bold call") || !strings.Contains(bodyText, "clean code") || strings.Contains(bodyText, "**") {
+		t.Fatalf("markup not applied to the thread body: %q", bodyText)
+	}
+	// and through to the screen: the markup-styled reply renders in the column
+	bufT := NewBuffer(160, 45)
+	Build(buildMain()).Execute(bufT, 160, 45)
+	foundBody := false
+	for y := 0; y < 45; y++ {
+		if strings.Contains(bufT.GetLine(y), "bold call") {
+			foundBody = true
+		}
+	}
+	if !foundBody {
+		t.Fatal("markup-rendered reply body missing from the rendered thread column")
 	}
 }
 

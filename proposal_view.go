@@ -40,7 +40,8 @@ type propThreadVM struct {
 	WhoColor Color
 	Location string
 	Snippet  string
-	Body     string
+	Body     string      // raw body (reply prompts echo it)
+	BodyRows []propRowVM // the body through the briefing markup (c463) — Rich rows, CharWrap at render width
 	When     string
 	Indent   string // nested replies indent (precomputed; build-once safe)
 	Reply    bool
@@ -156,6 +157,12 @@ func fetchPropDetail(p db.Proposal, key string, reset bool) *propResult {
 			vm.Location = fmt.Sprintf("document · line %d", c.Line)
 			vm.Snippet = cleanLine(c.Snippet)
 			r.washes[c.Line] = true
+		}
+		// the body renders through the summary markup (c463): bullets, `code`,
+		// **bold**, Label: lead-ins. No pre-wrap (width 1<<20) — Rich CharWraps
+		// each row at the column's actual render width.
+		for _, row := range summaryBody(c.Body, 1<<20) {
+			vm.BodyRows = append(vm.BodyRows, propRowVM{Spans: row})
 		}
 		flat = append(flat, vm)
 	}
@@ -442,7 +449,11 @@ func propThreadRow(c *propThreadVM) Component {
 		If(&c.Snippet).Eq("").Then(Text("")).Else(HBox(SpaceW(2), Text(&c.Snippet).FG(&cSubtle))),
 		// the body bounds to the width left after the indent (the draft pane's
 		// wrap treatment) so nested replies don't shove text off the edge.
-		HBox(Text(&c.Indent), SpaceW(2), VBox.Grow(1)(TextBlock(&c.Body).FG(&cFG))),
+		HBox(Text(&c.Indent), SpaceW(2), VBox.Grow(1)(
+			ForEach(&c.BodyRows, func(r *propRowVM) Component {
+				return Rich(&r.Spans).CharWrap()
+			}),
+		)),
 		Text(" "),
 	)
 }
