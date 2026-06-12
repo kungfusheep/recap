@@ -2145,7 +2145,7 @@ func TestProposalSignOff(t *testing.T) {
 	// the target repo is known via a recorded task (RepoPathFor resolution)
 	st.Add(db.Task{Repo: "tui", RepoPath: targetTree, Title: "prior work", Status: db.StatusPending})
 	pid, err := st.AddProposal(db.Proposal{
-		Title: "Oscillators & Gates!", Body: "# the plan\n\ndo the thing",
+		Title: "Oscillators & Gates!", Body: "# the plan\n\nstatus: proposed — awaiting approval\nconsumers: mail\n\ndo the thing",
 		ProposerRepo: "tui", ProposerWho: "Glyph Smith", TargetRepo: "tui",
 	}, []string{"recap"})
 	if err != nil {
@@ -2170,10 +2170,15 @@ func TestProposalSignOff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ADR not written: %v", err)
 	}
-	for _, want := range []string{"# ADR 1: Oscillators & Gates!", "status: accepted", "do the thing", "Glyph Smith@tui"} {
+	for _, want := range []string{"# ADR 1: Oscillators & Gates!", "status: accepted", "do the thing", "Glyph Smith@tui", "consumers: mail"} {
 		if !strings.Contains(string(b), want) {
 			t.Fatalf("ADR missing %q:\n%s", want, b)
 		}
+	}
+	// m192: the embedded document's own stale status line is stripped — the
+	// proposal row owns the lifecycle (other preamble metadata survives)
+	if strings.Contains(string(b), "status: proposed") {
+		t.Fatalf("stale document status line survived into the ADR:\n%s", b)
 	}
 	tb, _ := os.ReadFile(filepath.Join(targetTree, "TODO.md"))
 	if !strings.Contains(string(tb), "implement approved proposal #1: Oscillators & Gates!") {

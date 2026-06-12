@@ -501,14 +501,54 @@ func writeProposalADR(p db.Proposal) (string, error) {
 	fmt.Fprintf(&b, "- proposer: %s\n", propSender(p.ProposerWho, p.ProposerRepo))
 	fmt.Fprintf(&b, "- parties: %s\n", strings.Join(parties, ", "))
 	fmt.Fprintf(&b, "- deliberation: recap proposal show %d (%d comments)\n\n", p.ID, len(comments))
-	b.WriteString(p.Body)
-	if !strings.HasSuffix(p.Body, "\n") {
+	body := stripDocStatusLines(p.Body)
+	b.WriteString(body)
+	if !strings.HasSuffix(body, "\n") {
 		b.WriteString("\n")
 	}
 	if err := os.WriteFile(full, []byte(b.String()), 0o644); err != nil {
 		return "", err
 	}
 	return rel, nil
+}
+
+// stripDocStatusLines drops "status:" lines from the document's PREAMBLE (the
+// run of blank/heading/metadata lines at the top) — the proposal row owns the
+// lifecycle, so an embedded "status: proposed" under the generated "status:
+// accepted" header read as a contradiction (m192, the human's ADR-1 review).
+func stripDocStatusLines(body string) string {
+	lines := strings.Split(body, "\n")
+	out := lines[:0]
+	preamble := true
+	for _, ln := range lines {
+		t := strings.ToLower(strings.TrimSpace(ln))
+		if preamble {
+			switch {
+			case strings.HasPrefix(t, "status:"):
+				continue // the lifecycle line the materialiser owns
+			case t == "" || strings.HasPrefix(t, "#") || regexpMetaLine(t):
+				// still in the preamble
+			default:
+				preamble = false
+			}
+		}
+		out = append(out, ln)
+	}
+	return strings.Join(out, "\n")
+}
+
+// regexpMetaLine reports a "key: value" metadata-shaped preamble line.
+func regexpMetaLine(t string) bool {
+	i := strings.Index(t, ":")
+	if i <= 0 || i > 24 {
+		return false
+	}
+	for _, r := range t[:i] {
+		if !(r >= 'a' && r <= 'z' || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // queueProposalTodo appends the implementation item to the TARGET repo's TODO —
