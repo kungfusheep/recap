@@ -1708,6 +1708,10 @@ func TestProposalInboxSection(t *testing.T) {
 	if !propUI.Commented[3] {
 		t.Fatal("commented document line should wash")
 	}
+	// the human's comment carries a name too (todo:5a724f62)
+	if n := len(propUI.Thread); n != 2 || propUI.Thread[1].Who != "You" {
+		t.Fatalf("human comment should read as You: %+v", propUI.Thread)
+	}
 
 	// structural proof the If-swapped pane actually renders: execute the real
 	// view with the proposal active and find the document on screen (an

@@ -134,6 +134,11 @@ func fetchPropDetail(p db.Proposal, key string, reset bool) *propResult {
 			When:     shortStamp(c.CreatedAt),
 			Location: "general",
 		}
+		// the human's comments carry a name too (todo:5a724f62) — "You", to
+		// read alongside the agents' identity-coloured names.
+		if c.WhoRepo == "" {
+			vm.Who = "You"
+		}
 		if c.WhoRepo != "" {
 			if _, ic := loadIdentity(c.WhoRepo); ic.Mode != 0 {
 				vm.WhoColor = ic
