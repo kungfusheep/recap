@@ -269,6 +269,9 @@ func fetchInbox(repoFilter string, pins map[int64]bool) *inboxData {
 				d.decided = append(d.decided, p)
 			}
 		}
+		// open proposals read FIFO like the inbox: oldest arrival first
+		// (Proposals() returns newest-first; the queue works front-to-back).
+		sort.Slice(d.props, func(i, j int) bool { return d.props[i].ID < d.props[j].ID })
 		// decided: newest verdict first, capped — a record, not a queue
 		sort.Slice(d.decided, func(i, j int) bool { return d.decided[i].DecidedAt > d.decided[j].DecidedAt })
 		if len(d.decided) > 10 {

@@ -1632,6 +1632,10 @@ func TestProposalInboxSection(t *testing.T) {
 	if _, err := st.AddProposalComment(pid, "recap", "Kestrel", "endorse: the seam collapses"); err != nil {
 		t.Fatal(err)
 	}
+	// a second proposal pins FIFO ordering (todo:2457d3e7): oldest arrival first
+	if _, err := st.AddProposal(db.Proposal{Title: "newer idea", Body: "b", ProposerRepo: "tui", TargetRepo: "tui"}, nil); err != nil {
+		t.Fatal(err)
+	}
 
 	// synchronous kick keeps refreshDetailNow deterministic.
 	propDetailKick = func(p db.Proposal, key string, reset bool) { stageProp(fetchPropDetail(p, key, reset)) }
@@ -1646,7 +1650,10 @@ func TestProposalInboxSection(t *testing.T) {
 	if !row.Proposal || row.GroupLabel != "PROPOSALS" || row.IDText != "P1" || row.State != "proposal" {
 		t.Fatalf("proposal row malformed: %+v", row)
 	}
-	if !strings.Contains(inboxUI.CountText, "◆ 1") {
+	if r2 := inboxUI.Rows[1]; !r2.Proposal || r2.IDText != "P2" {
+		t.Fatalf("proposals should read FIFO (P1 then P2), got %+v", r2)
+	}
+	if !strings.Contains(inboxUI.CountText, "◆ 2") {
 		t.Fatalf("header missing the open-proposal badge: %q", inboxUI.CountText)
 	}
 
