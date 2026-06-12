@@ -113,6 +113,8 @@ func runUI() error {
 
 	diffUI.Layer = NewLayer()
 	diffUI.Layer.Render = renderDiffLayer
+	propUI.Layer = NewLayer()
+	propUI.Layer.Render = renderPropLayer
 
 	omni = newOmniBox(uiApp, omniCommands())
 
@@ -674,6 +676,7 @@ func refreshDetail() {
 	}
 	drainUpcoming()
 	drainFeed()
+	drainPropDetail()
 	// a result whose key no longer matches the shown selection is stale — the
 	// newer kick's result is already on its way; drop it.
 	if staged := takeStagedDetail(); staged != nil && staged.key == inboxUI.LastDiffKey {
@@ -724,6 +727,7 @@ func applyPaneFocus() {
 	} else {
 		diffUI.Focused = 0.0
 	}
+	propUI.Focused = diffUI.Focused // the proposal pane sits in the same column
 	if pane == paneDraft {
 		draftUI.Focused = 1.0
 	} else {
@@ -797,9 +801,10 @@ func refreshDetailNow() {
 		metaWhen = p.CreatedAt
 		metaResult = p.Status
 		metaResultColor = proposalStatusColor(p.Status)
-		propDetailKick(p, diffKey, resetScroll)
+		openPropDetail(p, diffKey, resetScroll)
 		return
 	}
+	closePropDetail()
 	t, ok := selectedTask()
 	// only reset the diff scroll when the SHOWN diff (task:rev:sha) actually changes — so an
 	// inbox reload that left the selected task unchanged keeps the reader's scroll position.
@@ -1181,13 +1186,9 @@ func prepDiffRows(w int) {
 		diffUI.Meta = append(diffUI.Meta, m)
 	}
 
-	for i, brow := range diffUI.Banner {
-		m := diffLineMeta{}
-		if i < len(diffUI.BannerMeta) {
-			m = diffUI.BannerMeta[i] // proposal documents anchor their banner rows
-		}
+	for _, brow := range diffUI.Banner {
 		diffUI.Rows = append(diffUI.Rows, diffRowVM{Spans: append([]Span(nil), brow...)})
-		diffUI.Meta = append(diffUI.Meta, m)
+		diffUI.Meta = append(diffUI.Meta, diffLineMeta{})
 	}
 
 	if len(diffUI.Files) == 0 {
@@ -1474,12 +1475,19 @@ func buildMain() Component {
 				// NodeRef on this HBox gives the diff LayerView's screen rect (it's
 				// the first child at x=0): renderDiffLayer maps commentable rows to
 				// screen coords from it when registering glyph jump targets.
-				HBox.Grow(1).NodeRef(&diffUI.ViewRef)(
-					LayerView(diffUI.Layer).Grow(1),
-					ScrollbarForLayer(diffUI.Layer).
-						TrackStyle(&scrollTrackStyle).
-						ThumbStyle(&scrollThumbStyle).
-						Opacity(Animate(&diffUI.Focused)),
+				// the column's body swaps with the selection: a proposal row
+				// shows the proposal pane (its own layer/template — c454's code
+				// split), task rows show the diff. Same look, independent code.
+				If(&propUI.Active).Then(
+					propDocPane(),
+				).Else(
+					HBox.Grow(1).NodeRef(&diffUI.ViewRef)(
+						LayerView(diffUI.Layer).Grow(1),
+						ScrollbarForLayer(diffUI.Layer).
+							TrackStyle(&scrollTrackStyle).
+							ThumbStyle(&scrollThumbStyle).
+							Opacity(Animate(&diffUI.Focused)),
+					),
 				),
 				// diff-focused keys. During a line-pick glyph's jump router is
 				// pushed on top and intercepts the label keystrokes, so these stay
@@ -1501,6 +1509,8 @@ func buildMain() Component {
 					Key("<Esc>", func() { setPane(paneList) }),
 				)),
 			),
+			// right — the proposal thread column (proposal-owned, same aesthetic)
+			propThreadPane(),
 			// right — comments overview (shown whenever the task has any comments)
 			If(&draftUI.Has).Then(
 				VBox.Grow(2).Fill(&cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0).NodeRef(&draftUI.PaneRef)(
@@ -1830,7 +1840,7 @@ func syncDiffToDraft() {
 }
 
 func setPane(p string) {
-	if p == paneDraft && !draftUI.Has {
+	if p == paneDraft && !draftUI.Has && !propUI.HasThread {
 		p = paneList // can't focus a pane that isn't shown
 	}
 	if p == paneDraft && pane != paneDraft {
@@ -1838,7 +1848,7 @@ func setPane(p string) {
 	}
 	pane = p
 	applyPaneFocus() // a focus switch applies its colours in the switch function
-	if p == paneDraft {
+	if p == paneDraft && draftUI.Has {
 		onDraftSelChanged() // focus-in: sync the diff to the current comment
 	}
 }
@@ -1846,7 +1856,7 @@ func setPane(p string) {
 // panes returns the focus ring in left-to-right order, including the draft pane
 // only when it's visible.
 func panes() []string {
-	if draftUI.Has {
+	if draftUI.Has || propUI.HasThread {
 		return []string{paneList, paneDiff, paneDraft}
 	}
 	return []string{paneList, paneDiff}
@@ -1938,12 +1948,22 @@ func saveGeneralComment() {
 
 // diff scroll is native: adjust the layer's scrollY (clamped internally) and
 // the framework re-blits the visible window next frame — no re-render.
-func diffDown()     { diffUI.Layer.ScrollDown(1) }
-func diffUp()       { diffUI.Layer.ScrollUp(1) }
-func diffHalfDown() { diffUI.Layer.HalfPageDown() }
-func diffHalfUp()   { diffUI.Layer.HalfPageUp() }
-func diffTop()      { diffUI.Layer.ScrollToTop() }
-func diffBottom()   { diffUI.Layer.ScrollToEnd() }
+// detailLayer is the middle column's live layer — the proposal document when a
+// proposal row is selected, the diff otherwise. Scroll keys route through it so
+// both contents share the bindings without sharing state.
+func detailLayer() *Layer {
+	if propUI.Active {
+		return propUI.Layer
+	}
+	return diffUI.Layer
+}
+
+func diffDown()     { detailLayer().ScrollDown(1) }
+func diffUp()       { detailLayer().ScrollUp(1) }
+func diffHalfDown() { detailLayer().HalfPageDown() }
+func diffHalfUp()   { detailLayer().HalfPageUp() }
+func diffTop()      { detailLayer().ScrollToTop() }
+func diffBottom()   { detailLayer().ScrollToEnd() }
 
 func moveSel(d int) {
 	inboxUI.Sel += d
@@ -2141,8 +2161,12 @@ func anyCommentableRow() bool {
 // jump labels (no view switch): EnterJumpMode renders, renderDiffLayer registers a
 // target per visible commentable row, and picking a label runs diffUI.PickAction on it.
 func openDiffLineComment() {
-	row := selectedRow()
-	if row == nil {
+	// the proposal pane owns its own pick over document lines.
+	if propUI.Active {
+		openPropLineComment()
+		return
+	}
+	if len(inboxUI.Tasks) == 0 {
 		return
 	}
 	if !anyCommentableRow() {
@@ -2150,13 +2174,7 @@ func openDiffLineComment() {
 		return
 	}
 	diffUI.PickHeaders = false
-	// the same pick engine serves both panes' content: task rows comment on
-	// diff lines, proposal rows comment on document lines.
-	if row.Proposal {
-		diffUI.PickAction = commentOnProposalLine
-	} else {
-		diffUI.PickAction = commentOnDiffLine
-	}
+	diffUI.PickAction = commentOnDiffLine
 	uiApp.EnterJumpMode()
 }
 
@@ -2164,6 +2182,9 @@ func openDiffLineComment() {
 // and picking one toggles that file's fold (collapse to header / expand). Reuses the same
 // jump engine as line-picking, just targeting FileHeader rows.
 func openFoldPick() {
+	if propUI.Active {
+		return // diff-only machinery; the proposal pane has no files/folds
+	}
 	hasHeader := false
 	for _, m := range diffUI.Meta {
 		if m.FileHeader {
@@ -2191,6 +2212,9 @@ func toggleFileFold(m diffLineMeta) {
 // foldAllFiles closes every file in the diff (collapse to headers); if they're already all
 // folded it opens them all — so one key toggles the whole diff between overview and detail.
 func foldAllFiles() {
+	if propUI.Active {
+		return // diff-only machinery; the proposal pane has no files/folds
+	}
 	allFolded := len(diffUI.Files) > 0
 	for _, f := range diffUI.Files {
 		if !diffUI.Folded[f.Path] {
@@ -2207,8 +2231,19 @@ func foldAllFiles() {
 // nextFile / prevFile scroll the diff so the next / previous file header sits at the top —
 // quick movement through a multi-file diff. They read diffUI.Meta's FileHeader rows (buffer Y
 // == row index) against the current scroll.
-func nextFile() { scrollToFileHeader(1) }
-func prevFile() { scrollToFileHeader(-1) }
+func nextFile() {
+	if propUI.Active {
+		return
+	}
+	scrollToFileHeader(1)
+}
+
+func prevFile() {
+	if propUI.Active {
+		return
+	}
+	scrollToFileHeader(-1)
+}
 
 func scrollToFileHeader(dir int) {
 	if diffUI.Layer == nil {

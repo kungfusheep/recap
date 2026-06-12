@@ -1609,6 +1609,7 @@ func TestProposalInboxSection(t *testing.T) {
 		promptUI.Field = InputState{}
 		propOpen = 0
 		statusMsg = ""
+		propUI = propView{Commented: map[int]bool{}}
 	})
 	t.Setenv("RECAP_DB", filepath.Join(t.TempDir(), "recap.db"))
 
@@ -1629,7 +1630,7 @@ func TestProposalInboxSection(t *testing.T) {
 	}
 
 	// synchronous kick keeps refreshDetailNow deterministic.
-	propDetailKick = func(p db.Proposal, key string, reset bool) { stageDetail(fetchProposalDetail(p, key, reset)) }
+	propDetailKick = func(p db.Proposal, key string, reset bool) { stageProp(fetchPropDetail(p, key, reset)) }
 
 	reloadTasks()
 	uiApp.SetView(buildMain())
@@ -1653,49 +1654,44 @@ func TestProposalInboxSection(t *testing.T) {
 
 	inboxUI.DetailDirty = true
 	refreshDetailNow()
-	staged := takeStagedDetail()
-	if staged == nil {
-		t.Fatal("no staged proposal detail after refresh")
+	if !propUI.Active {
+		t.Fatal("proposal selection should activate the proposal pane")
 	}
-	applyDetail(staged)
+	drainPropDetail()
 	if detailTitle != "oscillators" {
 		t.Fatalf("detailTitle = %q", detailTitle)
 	}
-	text := flattenSpans(diffUI.Banner)
+	// the document projects through the PROPOSAL pane's own rows/meta — the
+	// diff machinery never sees it (c454's split)
+	prepPropRows(80)
+	text := ""
+	for _, r := range propUI.Rows {
+		for _, sp := range r.Spans {
+			text += sp.Text
+		}
+		text += "\n"
+	}
 	for _, want := range []string{"proposal #1", "heading", "body text"} {
 		if !strings.Contains(text, want) {
-			t.Fatalf("detail missing %q:\n%s", want, text)
+			t.Fatalf("document missing %q:\n%s", want, text)
 		}
 	}
-	// the thread rides the standard comments pane now (c447), not the document
-	if !draftUI.Has || draftUI.PropID != pid {
-		t.Fatalf("comments pane not carrying the proposal thread: has=%v prop=%d", draftUI.Has, draftUI.PropID)
+	// the thread rides the proposal-owned column; the task draft pane stays dark
+	if draftUI.Has {
+		t.Fatal("task draft pane lit up for a proposal")
 	}
-	foundThread := false
-	for _, c := range draftUI.Comments {
-		if c.Who == "Kestrel@recap" && strings.Contains(c.Body, "endorse") {
-			foundThread = true
-		}
-	}
-	if !foundThread {
-		t.Fatalf("agent comment missing from the pane: %+v", draftUI.Comments)
-	}
-	// pane mutations are gated for proposal threads (task-comment ids differ)
-	draftUI.Sel = 0
-	editDraftComment()
-	if promptUI.Open {
-		t.Fatal("editDraftComment must be gated on a proposal thread")
+	if !propUI.HasThread || len(propUI.Thread) != 1 || propUI.Thread[0].Who != "Kestrel@recap" {
+		t.Fatalf("thread column wrong: has=%v %+v", propUI.HasThread, propUI.Thread)
 	}
 	// document rows are line-commentable, anchored to SOURCE lines: the doc is
 	// "# heading\n\nbody text" so "body text" anchors to source line 3.
-	prepDiffRows(80)
-	var bodyMeta *diffLineMeta
-	for i := range diffUI.Meta {
-		if diffUI.Meta[i].Commentable && diffUI.Meta[i].Text == "body text" {
-			bodyMeta = &diffUI.Meta[i]
+	var bodyMeta *propLineMeta
+	for i := range propUI.Meta {
+		if propUI.Meta[i].Commentable && propUI.Meta[i].Text == "body text" {
+			bodyMeta = &propUI.Meta[i]
 		}
 	}
-	if bodyMeta == nil || bodyMeta.File != propDocFile || bodyMeta.Line != 3 {
+	if bodyMeta == nil || bodyMeta.Line != 3 {
 		t.Fatalf("document line meta wrong: %+v", bodyMeta)
 	}
 	// a line comment through the pick action lands anchored with the snippet
@@ -1707,6 +1703,27 @@ func TestProposalInboxSection(t *testing.T) {
 	promptUI.submit()
 	if cs, _ := st.ProposalComments(pid); len(cs) != 2 || cs[1].Line != 3 || cs[1].Snippet != "body text" {
 		t.Fatalf("line comment not anchored: %+v", cs)
+	}
+	drainPropDetail()
+	if !propUI.Commented[3] {
+		t.Fatal("commented document line should wash")
+	}
+
+	// structural proof the If-swapped pane actually renders: execute the real
+	// view with the proposal active and find the document on screen (an
+	// If-wrapped LayerView collapsing to zero height would fail this).
+	propUI.Layer = NewLayer()
+	propUI.Layer.Render = renderPropLayer
+	buf := NewBuffer(140, 40)
+	Build(buildMain()).Execute(buf, 140, 40)
+	foundDoc := false
+	for y := 0; y < 40; y++ {
+		if strings.Contains(buf.GetLine(y), "body text") {
+			foundDoc = true
+		}
+	}
+	if !foundDoc {
+		t.Fatal("proposal document did not render through the swapped pane")
 	}
 
 	// `c`: the human comment threads, joins no phantom "" party, and pings each

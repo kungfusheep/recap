@@ -63,6 +63,9 @@ func editDiffLine(m diffLineMeta) {
 // openEditorPick enters glyph's jump-label mode over the diff; picking a labelled
 // line opens THAT line in $EDITOR (mirrors the comment line-picker).
 func openEditorPick() {
+	if propUI.Active {
+		return // the proposal document has no repo file to open
+	}
 	if !anyCommentableRow() {
 		toast("(no diff lines to open)")
 		return

@@ -17,18 +17,16 @@ import (
 // lands after the selection moved on is dropped instead of applied.
 
 type detailResult struct {
-	key        string // diff key (task:rev:sha) at kick time — stale results are dropped
-	reset      bool   // reset the diff scroll on apply (the shown diff changed)
-	taskID     int64
-	propID     int64          // a proposal detail: comments are proposal-thread rows (pane mutations gate off)
-	bannerMeta []diffLineMeta // anchors for banner rows (proposal documents are line-commentable)
-	banner     [][]Span
-	files      []diff.File
-	filesText  string
-	notFound   bool   // the sha didn't resolve in this checkout
-	sha        string // for the not-found banner
-	repoPath   string
-	comments   []db.TaskComment
+	key       string // diff key (task:rev:sha) at kick time — stale results are dropped
+	reset     bool   // reset the diff scroll on apply (the shown diff changed)
+	taskID    int64
+	banner    [][]Span
+	files     []diff.File
+	filesText string
+	notFound  bool   // the sha didn't resolve in this checkout
+	sha       string // for the not-found banner
+	repoPath  string
+	comments  []db.TaskComment
 }
 
 var (
@@ -96,8 +94,6 @@ func fetchDetail(t db.Task, row taskVM, key string, reset bool) *detailResult {
 // only, no I/O.
 func applyDetail(r *detailResult) {
 	diffUI.Banner = r.banner
-	diffUI.BannerMeta = r.bannerMeta
-	draftUI.PropID = r.propID
 	if r.notFound {
 		diffUI.Banner = append(diffUI.Banner,
 			[]Span{span(fmt.Sprintf("⚠ commit %s not found in %s", r.sha, r.repoPath), cDel, true)},
@@ -108,8 +104,5 @@ func applyDetail(r *detailResult) {
 	diffUI.Files = r.files
 	diffUI.FilesText = r.filesText
 	applyDraftComments(r.taskID, r.comments)
-	if r.propID != 0 && len(r.comments) > 0 {
-		draftUI.Note = fmt.Sprintf("thread · %d", len(r.comments))
-	}
 	setDiff(r.reset)
 }

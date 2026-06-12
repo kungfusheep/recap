@@ -17,13 +17,9 @@ type diffView struct {
 	Layer  *Layer
 	Meta   []diffLineMeta // one entry per rendered row (render order): anchor info
 	Banner [][]Span       // optional context rows prepended to the diff
-	// BannerMeta gives banner rows anchors of their own — the proposal detail
-	// renders its DOCUMENT through the banner, and entries here make those
-	// rows line-commentable (nil = inert banner rows, the task-diff default).
-	BannerMeta []diffLineMeta
-	Files      []diff.File
-	Rows       []diffRowVM // compile-once span rows the template's ForEach binds
-	Tmpl       *Template   // the pane's single compiled template (built on first use)
+	Files  []diff.File
+	Rows   []diffRowVM // compile-once span rows the template's ForEach binds
+	Tmpl   *Template   // the pane's single compiled template (built on first use)
 
 	FilesText string // "N files changed" header line (or the no-diff explanation)
 
