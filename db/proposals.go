@@ -151,3 +151,63 @@ func (s *Store) DecideProposal(id int64, status string) error {
 	}
 	return nil
 }
+
+// ProposalComment is one entry in a proposal's deliberation thread. The thread
+// lives here (recap is the record); delivery to parties rides the message queue.
+type ProposalComment struct {
+	ID         int64
+	ProposalID int64
+	WhoRepo    string
+	WhoName    string
+	Body       string
+	CreatedAt  string
+}
+
+const proposalCommentSchema = `
+CREATE TABLE IF NOT EXISTS proposal_comments (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	proposal_id INTEGER NOT NULL,
+	who_repo TEXT NOT NULL,
+	who_name TEXT,
+	body TEXT NOT NULL,
+	created_at TEXT NOT NULL
+);`
+
+// AddProposalComment appends to the thread; the commenting repo becomes a
+// party if it wasn't already (commenting = interest).
+func (s *Store) AddProposalComment(proposalID int64, whoRepo, whoName, body string) (int64, error) {
+	if body == "" {
+		return 0, fmt.Errorf("comment body is required")
+	}
+	if _, err := s.ProposalByID(proposalID); err != nil {
+		return 0, fmt.Errorf("no proposal #%d", proposalID)
+	}
+	res, err := s.db.Exec(`INSERT INTO proposal_comments (proposal_id, who_repo, who_name, body, created_at)
+		VALUES (?,?,?,?,?)`, proposalID, whoRepo, whoName, body, NowStamp())
+	if err != nil {
+		return 0, err
+	}
+	if err := s.AddProposalParty(proposalID, whoRepo); err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// ProposalComments returns the thread, oldest first.
+func (s *Store) ProposalComments(proposalID int64) ([]ProposalComment, error) {
+	rows, err := s.db.Query(`SELECT id, proposal_id, who_repo, COALESCE(who_name,''), body, created_at
+		FROM proposal_comments WHERE proposal_id = ? ORDER BY id`, proposalID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ProposalComment
+	for rows.Next() {
+		var c ProposalComment
+		if err := rows.Scan(&c.ID, &c.ProposalID, &c.WhoRepo, &c.WhoName, &c.Body, &c.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}

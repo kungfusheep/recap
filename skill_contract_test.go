@@ -304,3 +304,32 @@ func TestSkillContract_ProposalSlice1(t *testing.T) {
 		t.Errorf("help does not advertise propose:\n%s", h)
 	}
 }
+
+// slice 2: comments thread on the proposal, fan to every other party through
+// the queue, and @repo mentions join the conversation with an invite.
+func TestSkillContract_ProposalComments(t *testing.T) {
+	dbPath := contractDB(t)
+	mustRun(t, dbPath, "propose", "--target", "tui", "--title", "preserve bg",
+		"--body", "doc body", "--tag", "mail")
+	out := mustRun(t, dbPath, "proposal", "comment", "1", "--body", "what about quantize? @calendar should weigh in")
+	if !strings.Contains(out, "commented on proposal #1") {
+		t.Fatalf("comment failed:\n%s", out)
+	}
+	// thread shows in proposal show
+	show := mustRun(t, dbPath, "proposal", "show", "1")
+	if !strings.Contains(show, "thread (1)") || !strings.Contains(show, "what about quantize?") {
+		t.Fatalf("thread missing from show:\n%s", show)
+	}
+	// @calendar joined as a party and was invited
+	if !strings.Contains(show, "calendar") {
+		t.Fatalf("@mention did not join the parties:\n%s", show)
+	}
+	msgs := mustRun(t, dbPath, "messages", "--all")
+	if !strings.Contains(msgs, "you were @mentioned on proposal #1") {
+		t.Fatalf("no @mention invite in the queue:\n%s", msgs)
+	}
+	// the comment fanned to the other parties (tui + mail at least)
+	if !strings.Contains(msgs, "[proposal #1]") {
+		t.Fatalf("comment not fanned to parties:\n%s", msgs)
+	}
+}

@@ -66,8 +66,9 @@ section + doc-rendering detail mode.
 
 1. **Storage** — ANSWERED (c426): a separate `proposals` table, for room to
    grow. Landed in slice 1.
-2. **Who is "the managing agent"?** Default the target repo's loop, or named
-   explicitly at sign-off (`recap review approve N --assign tui`)?
+2. **Who is "the managing agent"?** — ANSWERED (c427): the agent doing the
+   work in that repo — i.e. the TARGET repo's loop. Sign-off appends the todo
+   to the target repo's TODO; no assignment flag.
 3. **ADR numbering**: per-repo sequence scanned from `docs/adr/` at write
    time, or recap-global? Lean: per-repo scan — repos stay self-consistent.
 4. **Comment fan-out volume**: every comment to every party could get noisy
@@ -83,7 +84,9 @@ section + doc-rendering detail mode.
    no TUI) — usable via messages immediately. **DONE** (proposals table,
    propose/show/ls verbs, tag delivery via the message queue, DecideProposal
    ready for slice 4).
-2. tag delivery + comment fan-out + @mentions.
+2. tag delivery + comment fan-out + @mentions. **DONE** (`proposal comment`
+   threads on the proposal, fans to every other party via the queue, @repo
+   joins + invites; commenting itself makes you a party).
 3. TUI: inbox section + document detail rendering.
 4. sign-off: ADR writer + managing-repo todo append.
 5. skill section + broadcast.

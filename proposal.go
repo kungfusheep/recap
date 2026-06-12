@@ -94,6 +94,12 @@ func cmdProposal(args []string) error {
 			fmt.Printf("decided:  %s\n", p.DecidedAt)
 		}
 		fmt.Printf("\n%s\n", p.Body)
+		if cs, _ := st.ProposalComments(id); len(cs) > 0 {
+			fmt.Printf("\nthread (%d):\n", len(cs))
+			for _, c := range cs {
+				fmt.Printf("  • [%s] %s@%s: %s\n", c.CreatedAt, dash(c.WhoName), c.WhoRepo, c.Body)
+			}
+		}
 		return nil
 	case "ls":
 		status := db.ProposalOpen
@@ -112,7 +118,57 @@ func cmdProposal(args []string) error {
 			fmt.Printf("#%-3d %-9s %s → %s  %s\n", p.ID, p.Status, p.ProposerRepo, p.TargetRepo, p.Title)
 		}
 		return nil
+	case "comment":
+		fs := flag.NewFlagSet("proposal comment", flag.ExitOnError)
+		body := fs.String("body", "", "comment text (@repo adds that repo as a party)")
+		if len(args) < 2 {
+			return fmt.Errorf("usage: recap proposal comment <id> --body TEXT")
+		}
+		id, err := parseID(args[1])
+		if err != nil {
+			return err
+		}
+		fs.Parse(args[2:])
+		if *body == "" {
+			return fmt.Errorf("--body is required")
+		}
+		if _, err := st.AddProposalComment(id, currentRepo(), identityWho(), *body); err != nil {
+			return err
+		}
+		// @mentions join the conversation: each @repo becomes a party and gets
+		// an invite through the queue.
+		p, _ := st.ProposalByID(id)
+		for _, m := range atMentions(*body) {
+			if err := st.AddProposalParty(id, m); err == nil {
+				st.SendMessage(currentRepo(), identityWho(), m, 0, 0,
+					fmt.Sprintf("you were @mentioned on proposal #%d (%q) — recap proposal show %d", id, p.Title, id))
+			}
+		}
+		// fan the comment to every OTHER party — recap holds the thread, the
+		// queue carries the notification + content.
+		parties, _ := st.ProposalParties(id)
+		for _, r := range parties {
+			if r == currentRepo() {
+				continue
+			}
+			st.SendMessage(currentRepo(), identityWho(), r, 0, 0,
+				fmt.Sprintf("[proposal #%d] %s: %s — thread: recap proposal show %d", id, identityWho(), firstLine(*body), id))
+		}
+		notify.Reload()
+		fmt.Printf("commented on proposal #%d (fanned to %d parties)\n", id, len(parties)-1)
+		return nil
 	default:
-		return fmt.Errorf("unknown proposal subcommand %q (show|ls)", args[0])
+		return fmt.Errorf("unknown proposal subcommand %q (show|ls|comment)", args[0])
 	}
+}
+
+// atMentions extracts @repo tokens from a comment body.
+func atMentions(body string) []string {
+	var out []string
+	for _, f := range strings.Fields(body) {
+		if strings.HasPrefix(f, "@") && len(f) > 1 {
+			out = append(out, strings.Trim(f[1:], ".,;:!?"))
+		}
+	}
+	return out
 }
