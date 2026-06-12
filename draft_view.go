@@ -241,6 +241,41 @@ func setFoldFlags(vms []draftCommentVM) {
 // row's thread: the root stays with a "▸ N replies" cue, replies hide. Selecting
 // a reply folds its whole thread (selection lands back on the root). Folding is
 // pure viewing state — it flips flags on the rows in place; the data never moves.
+// collapseAllCommentThreads folds/unfolds every thread in one stroke (Z) —
+// the diff pane's fold-all, for comments. Toggle semantics match foldAllFiles:
+// if every reply-bearing root is collapsed, expand all; else collapse all.
+func collapseAllCommentThreads() {
+	var roots []int64
+	for i := range draftUI.Comments {
+		if !draftUI.Comments[i].Reply && i+1 < len(draftUI.Comments) && draftUI.Comments[i+1].Reply {
+			roots = append(roots, draftUI.Comments[i].ID)
+		}
+	}
+	if len(roots) == 0 {
+		return
+	}
+	all := true
+	for _, id := range roots {
+		if !draftUI.Collapsed[id] {
+			all = false
+			break
+		}
+	}
+	for _, id := range roots {
+		draftUI.Collapsed[id] = !all
+	}
+	setFoldFlags(draftUI.Comments)
+	// park the selection on its thread root so it never sits on a hidden row
+	root := draftUI.Sel
+	for root > 0 && root < len(draftUI.Comments) && draftUI.Comments[root].Reply {
+		root--
+	}
+	if root >= 0 && root < len(draftUI.Comments) {
+		draftUI.Sel = root
+	}
+	onDraftSelChanged()
+}
+
 func toggleCommentThread() {
 	if draftUI.Sel < 0 || draftUI.Sel >= len(draftUI.Comments) {
 		return

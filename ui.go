@@ -657,6 +657,42 @@ func toggleExpand() {
 	onInboxSelChanged()
 }
 
+// collapseAllRevisions expands/collapses EVERY multi-revision task in one
+// stroke (Z in the list pane) — the diff pane's fold-all, for revisions.
+func collapseAllRevisions() {
+	var ids []int64
+	for _, t := range inboxUI.Tasks {
+		if revs, _ := uiStore.Revisions(t.ID); len(revs) > 1 {
+			ids = append(ids, t.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	all := true
+	for _, id := range ids {
+		if !inboxUI.Expanded[id] {
+			all = false
+			break
+		}
+	}
+	for _, id := range ids {
+		inboxUI.Expanded[id] = !all
+	}
+	t, ok := selectedTask()
+	reloadTasks()
+	if ok { // hold the selection on the same task's header through the rebuild
+		for i := range inboxUI.Rows {
+			if inboxUI.Rows[i].ID == t.ID && inboxUI.Rows[i].RevIdx < 0 && !inboxUI.Rows[i].Proposal {
+				inboxUI.Sel = i
+				break
+			}
+		}
+	}
+	inboxUI.DetailDirty = true
+	onInboxSelChanged()
+}
+
 // refreshDetail updates selection fill + the right-hand detail when selection,
 // filter, or task set changes — never per-frame git calls.
 // refreshDetail is the OnBeforeRender hook — after the event-home decomposition
@@ -1447,8 +1483,9 @@ func buildMain() Component {
 					Key("u", undoLast), // undo the last approve/submit/pin
 					Key("c", openComment),
 					Key("v", rerun),
-					Key("o", toggleExpand), // expand a task into its revision diffs
-					Key("p", togglePin),    // pin/unpin → floats to the PINNED section
+					Key("o", toggleExpand),         // expand a task into its revision diffs
+					Key("p", togglePin),            // pin/unpin → floats to the PINNED section
+					Key("Z", collapseAllRevisions), // fold/unfold ALL revision expansions
 				)),
 			),
 			// middle — detail + diff (no side padding; scrollbar flush right).
@@ -1538,8 +1575,9 @@ func buildMain() Component {
 						Key("j", func() { moveDraft(1) }),
 						Key("k", func() { moveDraft(-1) }),
 						Key("<Enter>", openCommentView),
-						Key("r", replyToComment),      // reply to the selected comment (threads under it)
-						Key("o", toggleCommentThread), // collapse/expand the selected thread
+						Key("r", replyToComment),            // reply to the selected comment (threads under it)
+						Key("o", toggleCommentThread),       // collapse/expand the selected thread
+						Key("Z", collapseAllCommentThreads), // fold/unfold ALL threads
 						Key("e", editDraftComment),
 						Key("d", deleteDraftComment),
 						Key("O", openDraftLinks), // open [[file]] refs (e.g. screenshots)
@@ -1584,6 +1622,7 @@ var helpNavRows = []helpRow{
 
 var helpActionRows = []helpRow{
 	{"o", "revisions / fold thread"},
+	{"Z", "fold all (context)"},
 	{"p", "pin / unpin"},
 	{"m", "agent messages"},
 	{"A", "agent dashboard"},

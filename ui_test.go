@@ -1927,3 +1927,79 @@ func TestRevisionTimesVisible(t *testing.T) {
 		t.Fatalf("detail meta time should follow the revision: got %q want %q", metaWhen, child.RevWhen)
 	}
 }
+
+// Z is context-aware fold-all (todo:d044e2dd): in the LIST pane it expands or
+// collapses every multi-revision task at once; in the COMMENTS pane it folds
+// or unfolds every reply thread — toggle semantics matching the diff pane's Z.
+func TestCollapseAllContexts(t *testing.T) {
+	prevStore, prevApp, prevOmni, prevLayer := uiStore, uiApp, omni, diffUI.Layer
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	diffUI.Layer = NewLayer()
+	diffUI.Layer.Render = func() {}
+	t.Cleanup(func() {
+		uiStore, uiApp, omni, diffUI.Layer = prevStore, prevApp, prevOmni, prevLayer
+		inboxUI.Rows = nil
+		inboxUI.Expanded = map[int64]bool{}
+		draftUI = draftView{LastSel: -1, Collapsed: map[int64]bool{}}
+	})
+	idA, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "task a", Status: db.StatusPending})
+	idB, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "task b", Status: db.StatusPending})
+	st.AddRevision(idA, "aaaaaaa1234", "fix a")
+	st.AddRevision(idB, "bbbbbbb1234", "fix b")
+	reloadTasks()
+
+	countChildren := func() int {
+		n := 0
+		for _, r := range inboxUI.Rows {
+			if r.Grouped {
+				n++
+			}
+		}
+		return n
+	}
+	if countChildren() != 0 {
+		t.Fatalf("precondition: nothing expanded, got %d children", countChildren())
+	}
+	collapseAllRevisions()
+	if countChildren() != 4 { // 2 tasks × (original + rev 1)
+		t.Fatalf("Z should expand every multi-rev task: %d children", countChildren())
+	}
+	collapseAllRevisions()
+	if countChildren() != 0 {
+		t.Fatalf("second Z should collapse everything: %d children", countChildren())
+	}
+
+	// comments context: two threads, each root + one reply
+	cs := []db.TaskComment{}
+	mk := func(id, parent int64, who, body string) db.TaskComment {
+		c := db.TaskComment{}
+		c.ID, c.ParentID, c.Who, c.Body = id, parent, who, body
+		return c
+	}
+	cs = append(cs, mk(1, 0, "you", "root one"), mk(2, 1, "agent", "reply one"),
+		mk(3, 0, "you", "root two"), mk(4, 3, "agent", "reply two"))
+	applyDraftComments(idA, cs)
+	visibleReplies := func() int {
+		n := 0
+		for _, c := range draftUI.Comments {
+			if c.Reply && c.Visible {
+				n++
+			}
+		}
+		return n
+	}
+	if visibleReplies() != 2 {
+		t.Fatalf("precondition: both replies visible, got %d", visibleReplies())
+	}
+	collapseAllCommentThreads()
+	if visibleReplies() != 0 {
+		t.Fatalf("Z should fold every thread: %d replies still visible", visibleReplies())
+	}
+	collapseAllCommentThreads()
+	if visibleReplies() != 2 {
+		t.Fatalf("second Z should unfold every thread: %d visible", visibleReplies())
+	}
+}
