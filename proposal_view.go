@@ -162,6 +162,13 @@ func fetchPropDetail(p db.Proposal, key string, reset bool) *propResult {
 		// **bold**, Label: lead-ins. No pre-wrap (width 1<<20) — Rich CharWraps
 		// each row at the column's actual render width.
 		for _, row := range summaryBody(c.Body, 1<<20) {
+			// span() bakes BG=cBG (right for the diff/document panes, which sit
+			// on cBG) — here it stamped dark blocks over the pane fill and the
+			// selection band (c469). Zero the BG so cells inherit whatever the
+			// row sits on: cPaneBG normally, the band when selected.
+			for i := range row {
+				row[i].Style.BG = Color{}
+			}
 			vm.BodyRows = append(vm.BodyRows, propRowVM{Spans: row})
 		}
 		flat = append(flat, vm)
