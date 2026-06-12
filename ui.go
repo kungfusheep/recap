@@ -125,7 +125,14 @@ func runUI() error {
 	// two events that change it — startup and resize. The formula mirrors the
 	// column's WidthPct (single source: inboxColPct) and is pinned against real
 	// layout output by TestUpcomingWidthFormulaMatchesLayout.
-	applyTermWidth := func(w int) { upcomingWidth = int16(float32(w) * inboxColPct) }
+	applyTermWidth := func(w int) {
+		upcomingWidth = int16(float32(w) * inboxColPct)
+		// initial focus underline: the list pane owns focus at startup, before
+		// any layout has populated the NodeRefs.
+		if pane == paneList && focusBarX == 0 {
+			focusBarW = upcomingWidth
+		}
+	}
 	applyTermWidth(uiApp.Size().Width)
 	uiApp.OnResize(func(w, _ int) { applyTermWidth(w) })
 
@@ -618,6 +625,21 @@ func syncSelectionFlags() {
 	}
 }
 
+// focusBarX/focusBarW are the focus underline's tween TARGETS — the bar at the
+// bottom of the app slides to the focused pane's rect. Set at focus events
+// (applyPaneFocus) from the panes' NodeRefs (layout output); the template
+// animates toward them (VBox.Width(Animate(&…)), the glyph tween primitive).
+var (
+	focusBarX int16
+	focusBarW int16
+)
+
+// focusBarTween builds the underline's tween: x and width share duration + ease
+// so the bar slides as one shape.
+func focusBarTween(target *int16) any {
+	return Animate.Duration(300 * time.Millisecond).Ease(EaseOutCubic)(target)
+}
+
 // applyPaneFocus applies the focus-driven colours: the active column's selection
 // band reads bright, the others dim, and the diff/comments scrollbars fade with
 // focus. Called by setPane — a focus switch applies its colours in the switch.
@@ -639,6 +661,21 @@ func applyPaneFocus() {
 		draftUI.Focused = 1.0
 	} else {
 		draftUI.Focused = 0.0
+	}
+	// slide the focus underline to the focused pane's rect. NodeRefs carry the
+	// last layout's geometry — valid at any focus event after the first frame;
+	// zero-width refs (pre-first-layout) keep the previous targets.
+	var r NodeRef
+	switch pane {
+	case paneList:
+		r = listPaneRef
+	case paneDiff:
+		r = diffPaneRef
+	case paneDraft:
+		r = draftUI.PaneRef
+	}
+	if r.W > 0 {
+		focusBarX, focusBarW = int16(r.X), int16(r.W)
 	}
 }
 
@@ -1392,6 +1429,16 @@ func buildMain() Component {
 		),
 		// transient status (errors/confirmations) only — no permanent keybar
 		If(&statusMsg).Then(HBox(SpaceW(3), Text(&statusMsg).FG(&cSubtle))),
+		// the focus underline: a 1-row bar that matches the focused pane's x/width
+		// and SLIDES on focus change — both the leading spacer and the bar width
+		// are glyph tweens toward targets applyPaneFocus sets at the focus event.
+		HBox.Height(1)(
+			// FitContent keeps the spacer OUT of flex when its tweened width passes
+			// through 0 (x=0 = the list pane): a dyn width evaluating to 0 reads as
+			// "unset" to row flex, which would hand the spacer half the row.
+			VBox.Width(focusBarTween(&focusBarX)).Height(1).FitContent()(),
+			VBox.Width(focusBarTween(&focusBarW)).Height(1).Fill(&cFG)(),
+		),
 		// per-column focus fade: unfocused columns dim (mail's FocusShade)
 		columnShades(),
 		// floating comment prompts (add/edit + read), over the inbox/diff

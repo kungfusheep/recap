@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	. "github.com/kungfusheep/glyph"
 )
@@ -1400,5 +1401,72 @@ func TestHelpOverlayNoTruncation(t *testing.T) {
 		if !strings.Contains(all, want) {
 			t.Errorf("help overlay clips %q:\n%s", want, all)
 		}
+	}
+}
+
+// the focus underline: a 1-row cFG bar at the bottom whose x/width match the
+// focused pane and ANIMATE to the next pane on focus change — driven by glyph
+// tweens toward targets applyPaneFocus sets (todo:e99fee66's constraint).
+// Asserted on rendered buffer cells, before and after the tween settles.
+func TestFocusBarTracksPane(t *testing.T) {
+	prevApp, prevStore, prevOmni := uiApp, uiStore, omni
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	t.Cleanup(func() {
+		uiApp, uiStore, omni = prevApp, prevStore, prevOmni
+		inboxUI.Rows = nil
+		pane = paneList
+		focusBarX, focusBarW = 0, 0
+		applyPaneFocus()
+	})
+	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
+	reloadTasks()
+	pane = paneList
+
+	const W, H = 140, 40
+	tmpl := Build(buildMain())
+	render := func() *Buffer {
+		buf := NewBuffer(W, H)
+		tmpl.Execute(buf, W, H)
+		return buf
+	}
+	barSpan := func(buf *Buffer) (x, w int) {
+		y := H - 1
+		x, w = -1, 0
+		for cx := 0; cx < W; cx++ {
+			if buf.Get(cx, y).Style.BG == cFG {
+				if x < 0 {
+					x = cx
+				}
+				w++
+			}
+		}
+		return
+	}
+
+	render() // first layout populates the pane NodeRefs
+	applyPaneFocus()
+	render()                           // a tween starts when an Execute observes the changed target
+	time.Sleep(350 * time.Millisecond) // let it settle
+	buf := render()
+	x, w := barSpan(buf)
+	if x != listPaneRef.X || w != listPaneRef.W {
+		t.Fatalf("list-focused bar = x%d w%d, want pane rect x%d w%d", x, w, listPaneRef.X, listPaneRef.W)
+	}
+
+	// focus the diff pane: the bar's TARGETS move at the event; after the tween
+	// settles the bar sits under the middle column.
+	setPane(paneDiff)
+	render() // observe the retarget → tween starts
+	time.Sleep(350 * time.Millisecond)
+	buf = render()
+	x, w = barSpan(buf)
+	if x != diffPaneRef.X || w != diffPaneRef.W {
+		t.Fatalf("diff-focused bar = x%d w%d, want pane rect x%d w%d", x, w, diffPaneRef.X, diffPaneRef.W)
+	}
+	if x == listPaneRef.X {
+		t.Fatal("bar did not move off the list pane")
 	}
 }
