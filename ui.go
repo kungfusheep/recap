@@ -168,6 +168,7 @@ func runUI() error {
 	uiApp.View("main", buildMain()).NoCounts()
 	uiApp.View("todo", buildTodoView()).NoCounts()
 	uiApp.View("messages", buildMessagesView()).NoCounts()
+	uiApp.View("dm", buildDMView()).NoCounts()
 	uiApp.OnBeforeRender(refreshDetail)
 	// diff line-picking uses glyph's jump engine (EnterJumpMode pushes its own
 	// router for the label keystrokes), so no root unmatched handler is needed.
@@ -217,6 +218,11 @@ type inboxData struct {
 	repos      []string      // distinct repos from the unfiltered set (filter cycle)
 	identName  string
 	identColor Color
+
+	// the open DM dialogue's fresh rows (dmRepo = the dialogue at fetch time,
+	// "" when closed) — the reload signal keeps the conversation live.
+	dmRepo string
+	dmMsgs []db.Message
 
 	// arrival watermark data: the newest task/agent-comment/peer-message ids,
 	// compared at APPLY time so async arrivals toast in the corner feed.
@@ -271,6 +277,9 @@ func fetchInbox(repoFilter string, pins map[int64]bool) *inboxData {
 		if t.ID > d.maxTaskID {
 			d.maxTaskID, d.maxTaskTitle = t.ID, t.Title
 		}
+	}
+	if d.dmRepo = dmSnap(); d.dmRepo != "" {
+		d.dmMsgs, _ = uiStore.MessagesWith(d.dmRepo)
 	}
 	d.cmtID, d.cmtWho, d.cmtTaskID = uiStore.LatestAgentComment()
 	var fromWho, fromRepo string
@@ -677,6 +686,9 @@ func applyInbox(d *inboxData) {
 	// distinct repos for the filter cycle (fetched from the unfiltered set)
 	inboxUI.Repos = append(inboxUI.Repos[:0], d.repos...)
 	inboxUI.DetailDirty = true
+	if d.dmRepo != "" && d.dmRepo == dmUI.Repo {
+		dmApply(d.dmMsgs) // the open dialogue follows the reload live
+	}
 	notifyArrivals(d)
 }
 
@@ -1621,8 +1633,9 @@ func buildMain() Component {
 			Key("S", submitSelected),
 			Key("U", unsubmitSelected),
 			Key("t", openTodoEditor),
-			Key("m", openMessages),   // the agent↔agent message ledger
-			Key("A", openAgentsDash), // the agent activity dashboard
+			Key("m", openMessages),                       // the agent↔agent message ledger
+			Key("D", func() { openDM(dmContextRepo()) }), // DM the selected item's agent
+			Key("A", openAgentsDash),                     // the agent activity dashboard
 		),
 		// the inbox columns. The TODO editor is no longer swapped in here — it's a
 		// separate named view (buildTodoView) reached via app.Go, so opening it cleanly
@@ -1848,6 +1861,7 @@ var helpActionRows = []helpRow{
 	{"Z", "fold all (context)"},
 	{"p", "pin / unpin"},
 	{"m", "agent messages"},
+	{"D", "DM an agent"},
 	{"A", "agent dashboard"},
 	{"t", "edit TODO"},
 	{"e", "open in $EDITOR"},

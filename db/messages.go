@@ -50,7 +50,9 @@ func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 // SendMessage queues a message for toRepo. parentID threads it under an earlier
 // message (0 for top-level); taskID optionally anchors it to a task.
 func (s *Store) SendMessage(fromRepo, fromWho, toRepo string, parentID, taskID int64, body string) (int64, error) {
-	if toRepo == "" {
+	if toRepo == "" && fromRepo == "" {
+		// an empty target is the HUMAN (agent→human DM replies); the human
+		// sending to nobody is the only nonsensical combination.
 		return 0, fmt.Errorf("target repo is required")
 	}
 	if body == "" {
@@ -166,4 +168,39 @@ func (s *Store) LatestPeerMessage() (id int64, fromWho, fromRepo, body string) {
 	s.db.QueryRow(`SELECT id, COALESCE(from_who,''), from_repo, body FROM messages WHERE from_repo != '' ORDER BY id DESC LIMIT 1`).
 		Scan(&id, &fromWho, &fromRepo, &body)
 	return
+}
+
+// MessageByID fetches one message.
+func (s *Store) MessageByID(id int64) (Message, error) {
+	rows, err := s.db.Query(`SELECT `+messageCols+` FROM messages WHERE id = ?`, id)
+	if err != nil {
+		return Message{}, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return Message{}, fmt.Errorf("no message m%d", id)
+	}
+	return scanMessage(rows)
+}
+
+// MessagesWith returns the two-way DM channel between the HUMAN and one
+// repo's loop, oldest first: the human's messages to the repo, and the
+// loop's messages addressed straight back (to_repo ""). Agent↔agent
+// traffic stays out of the dialogue.
+func (s *Store) MessagesWith(repo string) ([]Message, error) {
+	rows, err := s.db.Query(`SELECT `+messageCols+` FROM messages
+		WHERE (from_repo = '' AND to_repo = ?) OR (from_repo = ? AND to_repo = '') ORDER BY id`, repo, repo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Message
+	for rows.Next() {
+		m, err := scanMessage(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
 }

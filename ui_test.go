@@ -2607,3 +2607,81 @@ func TestSectionFolding(t *testing.T) {
 		t.Fatalf("decided stub missing: %+v", inboxUI.Rows)
 	}
 }
+
+// The DM dialogue (m273, the human's direct ask): D opens the conversation
+// for the selected item's repo; sending lands the message in that loop's
+// queue; the loop's target-less reply-to-human surfaces in the same dialogue;
+// the reload path keeps an open dialogue live.
+func TestDMDialogue(t *testing.T) {
+	prevApp, prevStore, prevOmni, prevLayer, prevKick := uiApp, uiStore, omni, diffUI.Layer, propDetailKick
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	diffUI.Layer = NewLayer()
+	diffUI.Layer.Render = func() {}
+	t.Cleanup(func() {
+		uiApp, uiStore, omni, diffUI.Layer, propDetailKick = prevApp, prevStore, prevOmni, prevLayer, prevKick
+		inboxUI = inboxView{Expanded: map[int64]bool{}, TaskByID: map[int64]db.Task{}, PropByID: map[int64]db.Proposal{}, DoneLimit: 10}
+		dmUI = dmView{}
+		setDMSnap("")
+		promptUI.Field = InputState{}
+		statusMsg = ""
+	})
+	t.Setenv("RECAP_DB", filepath.Join(t.TempDir(), "recap.db"))
+	st.Add(db.Task{Repo: "mail", RepoPath: "/tmp/m", Title: "anchor", Status: db.StatusPending})
+	reloadTasks()
+	inboxUI.Sel = 0
+	for i, r := range inboxUI.Rows {
+		if r.Header && !r.Proposal {
+			inboxUI.Sel = i
+		}
+	}
+	syncSelectionFlags()
+
+	// D derives the dialogue from the selection's repo
+	openDM(dmContextRepo())
+	if dmUI.Repo != "mail" {
+		t.Fatalf("dialogue repo = %q, want mail", dmUI.Repo)
+	}
+
+	// send: the prompt is destination-led; the message queues for the loop
+	dmSend()
+	if !strings.Contains(promptUI.Title, "DM → mail") {
+		t.Fatalf("prompt should name the destination, got %q", promptUI.Title)
+	}
+	promptUI.Field.Value = "are you free to bump riffkey?"
+	promptUI.submit()
+	ms, _ := st.MessagesWith("mail")
+	if len(ms) != 1 || ms[0].ToRepo != "mail" || ms[0].FromRepo != "" {
+		t.Fatalf("DM not queued for the loop: %+v", ms)
+	}
+	if len(dmUI.Rows) != 1 || !strings.Contains(dmUI.Rows[0].Head, "You") {
+		t.Fatalf("dialogue should show the sent message: %+v", dmUI.Rows)
+	}
+
+	// the loop's target-less reply-to-human lands in the SAME dialogue
+	if _, err := st.SendMessage("mail", "Ada", "", ms[0].ID, 0, "on it — bumping now"); err != nil {
+		t.Fatal(err)
+	}
+	dmReload()
+	if len(dmUI.Rows) != 2 || !strings.Contains(dmUI.Rows[1].Head, "Ada@mail") {
+		t.Fatalf("agent reply missing from the dialogue: %+v", dmUI.Rows)
+	}
+	// agent↔agent traffic stays OUT of the dialogue
+	if _, err := st.SendMessage("tui", "Glyph Smith", "mail", 0, 0, "side chatter"); err != nil {
+		t.Fatal(err)
+	}
+	dmReload()
+	if len(dmUI.Rows) != 2 {
+		t.Fatalf("agent↔agent message leaked into the DM: %+v", dmUI.Rows)
+	}
+	// the staged reload path keeps an open dialogue live
+	if _, err := st.SendMessage("mail", "Ada", "", 0, 0, "done, riffkey bumped"); err != nil {
+		t.Fatal(err)
+	}
+	applyInbox(fetchInbox("", nil))
+	if len(dmUI.Rows) != 3 {
+		t.Fatalf("reload did not refresh the open dialogue: %+v", dmUI.Rows)
+	}
+}

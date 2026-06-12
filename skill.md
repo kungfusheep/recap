@@ -264,6 +264,7 @@ recap send <repo> --body "…"            # queue a note for that repo's loop
 recap send <repo> --reply-to N --body … # thread under a message you received
 recap messages [--all]                  # the ledger, both directions, read state
 recap read m<N>                         # clear a received message from your queue
+recap send --reply-to N --body "…"      # reply to a HUMAN message (no repo: it goes to their DM/ledger)
 ```
 
 Messages are **durable and addressed to a repo, not a process**: if no loop is

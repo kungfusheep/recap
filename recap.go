@@ -1243,15 +1243,29 @@ func cmdSend(args []string) error {
 	if *body == "" {
 		return fmt.Errorf("--body is required")
 	}
-	if (to == "") == !*toListeners {
-		return fmt.Errorf("usage: recap send <repo> --body TEXT [--reply-to N] [--task ID]  |  recap send --listeners --body TEXT")
-	}
 	st, err := db.Open()
 	if err != nil {
 		return err
 	}
 	defer st.Close()
 	from := currentRepo()
+	// a target-less --reply-to is legal when the PARENT came from the human
+	// (their messages carry no from_repo): the reply addresses the human
+	// directly (to_repo "") and surfaces in their ledger and DM dialogue.
+	if to == "" && !*toListeners && *replyTo != 0 {
+		if parent, perr := st.MessageByID(*replyTo); perr == nil && parent.FromRepo == "" {
+			id, err := st.SendMessage(from, identityWho(), "", *replyTo, *taskID, *body)
+			if err != nil {
+				return err
+			}
+			notify.Reload()
+			fmt.Printf("sent m%d → you (the human's ledger + DM)\n", id)
+			return nil
+		}
+	}
+	if (to == "") == !*toListeners {
+		return fmt.Errorf("usage: recap send <repo> --body TEXT [--reply-to N] [--task ID]  |  recap send --listeners --body TEXT")
+	}
 	if *toListeners {
 		targets := []string{}
 		for _, r := range listener.Active() {
