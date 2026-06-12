@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -58,15 +57,25 @@ func openAgentsDash() {
 			vm.Status = "idle"
 			vm.StatusColor = cMuted
 		}
+		// the right-hand time IS the sort key (c448): how long since this
+		// agent's last activity — so the top of the list visibly reads most
+		// recent. The last task's own age sits on its line instead of a bare
+		// clock time that misleads across days.
+		if !a.ActiveAt.IsZero() {
+			vm.When = "active " + agoAge(time.Since(a.ActiveAt))
+		}
 		if a.LastWork != "" {
 			vm.Last = "last: " + clipTo(a.LastWork, 48)
-			vm.When = hhmm(a.LastAt)
+			if ts, err := time.ParseInLocation("2006-01-02 15:04:05", a.LastAt, time.Local); err == nil {
+				vm.Last += "  · " + agoAge(time.Since(ts))
+			}
 		} else {
 			vm.Last = "last: —"
 		}
 		dashUI.Rows = append(dashUI.Rows, vm)
 	}
-	sort.Slice(dashUI.Rows, func(i, j int) bool { return dashUI.Rows[i].Name < dashUI.Rows[j].Name })
+	// snapshot order is authoritative: most recently active first (c443/c448 —
+	// the name re-sort here used to clobber it, putting yesterday's stamp on top).
 	if len(dashUI.Rows) == 0 {
 		toast("no named agents yet (agents run `recap whoami`)")
 		return
@@ -90,6 +99,21 @@ func shortAge(d time.Duration) string {
 		return fmt.Sprintf("%dm", int(d.Minutes()))
 	default:
 		return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
+	}
+}
+
+// agoAge reads as an age at a glance ("just now", "12m ago", "18h ago", "3d
+// ago") — days included, since last activity legitimately spans days.
+func agoAge(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 	}
 }
 

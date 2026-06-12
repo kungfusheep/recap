@@ -1579,6 +1579,15 @@ func TestAgentDashboard(t *testing.T) {
 			t.Fatalf("Heron's stale flare should read idle, got %q", r.Status)
 		}
 	}
+	// c448: the rows keep the snapshot's last-active order (no name re-sort) —
+	// Heron, 3h quiet, sits LAST — and the side time reads as an AGE of that
+	// activity ("active … ago"), so the column visibly explains the order.
+	if last := dashUI.Rows[len(dashUI.Rows)-1]; last.Name != "Heron" {
+		t.Fatalf("least-recently-active should be last, got %q", last.Name)
+	}
+	if top := dashUI.Rows[0]; !strings.HasPrefix(top.When, "active ") {
+		t.Fatalf("side time should read as activity age, got %q", top.When)
+	}
 }
 
 // Slice 3 of the proposal workflow (c442: "i can't see them anywhere in the
