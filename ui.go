@@ -1429,15 +1429,22 @@ func buildMain() Component {
 		),
 		// transient status (errors/confirmations) only — no permanent keybar
 		If(&statusMsg).Then(HBox(SpaceW(3), Text(&statusMsg).FG(&cSubtle))),
-		// the focus underline: a 1-row bar that matches the focused pane's x/width
-		// and SLIDES on focus change — both the leading spacer and the bar width
-		// are glyph tweens toward targets applyPaneFocus sets at the focus event.
-		HBox.Height(1)(
-			// FitContent keeps the spacer OUT of flex when its tweened width passes
-			// through 0 (x=0 = the list pane): a dyn width evaluating to 0 reads as
-			// "unset" to row flex, which would hand the spacer half the row.
-			VBox.Width(focusBarTween(&focusBarX)).Height(1).FitContent()(),
-			VBox.Width(focusBarTween(&focusBarW)).Height(1).Fill(&cFG)(),
+		// the focus underline: a one-eighth ▁ line overlaid on the BOTTOM ROW of
+		// the panes (an overlay, so the pane backgrounds reach the screen edge and
+		// the glyph blends over them — overlay cells with default BG keep the
+		// underlying cell's background). It matches the focused pane's x/width and
+		// SLIDES on focus change: spacer + bar widths are glyph tweens toward
+		// targets applyPaneFocus sets at the focus event.
+		Overlay.BottomLeft().Opacity(1.0)(
+			HBox.Height(1)(
+				// FitContent keeps the spacer OUT of flex when its tweened width
+				// passes through 0 (x=0 = the list pane): a dyn width evaluating to
+				// 0 reads as "unset" to row flex.
+				VBox.Width(focusBarTween(&focusBarX)).Height(1).FitContent()(),
+				VBox.Width(focusBarTween(&focusBarW)).Height(1)(
+					HRule().Char('▁').FG(&cFG),
+				),
+			),
 		),
 		// per-column focus fade: unfocused columns dim (mail's FocusShade)
 		columnShades(),

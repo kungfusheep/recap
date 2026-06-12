@@ -1436,7 +1436,8 @@ func TestFocusBarTracksPane(t *testing.T) {
 		y := H - 1
 		x, w = -1, 0
 		for cx := 0; cx < W; cx++ {
-			if buf.Get(cx, y).Style.BG == cFG {
+			c := buf.Get(cx, y)
+			if c.Rune == '▁' && c.Style.FG == cFG {
 				if x < 0 {
 					x = cx
 				}
@@ -1468,5 +1469,10 @@ func TestFocusBarTracksPane(t *testing.T) {
 	}
 	if x == listPaneRef.X {
 		t.Fatal("bar did not move off the list pane")
+	}
+	// the glyph BLENDS: under the list column the bar cell keeps the pane's own
+	// background (the overlay writes FG+rune only; default BG preserves the cell)
+	if bg := buf.Get(2, H-1).Style.BG; bg != cPaneBG {
+		t.Fatalf("bottom row under the list column lost its pane background: %v want %v", bg, cPaneBG)
 	}
 }
