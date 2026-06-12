@@ -74,9 +74,13 @@ func TestMessageLifecycle(t *testing.T) {
 		t.Fatal("reply to missing parent should error")
 	}
 
-	// validation
-	if _, err := st.SendMessage("a", "x", "", 0, 0, "no target"); err == nil {
-		t.Fatal("empty target should error")
+	// validation: an agent CAN address the human (empty target = their
+	// DM/ledger); the human sending to nobody is the error case.
+	if _, err := st.SendMessage("a", "x", "", 0, 0, "to the human"); err != nil {
+		t.Fatalf("agent→human message should be legal: %v", err)
+	}
+	if _, err := st.SendMessage("", "you", "", 0, 0, "to nobody"); err == nil {
+		t.Fatal("human→nobody should error")
 	}
 	if _, err := st.SendMessage("a", "x", "b", 0, 0, ""); err == nil {
 		t.Fatal("empty body should error")
