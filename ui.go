@@ -865,7 +865,13 @@ func closeSelected() {
 		return
 	}
 	switch {
-	case row.Proposal && row.State != "proposal":
+	case row.Proposal && row.State == "proposal":
+		// x on an OPEN proposal reads as "get this out of my queue" — that's a
+		// DECLINE, and it goes through the named confirm like any verdict (the
+		// P7 incident: x did nothing useful, so the human flailed into a).
+		signOffProposal(row, db.ProposalDeclined)
+		return
+	case row.Proposal:
 		if err := uiStore.CloseProposal(row.ID); err != nil {
 			toast("close: " + err.Error())
 			return
@@ -1850,7 +1856,7 @@ var helpActionRows = []helpRow{
 	{"O", "open [[file]] link"},
 	{"a", "approve / sign off"},
 	{"X", "decline proposal"},
-	{"x", "close done / decided"},
+	{"x", "close / decline"},
 	{"z", "fold section"},
 	{"S", "submit (amends)"},
 	{"U", "unsubmit → inbox"},

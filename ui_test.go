@@ -2433,10 +2433,28 @@ func TestCloseDoneAndDecided(t *testing.T) {
 	if !sel(func(r taskVM) bool { return !r.Proposal && r.ID == tid }) || !sel(func(r taskVM) bool { return r.Proposal && r.ID == pid }) {
 		t.Fatal("reopen did not restore the rows")
 	}
-	// an OPEN proposal refuses to close (verdicts first)
+	// an OPEN proposal refuses to close at the db layer (verdicts first)
 	pid2, _ := st.AddProposal(db.Proposal{Title: "open one", Body: "b", ProposerRepo: "tui", TargetRepo: "tui"}, nil)
 	if err := st.CloseProposal(pid2); err == nil {
 		t.Fatal("closing an OPEN proposal should refuse")
+	}
+	// …and in the UI, x on an OPEN proposal routes to the DECLINE confirm
+	// (todo:f2d5e30a — the human pressed x meaning reject and got nothing)
+	reloadTasks()
+	for i, r := range inboxUI.Rows {
+		if r.Proposal && r.ID == pid2 {
+			inboxUI.Sel = i
+		}
+	}
+	syncSelectionFlags()
+	closeSelected()
+	if !promptUI.Open || !strings.Contains(promptUI.Title, "DECLINE") {
+		t.Fatalf("x on an open proposal should open the DECLINE confirm, got %q", promptUI.Title)
+	}
+	promptUI.Field.Value = "y"
+	promptUI.submit()
+	if p2, _ := st.ProposalByID(pid2); p2.Status != db.ProposalDeclined {
+		t.Fatalf("confirmed x-decline recorded %q", p2.Status)
 	}
 }
 
