@@ -1437,10 +1437,10 @@ func buildMain() Component {
 		// targets applyPaneFocus sets at the focus event.
 		Overlay.BottomLeft().Opacity(1.0)(
 			HBox.Height(1)(
-				// FitContent keeps the spacer OUT of flex when its tweened width
-				// passes through 0 (x=0 = the list pane): a dyn width evaluating to
-				// 0 reads as "unset" to row flex.
-				VBox.Width(focusBarTween(&focusBarX)).Height(1).FitContent()(),
+				// a present dyn width means "explicitly sized" even at 0 (glyph
+				// honours the binding both ways since the eligibility fix), so the
+				// spacer needs no escape hatch — bind and go.
+				VBox.Width(focusBarTween(&focusBarX)).Height(1)(),
 				VBox.Width(focusBarTween(&focusBarW)).Height(1)(
 					HRule().Char('▁').FG(&cFG),
 				),
