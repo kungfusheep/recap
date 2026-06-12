@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/kungfusheep/recap/cursor"
 	"github.com/kungfusheep/recap/db"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	. "github.com/kungfusheep/glyph"
+	"github.com/kungfusheep/riffkey"
 )
 
 // selecting a draft comment scrolls the diff layer to the line it's anchored to.
@@ -1500,5 +1502,57 @@ func TestFocusBarTracksPane(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("floating status message not rendered near the bottom")
+	}
+}
+
+// the agent dashboard ('A'): one row per named agent — identity colour + name,
+// status (working / parked / idle), and the last recorded task. Loads at open
+// (handler acquires), renders through the real overlay. Dispatched key proof.
+func TestAgentDashboard(t *testing.T) {
+	prevApp, prevStore, prevOmni := uiApp, uiStore, omni
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	t.Cleanup(func() {
+		uiApp, uiStore, omni = prevApp, prevStore, prevOmni
+		inboxUI.Rows = nil
+		dashUI = dashView{}
+		pane = paneList
+	})
+	// RECAP_DB redirects db.Path() — identity/cursor/listener files land in the
+	// temp dir, never the real config (the first run of this test polluted it).
+	t.Setenv("RECAP_DB", filepath.Join(t.TempDir(), "recap.db"))
+	// identities + a recorded task + a cursor flare in the isolated config dir
+	if err := saveIdentity("wren-repo", "Wren", "#aabbcc"); err != nil {
+		t.Fatalf("identity: %v", err)
+	}
+	if err := saveIdentity("finch-repo", "Finch", "#ccaabb"); err != nil {
+		t.Fatalf("identity: %v", err)
+	}
+	st.Add(db.Task{Repo: "wren-repo", RepoPath: "/tmp/w", Title: "shipped the wrenizer", Status: db.StatusPending})
+	cursor.Save("finch-repo", "todo:abc", "polishing the finch cache")
+	reloadTasks()
+
+	uiApp.SetView(buildMain())
+	uiApp.RenderNow()
+	if !uiApp.Input().Dispatch(riffkey.Key{Rune: 'A'}) {
+		t.Fatal("'A' was not handled")
+	}
+	if !dashUI.Open {
+		t.Fatal("dashboard did not open")
+	}
+	uiApp.RenderNow()
+
+	buf := NewBuffer(140, 40)
+	Build(buildMain()).Execute(buf, 140, 40)
+	var all string
+	for y := 0; y < 40; y++ {
+		all += buf.GetLine(y) + "\n"
+	}
+	for _, want := range []string{"Wren", "Finch", "working: polishing the finch cache", "last: shipped the wrenizer", "idle"} {
+		if !strings.Contains(all, want) {
+			t.Fatalf("dashboard missing %q:\n%s", want, all)
+		}
 	}
 }

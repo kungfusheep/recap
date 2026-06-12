@@ -211,3 +211,23 @@ func (s *Store) ProposalComments(proposalID int64) ([]ProposalComment, error) {
 	}
 	return out, rows.Err()
 }
+
+// LatestTaskPerRepo returns each repo's most recent task — the "last thing
+// they did" line on the agent dashboard.
+func (s *Store) LatestTaskPerRepo() (map[string]Task, error) {
+	rows, err := s.db.Query(`SELECT ` + taskCols + ` FROM tasks t
+		JOIN (SELECT repo r, MAX(id) mid FROM tasks GROUP BY repo) m ON t.id = m.mid`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]Task{}
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[t.Repo] = t
+	}
+	return out, rows.Err()
+}

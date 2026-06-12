@@ -1266,7 +1266,8 @@ func buildMain() Component {
 			Key("S", submitSelected),
 			Key("U", unsubmitSelected),
 			Key("t", openTodoEditor),
-			Key("m", openMessages), // the agent↔agent message ledger
+			Key("m", openMessages),   // the agent↔agent message ledger
+			Key("A", openAgentsDash), // the agent activity dashboard
 		),
 		// the inbox columns. The TODO editor is no longer swapped in here — it's a
 		// separate named view (buildTodoView) reached via app.Go, so opening it cleanly
@@ -1457,6 +1458,7 @@ func buildMain() Component {
 		readCommentOverlay(),
 		// keyboard help overlay, toggled with ? (modal scope captures esc/?)
 		If(&helpOpen).Then(helpOverlay()),
+		agentsOverlay(),
 		// command palette overlay, opened with <C-p> / <Space>
 		omni.View(),
 	)
@@ -1478,6 +1480,7 @@ var helpActionRows = []helpRow{
 	{"o", "revisions / fold thread"},
 	{"p", "pin / unpin"},
 	{"m", "agent messages"},
+	{"A", "agent dashboard"},
 	{"t", "edit TODO"},
 	{"e", "open in $EDITOR"},
 	{"c", "comment"},
