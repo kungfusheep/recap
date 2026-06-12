@@ -65,6 +65,10 @@ type draftView struct {
 	ReplyingTo int64 // parent comment for a reply in flight
 
 	TaskID int64 // the task whose comments are loaded (for in-place reloads)
+	// PropID, when set, marks the pane as a PROPOSAL thread viewer: the VMs
+	// carry proposal-comment ids, so every task-comment mutation (edit,
+	// delete, reply, read-receipt) is gated off — `c` adds to the proposal.
+	PropID int64
 	// Collapsed thread roots ('o'): the root row stays with a "▸ N replies" cue,
 	// its reply rows are dropped from Comments. Keyed by comment id so it
 	// survives reloads while the task's pane stays open.
@@ -310,6 +314,10 @@ func selectedDraft() *draftCommentVM {
 // fills its dot now (optimistic) and persists off the render thread (no main-thread
 // I/O). The agent sees it on its next poll / review show.
 func markSelectedCommentRead() {
+	if draftUI.PropID != 0 {
+		toast("proposal comments are read-only here — c adds to the thread")
+		return
+	}
 	c := selectedDraft()
 	// only the AGENT's comments get a user read-receipt — your own comments don't
 	// need one (you wrote them); the dot on an agent comment is YOUR receipt to it.
@@ -344,6 +352,10 @@ func openCommentView() {
 // threads the reply under it (who="you", the reviewer). Works on any comment,
 // submitted or draft — replies are discussion, not edits.
 func replyToComment() {
+	if draftUI.PropID != 0 {
+		toast("proposal comments are read-only here — c adds to the thread")
+		return
+	}
 	c := selectedDraft()
 	if c == nil {
 		return
@@ -369,6 +381,10 @@ func saveReply() {
 // editDraftComment opens the body prompt pre-filled with the selected comment's
 // text; saving calls UpdateComment.
 func editDraftComment() {
+	if draftUI.PropID != 0 {
+		toast("proposal comments are read-only here — c adds to the thread")
+		return
+	}
 	c := selectedDraft()
 	if c == nil {
 		return
@@ -385,6 +401,10 @@ func editDraftComment() {
 }
 
 func deleteDraftComment() {
+	if draftUI.PropID != 0 {
+		toast("proposal comments are read-only here — c adds to the thread")
+		return
+	}
 	c := selectedDraft()
 	if c == nil {
 		return

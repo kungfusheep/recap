@@ -104,7 +104,11 @@ func cmdProposal(args []string) error {
 					fmt.Println("  ── new since your last look ──")
 					marked = true
 				}
-				fmt.Printf("  • [%s] %s@%s: %s\n", c.CreatedAt, dash(c.WhoName), c.WhoRepo, c.Body)
+				anchor := ""
+				if c.Line > 0 {
+					anchor = fmt.Sprintf(" [line %d: %s]", c.Line, c.Snippet)
+				}
+				fmt.Printf("  • [%s] %s@%s:%s %s\n", c.CreatedAt, dash(c.WhoName), c.WhoRepo, anchor, c.Body)
 			}
 			st.AdvancePartyWatermark(id, currentRepo(), cs[len(cs)-1].ID)
 		}
@@ -129,8 +133,9 @@ func cmdProposal(args []string) error {
 	case "comment":
 		fs := flag.NewFlagSet("proposal comment", flag.ExitOnError)
 		body := fs.String("body", "", "comment text (@repo adds that repo as a party)")
+		line := fs.Int("line", 0, "anchor to a document line (1-based; snippet captured automatically)")
 		if len(args) < 2 {
-			return fmt.Errorf("usage: recap proposal comment <id> --body TEXT")
+			return fmt.Errorf("usage: recap proposal comment <id> --body TEXT [--line N]")
 		}
 		id, err := parseID(args[1])
 		if err != nil {
@@ -140,7 +145,21 @@ func cmdProposal(args []string) error {
 		if *body == "" {
 			return fmt.Errorf("--body is required")
 		}
-		if _, err := st.AddProposalComment(id, currentRepo(), identityWho(), *body); err != nil {
+		// a line anchor captures the document line's text as the snippet, so
+		// the anchor stays readable even if the document is later revised.
+		snippet := ""
+		if *line > 0 {
+			doc, err := st.ProposalByID(id)
+			if err != nil {
+				return fmt.Errorf("no proposal #%d", id)
+			}
+			lines := strings.Split(doc.Body, "\n")
+			if *line > len(lines) {
+				return fmt.Errorf("--line %d is past the document's end (%d lines)", *line, len(lines))
+			}
+			snippet = strings.TrimSpace(lines[*line-1])
+		}
+		if _, err := st.AddProposalLineComment(id, currentRepo(), identityWho(), *body, *line, snippet); err != nil {
 			return err
 		}
 		// @mentions join the conversation: each @repo becomes a party; the ping

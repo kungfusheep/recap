@@ -294,6 +294,7 @@ recap propose --target <repo> --title "…" --file doc.md [--tag repo1,repo2]
 recap proposal ls                          # all proposals + status
 recap proposal show <id>                   # document + thread; advances your watermark
 recap proposal comment <id> --body "…"     # @repo in the body joins that repo as a party
+recap proposal comment <id> --body "…" --line N   # anchor to document line N (snippet auto-captured)
 ```
 
 How it flows:

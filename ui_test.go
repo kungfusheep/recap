@@ -1653,10 +1653,51 @@ func TestProposalInboxSection(t *testing.T) {
 		t.Fatalf("detailTitle = %q", detailTitle)
 	}
 	text := flattenSpans(diffUI.Banner)
-	for _, want := range []string{"proposal #1", "heading", "body text", "thread (1)", "Kestrel@recap", "endorse"} {
+	for _, want := range []string{"proposal #1", "heading", "body text"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("detail missing %q:\n%s", want, text)
 		}
+	}
+	// the thread rides the standard comments pane now (c447), not the document
+	if !draftUI.Has || draftUI.PropID != pid {
+		t.Fatalf("comments pane not carrying the proposal thread: has=%v prop=%d", draftUI.Has, draftUI.PropID)
+	}
+	foundThread := false
+	for _, c := range draftUI.Comments {
+		if c.Who == "Kestrel@recap" && strings.Contains(c.Body, "endorse") {
+			foundThread = true
+		}
+	}
+	if !foundThread {
+		t.Fatalf("agent comment missing from the pane: %+v", draftUI.Comments)
+	}
+	// pane mutations are gated for proposal threads (task-comment ids differ)
+	draftUI.Sel = 0
+	editDraftComment()
+	if promptUI.Open {
+		t.Fatal("editDraftComment must be gated on a proposal thread")
+	}
+	// document rows are line-commentable, anchored to SOURCE lines: the doc is
+	// "# heading\n\nbody text" so "body text" anchors to source line 3.
+	prepDiffRows(80)
+	var bodyMeta *diffLineMeta
+	for i := range diffUI.Meta {
+		if diffUI.Meta[i].Commentable && diffUI.Meta[i].Text == "body text" {
+			bodyMeta = &diffUI.Meta[i]
+		}
+	}
+	if bodyMeta == nil || bodyMeta.File != propDocFile || bodyMeta.Line != 3 {
+		t.Fatalf("document line meta wrong: %+v", bodyMeta)
+	}
+	// a line comment through the pick action lands anchored with the snippet
+	commentOnProposalLine(*bodyMeta)
+	if !promptUI.Open {
+		t.Fatal("line-comment prompt did not open")
+	}
+	promptUI.Field.Value = "tighten this sentence"
+	promptUI.submit()
+	if cs, _ := st.ProposalComments(pid); len(cs) != 2 || cs[1].Line != 3 || cs[1].Snippet != "body text" {
+		t.Fatalf("line comment not anchored: %+v", cs)
 	}
 
 	// `c`: the human comment threads, joins no phantom "" party, and pings each
@@ -1668,7 +1709,7 @@ func TestProposalInboxSection(t *testing.T) {
 	promptUI.Field.Value = "ruling: direction approved"
 	promptUI.submit()
 	cs, _ := st.ProposalComments(pid)
-	if len(cs) != 2 || cs[1].WhoName != "you" || cs[1].WhoRepo != "" {
+	if len(cs) != 3 || cs[2].WhoName != "you" || cs[2].WhoRepo != "" || cs[2].Line != 0 {
 		t.Fatalf("human comment not threaded: %+v", cs)
 	}
 	parties, _ := st.ProposalParties(pid)

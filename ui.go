@@ -1170,9 +1170,13 @@ func prepDiffRows(w int) {
 		diffUI.Meta = append(diffUI.Meta, m)
 	}
 
-	for _, brow := range diffUI.Banner {
+	for i, brow := range diffUI.Banner {
+		m := diffLineMeta{}
+		if i < len(diffUI.BannerMeta) {
+			m = diffUI.BannerMeta[i] // proposal documents anchor their banner rows
+		}
 		diffUI.Rows = append(diffUI.Rows, diffRowVM{Spans: append([]Span(nil), brow...)})
-		diffUI.Meta = append(diffUI.Meta, diffLineMeta{})
+		diffUI.Meta = append(diffUI.Meta, m)
 	}
 
 	if len(diffUI.Files) == 0 {
@@ -2112,7 +2116,8 @@ func anyCommentableRow() bool {
 // jump labels (no view switch): EnterJumpMode renders, renderDiffLayer registers a
 // target per visible commentable row, and picking a label runs diffUI.PickAction on it.
 func openDiffLineComment() {
-	if len(inboxUI.Tasks) == 0 {
+	row := selectedRow()
+	if row == nil {
 		return
 	}
 	if !anyCommentableRow() {
@@ -2120,7 +2125,13 @@ func openDiffLineComment() {
 		return
 	}
 	diffUI.PickHeaders = false
-	diffUI.PickAction = commentOnDiffLine
+	// the same pick engine serves both panes' content: task rows comment on
+	// diff lines, proposal rows comment on document lines.
+	if row.Proposal {
+		diffUI.PickAction = commentOnProposalLine
+	} else {
+		diffUI.PickAction = commentOnDiffLine
+	}
 	uiApp.EnterJumpMode()
 }
 
