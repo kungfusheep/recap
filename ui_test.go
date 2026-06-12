@@ -1869,41 +1869,45 @@ func TestProposalInboxSection(t *testing.T) {
 	}
 }
 
-// The corner notification feed (todo:a5f726bf): entries live for the TTL, fade
-// over the tail, expire, and cap at the limit — under a fake clock so the
-// lifecycle is deterministic.
+// The corner notification feed: pushes stage from any goroutine and apply at
+// the seam; TTL expiries flip the OLDEST living toast (glyph runs the exit
+// fade); OnComplete removes it; overflow past the cap drops the oldest.
 func TestFeedLifecycle(t *testing.T) {
-	now := time.Now()
-	f := newFeed(func() time.Time { return now })
-	f.push("first")
-	v, ok := f.take()
-	if !ok || len(v) != 1 || v[0].Text != "first" || v[0].Opacity != 1 {
-		t.Fatalf("fresh push wrong: ok=%v v=%+v", ok, v)
+	prevFeed, prevItems, prevVis := statusFeed, feedItems, feedVisible
+	t.Cleanup(func() { statusFeed, feedItems, feedVisible = prevFeed, prevItems, prevVis })
+	armed := 0
+	statusFeed = newFeed(func() { armed++ }) // no real timers in the test
+	feedItems, feedVisible = nil, false
+
+	statusFeed.push("first")
+	statusFeed.push("second")
+	drainFeed()
+	if len(feedItems) != 2 || !feedItems[0].Alive || armed != 2 {
+		t.Fatalf("push/apply wrong: items=%+v armed=%d", feedItems, armed)
 	}
-	// inside the fade window: opacity strictly between 0 and 1
-	now = now.Add(f.ttl - f.fade/2)
-	if live := f.tick(); !live {
-		t.Fatal("feed should still be live mid-fade")
+	if !feedVisible {
+		t.Fatal("feed should be visible with live items")
 	}
-	v, _ = f.take()
-	if len(v) != 1 || v[0].Opacity <= 0 || v[0].Opacity >= 1 {
-		t.Fatalf("mid-fade opacity wrong: %+v", v)
+	// a TTL expiry flips the OLDEST living toast; glyph owns the fade from here
+	statusFeed.mu.Lock()
+	statusFeed.expires++
+	statusFeed.mu.Unlock()
+	drainFeed()
+	if feedItems[0].Alive || !feedItems[1].Alive {
+		t.Fatalf("expiry should flip the oldest: %+v", feedItems)
 	}
-	// past the TTL: expired, feed reports not-live (the ticker's gate)
-	now = now.Add(f.fade)
-	if live := f.tick(); live {
-		t.Fatal("feed should be dead past the TTL")
+	// the exit completing removes exactly that item
+	feedExitComplete()
+	if len(feedItems) != 1 || feedItems[0].Text != "second" {
+		t.Fatalf("OnComplete removal wrong: %+v", feedItems)
 	}
-	if v, _ = f.take(); len(v) != 0 {
-		t.Fatalf("expired entries still in view: %+v", v)
+	// the cap drops the oldest outright
+	for i := 0; i < feedLimit+2; i++ {
+		statusFeed.push(fmt.Sprintf("n%d", i))
 	}
-	// the limit: pushing limit+2 keeps only the newest limit entries
-	for i := 0; i < f.limit+2; i++ {
-		f.push(fmt.Sprintf("n%d", i))
-	}
-	v, _ = f.take()
-	if len(v) != f.limit || v[0].Text != "n2" {
-		t.Fatalf("limit not enforced: len=%d first=%q", len(v), v[0].Text)
+	drainFeed()
+	if len(feedItems) != feedLimit {
+		t.Fatalf("cap not enforced: %d", len(feedItems))
 	}
 }
 
@@ -2431,8 +2435,8 @@ func TestArrivalNotifications(t *testing.T) {
 
 	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "pre-existing", Status: db.StatusPending})
 	reloadTasks() // primes the watermarks — no toasts for what's already there
-	if v, _ := statusFeed.take(); len(v) != 0 {
-		t.Fatalf("launch apply must prime silently, got %v", v)
+	if adds, _ := statusFeed.take(); len(adds) != 0 {
+		t.Fatalf("launch apply must prime silently, got %v", adds)
 	}
 
 	// agent activity lands: a task, a comment, a message
@@ -2444,10 +2448,10 @@ func TestArrivalNotifications(t *testing.T) {
 		t.Fatal(err)
 	}
 	reloadTasks()
-	v, _ := statusFeed.take()
+	adds, _ := statusFeed.take()
 	all := ""
-	for _, n := range v {
-		all += n.Text + "\n"
+	for _, n := range adds {
+		all += n + "\n"
 	}
 	for _, want := range []string{
 		fmt.Sprintf("#%d arrived — fresh agent work arriving now", id2),
@@ -2458,11 +2462,10 @@ func TestArrivalNotifications(t *testing.T) {
 			t.Fatalf("missing arrival toast %q in:\n%s", want, all)
 		}
 	}
-	// a third apply with nothing new stays quiet — still just the 3 fading
+	// a third apply with nothing new stages nothing further
 	reloadTasks()
-	statusFeed.tick()
-	if v, _ := statusFeed.take(); len(v) != 3 {
-		t.Fatalf("no-change apply must not re-toast (still the 3 fading): %v", v)
+	if adds, _ := statusFeed.take(); len(adds) != 0 {
+		t.Fatalf("no-change apply must not re-toast: %v", adds)
 	}
 }
 

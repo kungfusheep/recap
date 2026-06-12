@@ -7,120 +7,82 @@ import (
 	. "github.com/kungfusheep/glyph"
 )
 
-// The notification stream — mail's bottom-right feed, brought over wholesale
-// (mail ui.Feed): transient status lines stack in the corner, live for a TTL,
-// fade out, and cap at a small limit. It replaces the single status bar that
-// sat one row above the focus line (todo:a5f726bf).
+// The notification stream — mail's bottom-right feed. Toasts stack in the
+// corner, live for a TTL, fade out, cap at a small limit.
 //
-// Threading follows recap's staged-apply discipline rather than mail's
-// direct-mutation tick: pushes and fade ticks build a fresh view slice under
-// the feed's own mutex and STAGE it; the render thread swaps it into the
-// bound slice at frame top (refreshDetail, the staged seam). The fade is
-// driven by the existing gated ticker — it only spins while the feed is live
-// (or a flare is in flight), so an idle app stays event-driven.
+// The fade is GLYPH'S now (m209): each row is If(&n.Alive) with an In/Out
+// opacity tween — the TTL flips Alive, glyph retains the row and runs the
+// exit fade (the animating gate schedules the frames), and OnComplete removes
+// the item from the slice. The old per-item Opacity field, the 120ms fade
+// ticker, and the staged fade-frame projection are all deleted — recap's last
+// per-frame app work went with them. Mutations still reach the bound slice
+// only on the render thread: pushes and expiries stage under a mutex and the
+// staged seam (drainFeed) applies them; OnComplete already runs render-side.
 
 type notification struct {
-	Text    string
-	Opacity float64
+	Text  string
+	Alive bool // false → glyph runs the exit fade; OnComplete removes the item
 }
 
-type feedEntry struct {
-	text string
-	at   time.Time
-}
+const (
+	feedTTL   = 2800 * time.Millisecond
+	feedFade  = 700 * time.Millisecond
+	feedLimit = 6
+)
 
 type feed struct {
-	mu    sync.Mutex
-	items []feedEntry
-	now   func() time.Time
-	ttl   time.Duration
-	fade  time.Duration
-	limit int
-
-	staged []notification
-	dirty  bool
+	mu      sync.Mutex
+	adds    []string
+	expires int
+	// after is the TTL scheduler, overridable in tests (the real one arms a
+	// timer that stages an expiry and requests a frame).
+	after func()
 }
 
-func newFeed(now func() time.Time) *feed {
-	if now == nil {
-		now = time.Now
+func newFeed(after func()) *feed {
+	f := &feed{}
+	f.after = after
+	if f.after == nil {
+		f.after = func() {
+			time.AfterFunc(feedTTL, func() {
+				f.mu.Lock()
+				f.expires++
+				f.mu.Unlock()
+				if app := uiApp; app != nil {
+					app.RequestRender()
+				}
+			})
+		}
 	}
-	return &feed{
-		now:   now,
-		ttl:   2800 * time.Millisecond,
-		fade:  700 * time.Millisecond,
-		limit: 6,
-	}
+	return f
 }
 
-// push appends a line and stages the refreshed view. Safe from any goroutine.
+// push stages a toast (safe from any goroutine) and arms its TTL.
 func (f *feed) push(text string) {
 	if text == "" {
 		return
 	}
 	f.mu.Lock()
-	f.items = append(f.items, feedEntry{text: text, at: f.now()})
-	if len(f.items) > f.limit {
-		copy(f.items, f.items[len(f.items)-f.limit:])
-		f.items = f.items[:f.limit]
-	}
-	f.stageLocked()
+	f.adds = append(f.adds, text)
 	f.mu.Unlock()
+	f.after()
 }
 
-// tick re-stages the fade frame; reports whether anything is still live (the
-// ticker's gate). Safe from the ticker goroutine.
-func (f *feed) tick() bool {
+// take pops the staged mutations — render thread.
+func (f *feed) take() (adds []string, expires int) {
 	f.mu.Lock()
-	f.stageLocked()
-	live := len(f.items) > 0
+	adds, expires = f.adds, f.expires
+	f.adds, f.expires = nil, 0
 	f.mu.Unlock()
-	return live
-}
-
-func (f *feed) stageLocked() {
-	now := f.now()
-	keep := f.items[:0]
-	view := make([]notification, 0, len(f.items))
-	for _, e := range f.items {
-		age := now.Sub(e.at)
-		if age >= f.ttl {
-			continue
-		}
-		keep = append(keep, e)
-		view = append(view, notification{Text: e.text, Opacity: f.opacity(age)})
-	}
-	f.items = keep
-	f.staged, f.dirty = view, true
-}
-
-// take pops the staged view (nil, false when nothing new) — render thread.
-func (f *feed) take() ([]notification, bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if !f.dirty {
-		return nil, false
-	}
-	f.dirty = false
-	return f.staged, true
-}
-
-func (f *feed) opacity(age time.Duration) float64 {
-	fadeStart := f.ttl - f.fade
-	if age <= fadeStart {
-		return 1
-	}
-	if age >= f.ttl {
-		return 0
-	}
-	return float64(f.ttl-age) / float64(f.fade)
+	return
 }
 
 // --- recap glue -------------------------------------------------------------
 
 var (
 	statusFeed = newFeed(nil)
-	// the bound view state — render thread only (swapped at the staged seam).
+	// the bound view state — render thread only (mutated at the staged seam
+	// and in glyph's OnComplete, which runs render-side).
 	feedItems   []notification
 	feedVisible bool
 )
@@ -135,21 +97,57 @@ func toast(text string) {
 	}
 }
 
-// drainFeed swaps a staged fade/push frame into the bound slice — render
-// thread, called from the staged-apply seam.
+// drainFeed applies staged pushes and TTL expiries to the bound slice —
+// render thread, called from the staged-apply seam.
 func drainFeed() {
-	if v, ok := statusFeed.take(); ok {
-		feedItems = v
-		feedVisible = len(v) > 0
+	adds, expires := statusFeed.take()
+	if len(adds) == 0 && expires == 0 {
+		return
 	}
+	for _, a := range adds {
+		feedItems = append(feedItems, notification{Text: a, Alive: true})
+	}
+	// cap: the stack stays small — overflow drops the oldest outright
+	if n := len(feedItems) - feedLimit; n > 0 {
+		feedItems = append(feedItems[:0], feedItems[n:]...)
+	}
+	// each expiry flips the OLDEST living toast — FIFO matches timer order
+	// (uniform TTLs), and a limit-trimmed item simply forwards its expiry.
+	for ; expires > 0; expires-- {
+		for i := range feedItems {
+			if feedItems[i].Alive {
+				feedItems[i].Alive = false
+				break
+			}
+		}
+	}
+	feedVisible = len(feedItems) > 0
 }
 
-// feedRow renders one notification: dot + text, fading via per-item opacity.
+// feedExitComplete is glyph's OnComplete for a finished exit fade — render
+// thread. Exits complete in flip order, so the first dead item is the one.
+func feedExitComplete() {
+	for i := range feedItems {
+		if !feedItems[i].Alive {
+			feedItems = append(feedItems[:i], feedItems[i+1:]...)
+			break
+		}
+	}
+	feedVisible = len(feedItems) > 0
+}
+
+// feedRow renders one notification: dot + text; the exit fade is glyph's
+// (If retains the row while the Out tween runs, then OnComplete removes it).
 func feedRow(n *notification) Component {
-	return HBox.Width(49).Opacity(&n.Opacity)(
-		Space(),
-		Text("● ").FG(&cHunk),
-		Text(&n.Text).FG(&cBright),
+	return If(&n.Alive).Then(
+		HBox.Width(49).Opacity(In(1.0).Out(
+			Animate.Duration(feedFade).Ease(EaseLinear).
+				OnComplete(feedExitComplete)(0.0),
+		))(
+			Space(),
+			Text("● ").FG(&cHunk),
+			Text(&n.Text).FG(&cBright),
+		),
 	)
 }
 

@@ -154,17 +154,9 @@ func runUI() error {
 		}
 	}()
 
-	// the gated ticker now serves ONLY the notification feed's fade — the
-	// in-flight spinners self-animate since glyph ADR 1 (visible == animating,
-	// frame derived from the frame clock; the hand-fed spinFrame counter and
-	// its hasCurrent re-render branch are deleted).
-	go func() {
-		for range time.Tick(120 * time.Millisecond) {
-			if statusFeed.tick() {
-				uiApp.RequestRender()
-			}
-		}
-	}()
+	// no app ticker at all anymore: spinners self-animate (glyph ADR 1) and
+	// the toast fade is glyph's In/Out exit on the feed rows (m209) — the app
+	// renders purely on events, with glyph's animating gate scheduling frames.
 
 	// Two named views, registered once (glyph re-layouts each against the terminal
 	// size every frame, so no re-register on resize is needed — and rebuilding would
