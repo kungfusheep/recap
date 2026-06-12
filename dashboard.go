@@ -2,21 +2,18 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	. "github.com/kungfusheep/glyph"
-	"github.com/kungfusheep/recap/cursor"
-	"github.com/kungfusheep/recap/db"
-	"github.com/kungfusheep/recap/listener"
+	"github.com/kungfusheep/recap/agents"
 )
 
 // The agent dashboard ('A'): one concise row per named agent — colour + name,
 // current status (working / parked / idle), and the last thing they recorded.
-// Data loads at OPEN (the handler acquires: identity files, cursor files,
-// listener pidfiles, one db query); the overlay renders pointers only.
+// The DATA lives in the agents package (agents.Snapshot — handler-side
+// acquisition); this file is only the view: VM mapping + the overlay template.
 
 type agentVM struct {
 	Dot         string // ●
@@ -37,75 +34,37 @@ type dashView struct {
 
 var dashUI dashView
 
-// flareMaxAge: a cursor flare untouched this long is stale — the loop died or
-// predates the park-clears-cursor fix — and must not read as "working".
-const flareMaxAge = 2 * time.Hour
-
-// openAgentsDash gathers every named agent's state and shows the overlay.
-// One row per AGENT (identities can span repos — c436's duplicate names);
-// status is the best across their repos, with the flare honoured only while
-// its cursor file is fresh.
+// openAgentsDash snapshots the fleet and shows the overlay.
 func openAgentsDash() {
-	dbp, err := db.Path()
+	snap, err := agents.Snapshot(uiStore)
 	if err != nil {
 		statusMsg = "agents: " + err.Error()
 		return
 	}
-	matches, _ := filepath.Glob(filepath.Join(filepath.Dir(dbp), "identity-*"))
-	live := map[string]bool{}
-	for _, r := range listener.Active() {
-		live[r] = true
-	}
-	var latest map[string]db.Task
-	if uiStore != nil {
-		latest, _ = uiStore.LatestTaskPerRepo()
-	}
-
-	type agg struct {
-		vm    agentVM
-		repos []string
-		rank  int // 2 working, 1 parked, 0 idle
-		last  string
-	}
-	byName := map[string]*agg{}
-	for _, m := range matches {
-		repo := strings.TrimPrefix(filepath.Base(m), "identity-")
-		name, color := loadIdentity(repo)
-		if name == "" {
-			continue
-		}
-		a := byName[name]
-		if a == nil {
-			a = &agg{vm: agentVM{Dot: "●", Name: name, NameColor: color, Status: "idle", StatusColor: cMuted}}
-			byName[name] = a
-		}
-		a.repos = append(a.repos, repo)
-		rank, status, color2 := 0, "", Color{}
-		switch {
-		case cursor.Title(repo) != "" && cursor.Age(repo) < flareMaxAge:
-			rank, color2 = 2, cAdd
-			status = "working: " + clipTo(cursor.Title(repo), 40) + "  · " + shortAge(cursor.Age(repo))
-		case live[repo]:
-			rank, status, color2 = 1, "parked — listening for work", cHunk
-		}
-		if rank > a.rank {
-			a.rank, a.vm.Status, a.vm.StatusColor = rank, status, color2
-		}
-		if t, ok := latest[repo]; ok && t.CreatedAt > a.last {
-			a.last = t.CreatedAt
-			a.vm.Last = "last: " + clipTo(t.Title, 48)
-			a.vm.When = hhmm(t.CreatedAt)
-		}
-	}
-
 	dashUI.Rows = dashUI.Rows[:0]
-	for _, a := range byName {
-		sort.Strings(a.repos)
-		a.vm.Repo = strings.Join(a.repos, ", ")
-		if a.vm.Last == "" {
-			a.vm.Last = "last: —"
+	for _, a := range snap {
+		vm := agentVM{Dot: "●", Name: a.Name, NameColor: cBright, Repo: strings.Join(a.Repos, ", ")}
+		if c, ok := parseHexColor(a.ColorHex); ok {
+			vm.NameColor = c
 		}
-		dashUI.Rows = append(dashUI.Rows, a.vm)
+		switch a.Status {
+		case agents.Working:
+			vm.Status = "working: " + clipTo(a.Flare, 40) + "  · " + shortAge(a.FlareAge)
+			vm.StatusColor = cAdd
+		case agents.Parked:
+			vm.Status = "parked — listening for work"
+			vm.StatusColor = cHunk
+		default:
+			vm.Status = "idle"
+			vm.StatusColor = cMuted
+		}
+		if a.LastWork != "" {
+			vm.Last = "last: " + clipTo(a.LastWork, 48)
+			vm.When = hhmm(a.LastAt)
+		} else {
+			vm.Last = "last: —"
+		}
+		dashUI.Rows = append(dashUI.Rows, vm)
 	}
 	sort.Slice(dashUI.Rows, func(i, j int) bool { return dashUI.Rows[i].Name < dashUI.Rows[j].Name })
 	if len(dashUI.Rows) == 0 {
@@ -113,6 +72,14 @@ func openAgentsDash() {
 		return
 	}
 	dashUI.Open = true
+}
+
+func clipTo(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n-1]) + "…"
 }
 
 func shortAge(d time.Duration) string {
@@ -124,14 +91,6 @@ func shortAge(d time.Duration) string {
 	default:
 		return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
 	}
-}
-
-func clipTo(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n-1]) + "…"
 }
 
 // agentsOverlay is the dashboard component — compiled once, bound to dashUI.
