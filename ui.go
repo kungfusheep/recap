@@ -2202,8 +2202,10 @@ func openComment() {
 		commentOnProposal(row)
 		return
 	}
-	if _, ok := selectedTask(); ok {
-		promptUI.open("comment", "", "", "", saveGeneralComment)
+	if t, ok := selectedTask(); ok {
+		// the DESTINATION leads the title: twice in one day the human typed
+		// feedback against the wrong repo's item (m267) — name where it lands.
+		promptUI.open(fmt.Sprintf("comment → %s #%d", t.Repo, t.ID), "", "", "", saveGeneralComment)
 	}
 }
 
@@ -2564,7 +2566,11 @@ func commentOnDiffLine(m diffLineMeta) {
 	if len(snip) > 68 {
 		snip = snip[:67] + "…"
 	}
-	promptUI.open("line comment", loc, snip, "", saveLineComment)
+	title := "line comment"
+	if t, ok := selectedTask(); ok {
+		title = fmt.Sprintf("line comment → %s #%d", t.Repo, t.ID)
+	}
+	promptUI.open(title, loc, snip, "", saveLineComment)
 }
 
 func saveLineComment() {

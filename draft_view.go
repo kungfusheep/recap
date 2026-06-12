@@ -459,13 +459,28 @@ func openCommentView() {
 // replyToComment opens the body prompt to reply to the selected comment; saving
 // threads the reply under it (who="you", the reviewer). Works on any comment,
 // submitted or draft — replies are discussion, not edits.
+// destLabel names where the pane's writes land — "recap #281" for a task,
+// "proposal #7" for a proposal thread — so the prompt titles carry the
+// destination (the m267 misroute fix).
+func destLabel() string {
+	if draftUI.PropID != 0 {
+		return fmt.Sprintf("proposal #%d", draftUI.PropID)
+	}
+	if t, ok := inboxUI.TaskByID[draftUI.TaskID]; ok {
+		return fmt.Sprintf("%s #%d", t.Repo, t.ID)
+	}
+	return "comment"
+}
+
+func replyDest() string { return "reply → " + destLabel() }
+
 func replyToComment() {
 	c := selectedDraft()
 	if c == nil {
 		return
 	}
 	draftUI.ReplyingTo = c.ID
-	promptUI.open("reply", c.Location, "  "+c.Body, "", saveReply)
+	promptUI.open(replyDest(), c.Location, "  "+c.Body, "", saveReply)
 }
 
 func saveReply() {
@@ -507,7 +522,7 @@ func editDraftComment() {
 		return
 	}
 	draftUI.EditingID = c.ID
-	promptUI.open("edit comment", "", "", c.Body, saveEditedComment)
+	promptUI.open("edit "+destLabel(), "", "", c.Body, saveEditedComment)
 }
 
 func deleteDraftComment() {
