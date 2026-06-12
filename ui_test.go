@@ -1783,6 +1783,24 @@ func TestProposalInboxSection(t *testing.T) {
 	if pings["tui"] != 1 || pings["recap"] != 1 {
 		t.Fatalf("digest model broken — expected exactly one unread ping per party, got %v", pings)
 	}
+
+	// c462: threaded replies — r on a thread row nests the reply under it
+	drainPropDetail()
+	propUI.ThreadSel = 0 // Kestrel's root comment
+	rootID := propUI.Thread[0].ID
+	replyToPropComment()
+	if !promptUI.Open {
+		t.Fatal("reply prompt did not open from the thread pane")
+	}
+	promptUI.Field.Value = "agreed — proceeding"
+	promptUI.submit()
+	drainPropDetail()
+	if len(propUI.Thread) < 2 || !propUI.Thread[1].Reply || propUI.Thread[1].ParentID != rootID {
+		t.Fatalf("reply not nested under its root: %+v", propUI.Thread)
+	}
+	if propUI.Thread[1].Indent == "" || propUI.Thread[1].Who != "You" {
+		t.Fatalf("reply row should indent and read as You: %+v", propUI.Thread[1])
+	}
 }
 
 // The corner notification feed (todo:a5f726bf): entries live for the TTL, fade

@@ -165,6 +165,7 @@ var addColumns = []struct{ table, col, decl string }{
 	{"proposal_parties", "last_seen_comment_id", "INTEGER"},
 	{"proposal_comments", "line", "INTEGER"},
 	{"proposal_comments", "snippet", "TEXT"},
+	{"proposal_comments", "parent_id", "INTEGER"},
 }
 
 func (s *Store) hasColumn(table, col string) (bool, error) {

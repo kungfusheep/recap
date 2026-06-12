@@ -162,6 +162,7 @@ type ProposalComment struct {
 	Body       string
 	Line       int    // document line the comment anchors to (0 = general)
 	Snippet    string // the anchored line's text, captured at comment time
+	ParentID   int64  // 0 = top-level; else the comment this one replies to
 	CreatedAt  string
 }
 
@@ -178,20 +179,33 @@ CREATE TABLE IF NOT EXISTS proposal_comments (
 // AddProposalComment appends to the thread; the commenting repo becomes a
 // party if it wasn't already (commenting = interest).
 func (s *Store) AddProposalComment(proposalID int64, whoRepo, whoName, body string) (int64, error) {
-	return s.AddProposalLineComment(proposalID, whoRepo, whoName, body, 0, "")
+	return s.AddProposalThreadComment(proposalID, whoRepo, whoName, body, 0, "", 0)
 }
 
-// AddProposalLineComment anchors a comment to a document line (1-based;
-// snippet captures the line's text so the anchor survives document reads).
+// AddProposalLineComment anchors a top-level comment to a document line.
 func (s *Store) AddProposalLineComment(proposalID int64, whoRepo, whoName, body string, line int, snippet string) (int64, error) {
+	return s.AddProposalThreadComment(proposalID, whoRepo, whoName, body, line, snippet, 0)
+}
+
+// AddProposalThreadComment is the full insert: optional line anchor (1-based;
+// snippet captures the line's text so the anchor survives document reads) and
+// optional parent for threaded replies. A parent must belong to this proposal.
+func (s *Store) AddProposalThreadComment(proposalID int64, whoRepo, whoName, body string, line int, snippet string, parentID int64) (int64, error) {
 	if body == "" {
 		return 0, fmt.Errorf("comment body is required")
 	}
 	if _, err := s.ProposalByID(proposalID); err != nil {
 		return 0, fmt.Errorf("no proposal #%d", proposalID)
 	}
-	res, err := s.db.Exec(`INSERT INTO proposal_comments (proposal_id, who_repo, who_name, body, line, snippet, created_at)
-		VALUES (?,?,?,?,?,?,?)`, proposalID, whoRepo, whoName, body, line, nullStr(snippet), NowStamp())
+	if parentID != 0 {
+		var n int64
+		s.db.QueryRow(`SELECT COUNT(*) FROM proposal_comments WHERE id = ? AND proposal_id = ?`, parentID, proposalID).Scan(&n)
+		if n == 0 {
+			return 0, fmt.Errorf("no comment #%d on proposal #%d to reply to", parentID, proposalID)
+		}
+	}
+	res, err := s.db.Exec(`INSERT INTO proposal_comments (proposal_id, who_repo, who_name, body, line, snippet, parent_id, created_at)
+		VALUES (?,?,?,?,?,?,?,?)`, proposalID, whoRepo, whoName, body, line, nullStr(snippet), nullID(parentID), NowStamp())
 	if err != nil {
 		return 0, err
 	}
@@ -208,7 +222,7 @@ func (s *Store) AddProposalLineComment(proposalID int64, whoRepo, whoName, body 
 // ProposalComments returns the thread, oldest first.
 func (s *Store) ProposalComments(proposalID int64) ([]ProposalComment, error) {
 	rows, err := s.db.Query(`SELECT id, proposal_id, who_repo, COALESCE(who_name,''), body,
-		COALESCE(line,0), COALESCE(snippet,''), created_at
+		COALESCE(line,0), COALESCE(snippet,''), COALESCE(parent_id,0), created_at
 		FROM proposal_comments WHERE proposal_id = ? ORDER BY id`, proposalID)
 	if err != nil {
 		return nil, err
@@ -217,7 +231,7 @@ func (s *Store) ProposalComments(proposalID int64) ([]ProposalComment, error) {
 	var out []ProposalComment
 	for rows.Next() {
 		var c ProposalComment
-		if err := rows.Scan(&c.ID, &c.ProposalID, &c.WhoRepo, &c.WhoName, &c.Body, &c.Line, &c.Snippet, &c.CreatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.ProposalID, &c.WhoRepo, &c.WhoName, &c.Body, &c.Line, &c.Snippet, &c.ParentID, &c.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, c)

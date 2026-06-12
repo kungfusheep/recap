@@ -34,12 +34,16 @@ type propRowVM struct {
 // propThreadVM is one comment row in the proposal's thread column — the
 // draft pane's look (location line, snippet, body, time), proposal-owned.
 type propThreadVM struct {
+	ID       int64
+	ParentID int64
 	Who      string
 	WhoColor Color
 	Location string
 	Snippet  string
 	Body     string
 	When     string
+	Indent   string // nested replies indent (precomputed; build-once safe)
+	Reply    bool
 }
 
 // propView is the pane's state in one concrete struct: the document layer +
@@ -127,8 +131,11 @@ func fetchPropDetail(p db.Proposal, key string, reset bool) *propResult {
 	}
 	r.parties, _ = uiStore.ProposalParties(p.ID)
 	comments, _ := uiStore.ProposalComments(p.ID)
+	var flat []propThreadVM
 	for _, c := range comments {
 		vm := propThreadVM{
+			ID:       c.ID,
+			ParentID: c.ParentID,
 			Who:      propSender(c.WhoName, c.WhoRepo),
 			WhoColor: cBright,
 			Body:     c.Body,
@@ -150,9 +157,66 @@ func fetchPropDetail(p db.Proposal, key string, reset bool) *propResult {
 			vm.Snippet = cleanLine(c.Snippet)
 			r.washes[c.Line] = true
 		}
-		r.thread = append(r.thread, vm)
+		flat = append(flat, vm)
 	}
+	r.thread = threadPropComments(flat)
 	return r
+}
+
+// threadPropComments orders the flat thread: roots in id order, each followed
+// by its reply subtree — replies indent and relabel "↳", the diff comments
+// pane's treatment (c462).
+func threadPropComments(flat []propThreadVM) []propThreadVM {
+	present := make(map[int64]bool, len(flat))
+	for _, v := range flat {
+		present[v.ID] = true
+	}
+	byParent := map[int64][]propThreadVM{}
+	var roots []propThreadVM
+	for _, v := range flat {
+		if v.ParentID != 0 && present[v.ParentID] {
+			byParent[v.ParentID] = append(byParent[v.ParentID], v)
+		} else {
+			roots = append(roots, v)
+		}
+	}
+	var out []propThreadVM
+	var walk func(v propThreadVM, depth int)
+	walk = func(v propThreadVM, depth int) {
+		if depth > 0 {
+			v.Reply = true
+			v.Indent = strings.Repeat("  ", depth)
+			v.Location = "↳ reply"
+			v.Snippet = "" // the root carries the anchor; don't repeat it
+		}
+		out = append(out, v)
+		for _, child := range byParent[v.ID] {
+			walk(child, depth+1)
+		}
+	}
+	for _, v := range roots {
+		walk(v, 0)
+	}
+	return out
+}
+
+// replyToPropComment threads a human reply under the selected thread row (r).
+func replyToPropComment() {
+	if propUI.ThreadSel < 0 || propUI.ThreadSel >= len(propUI.Thread) {
+		return
+	}
+	target := propUI.Thread[propUI.ThreadSel]
+	// reply to the ROOT of the selected row's thread, like the comments pane:
+	// a reply to a reply still lands in the same conversation.
+	parent := target.ID
+	p := propUI.Prop
+	promptUI.open(
+		fmt.Sprintf("reply · proposal #%d", p.ID),
+		target.Who, "  "+firstLine(target.Body), "",
+		func() {
+			saveProposalReply(p, parent)
+		},
+	)
 }
 
 // drainPropDetail swaps a staged fetch into the pane — render thread, called
@@ -368,6 +432,7 @@ func propDocPane() Component {
 func propThreadRow(c *propThreadVM) Component {
 	return VBox.PaddingVH(0, 1)(
 		HBox(
+			Text(&c.Indent),
 			Text(&c.Who).FG(&c.WhoColor).Bold(),
 			SpaceW(2),
 			Text(&c.Location).FG(&cSubtle),
@@ -375,7 +440,9 @@ func propThreadRow(c *propThreadVM) Component {
 			Text(&c.When).FG(&cMuted),
 		),
 		If(&c.Snippet).Eq("").Then(Text("")).Else(HBox(SpaceW(2), Text(&c.Snippet).FG(&cSubtle))),
-		HBox(SpaceW(2), TextBlock(&c.Body).FG(&cFG)),
+		// the body bounds to the width left after the indent (the draft pane's
+		// wrap treatment) so nested replies don't shove text off the edge.
+		HBox(Text(&c.Indent), SpaceW(2), VBox.Grow(1)(TextBlock(&c.Body).FG(&cFG))),
 		Text(" "),
 	)
 }
@@ -396,6 +463,8 @@ func propThreadPane() Component {
 			If(&pane).Eq(paneDraft).Then(On(
 				Key("j", func() { movePropThread(1) }),
 				Key("k", func() { movePropThread(-1) }),
+				Key("r", replyToPropComment), // threaded reply under the selected comment
+
 				Key("<Enter>", func() { setPane(paneList) }),
 				Key("<Esc>", func() { setPane(paneList) }),
 			)),
@@ -445,11 +514,20 @@ func commentOnProposalLine(m propLineMeta) {
 // saveProposalComment is the shared save: thread the comment (anchored when
 // line > 0), ping every party once, and refresh the detail in place.
 func saveProposalComment(p db.Proposal, line int, snippet string) {
+	saveProposalThreadComment(p, line, snippet, 0)
+}
+
+// saveProposalReply threads the prompt's body under a parent comment.
+func saveProposalReply(p db.Proposal, parentID int64) {
+	saveProposalThreadComment(p, 0, "", parentID)
+}
+
+func saveProposalThreadComment(p db.Proposal, line int, snippet string, parentID int64) {
 	body := promptUI.Field.Value
 	if body == "" {
 		return
 	}
-	if _, err := uiStore.AddProposalLineComment(p.ID, "", "you", body, line, snippet); err != nil {
+	if _, err := uiStore.AddProposalThreadComment(p.ID, "", "you", body, line, snippet, parentID); err != nil {
 		toast("comment: " + err.Error())
 		return
 	}

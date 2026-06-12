@@ -99,16 +99,27 @@ func cmdProposal(args []string) error {
 			seen := st.PartyWatermark(id, currentRepo())
 			fmt.Printf("\nthread (%d):\n", len(cs))
 			marked := false
+			depth := map[int64]int{}
 			for _, c := range cs {
 				if !marked && c.ID > seen && seen > 0 {
 					fmt.Println("  ── new since your last look ──")
 					marked = true
 				}
+				d := 0
+				if c.ParentID != 0 {
+					d = depth[c.ParentID] + 1
+				}
+				depth[c.ID] = d
+				indent := strings.Repeat("  ", d)
+				bullet := "•"
+				if d > 0 {
+					bullet = "↳"
+				}
 				anchor := ""
 				if c.Line > 0 {
 					anchor = fmt.Sprintf(" [line %d: %s]", c.Line, c.Snippet)
 				}
-				fmt.Printf("  • [%s] %s@%s:%s %s\n", c.CreatedAt, dash(c.WhoName), c.WhoRepo, anchor, c.Body)
+				fmt.Printf("  %s%s pc%d [%s] %s@%s:%s %s\n", indent, bullet, c.ID, c.CreatedAt, dash(c.WhoName), c.WhoRepo, anchor, c.Body)
 			}
 			st.AdvancePartyWatermark(id, currentRepo(), cs[len(cs)-1].ID)
 		}
@@ -134,6 +145,7 @@ func cmdProposal(args []string) error {
 		fs := flag.NewFlagSet("proposal comment", flag.ExitOnError)
 		body := fs.String("body", "", "comment text (@repo adds that repo as a party)")
 		line := fs.Int("line", 0, "anchor to a document line (1-based; snippet captured automatically)")
+		replyTo := fs.Int64("reply-to", 0, "thread this under an existing comment id")
 		if len(args) < 2 {
 			return fmt.Errorf("usage: recap proposal comment <id> --body TEXT [--line N]")
 		}
@@ -159,7 +171,7 @@ func cmdProposal(args []string) error {
 			}
 			snippet = strings.TrimSpace(lines[*line-1])
 		}
-		if _, err := st.AddProposalLineComment(id, currentRepo(), identityWho(), *body, *line, snippet); err != nil {
+		if _, err := st.AddProposalThreadComment(id, currentRepo(), identityWho(), *body, *line, snippet, *replyTo); err != nil {
 			return err
 		}
 		// @mentions join the conversation: each @repo becomes a party; the ping
