@@ -2213,3 +2213,56 @@ func TestProposalSignOff(t *testing.T) {
 		t.Fatal("double-decide should refuse")
 	}
 }
+
+// ]/[ jump handlers (todo:6a8f8b49): the list pane hops section headers, the
+// comments pane hops visible top-level threads (replies skipped).
+func TestBracketJumps(t *testing.T) {
+	prevRows, prevSel := inboxUI.Rows, inboxUI.Sel
+	prevDraft := draftUI
+	t.Cleanup(func() {
+		inboxUI.Rows, inboxUI.Sel = prevRows, prevSel
+		draftUI = prevDraft
+	})
+	inboxUI.Rows = []taskVM{
+		{ID: 1, HasGroup: true, GroupLabel: "PROPOSALS", Header: true},
+		{ID: 2, Header: true},
+		{ID: 3, HasGroup: true, GroupLabel: "INBOX", Header: true},
+		{ID: 4, Header: true},
+		{ID: 5, HasGroup: true, GroupLabel: "DONE", Header: true},
+	}
+	inboxUI.Sel = 1
+	jumpInboxSection(1)
+	if inboxUI.Sel != 2 {
+		t.Fatalf("] should land on the next section header, got %d", inboxUI.Sel)
+	}
+	jumpInboxSection(1)
+	if inboxUI.Sel != 4 {
+		t.Fatalf("] again should reach DONE, got %d", inboxUI.Sel)
+	}
+	inboxUI.Sel = 3 // mid-section: [ lands on the section's own header
+	jumpInboxSection(-1)
+	if inboxUI.Sel != 2 {
+		t.Fatalf("[ should land on the current section's header, got %d", inboxUI.Sel)
+	}
+
+	draftUI.Comments = []draftCommentVM{
+		{ID: 1, Visible: true},               // thread root
+		{ID: 2, Visible: true, Reply: true},  // its reply
+		{ID: 3, Visible: true},               // next root
+		{ID: 4, Visible: false, Reply: true}, // collapsed reply
+		{ID: 5, Visible: true},               // third root
+	}
+	draftUI.Sel = 0
+	jumpThread(1)
+	if draftUI.Sel != 2 {
+		t.Fatalf("] should skip the reply to the next root, got %d", draftUI.Sel)
+	}
+	jumpThread(1)
+	if draftUI.Sel != 4 {
+		t.Fatalf("] should reach the third root, got %d", draftUI.Sel)
+	}
+	jumpThread(-1)
+	if draftUI.Sel != 2 {
+		t.Fatalf("[ should step back a root, got %d", draftUI.Sel)
+	}
+}

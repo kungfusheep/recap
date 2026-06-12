@@ -730,6 +730,19 @@ func collapseAllRevisions() {
 	onInboxSelChanged()
 }
 
+// jumpInboxSection moves the selection to the next/previous section header
+// row (PROPOSALS / PINNED / INBOX / AMENDS / DONE / DECIDED) — the list pane's
+// ]/[ (todo:6a8f8b49). From mid-section, [ lands on the section's own header.
+func jumpInboxSection(d int) {
+	for i := inboxUI.Sel + d; i >= 0 && i < len(inboxUI.Rows); i += d {
+		if inboxUI.Rows[i].HasGroup {
+			inboxUI.Sel = i
+			onInboxSelChanged()
+			return
+		}
+	}
+}
+
 // refreshDetail updates selection fill + the right-hand detail when selection,
 // filter, or task set changes — never per-frame git calls.
 // refreshDetail is the OnBeforeRender hook — after the event-home decomposition
@@ -1522,7 +1535,9 @@ func buildMain() Component {
 					Key("v", rerun),
 					Key("o", toggleExpand),         // expand a task into its revision diffs
 					Key("p", togglePin),            // pin/unpin → floats to the PINNED section
-					Key("Z", collapseAllRevisions), // fold/unfold ALL revision expansions
+					Key("Z", collapseAllRevisions),           // fold/unfold ALL revision expansions
+					Key("]", func() { jumpInboxSection(1) }), // next / prev section
+					Key("[", func() { jumpInboxSection(-1) }),
 					Key("X", func() { // decline the selected proposal (verdicts stay human)
 						if row := selectedRow(); row != nil && row.Proposal {
 							signOffProposal(row, db.ProposalDeclined)
@@ -1616,6 +1631,8 @@ func buildMain() Component {
 						Key("k", func() { moveDraft(-1) }),
 						Key("g", draftSelTop), // vim: first/last comment
 						Key("G", draftSelBottom),
+						Key("]", func() { jumpThread(1) }), // next / prev top-level thread
+						Key("[", func() { jumpThread(-1) }),
 						Key("<Enter>", openCommentView),
 						Key("r", replyToComment),            // reply to the selected comment (threads under it)
 						Key("o", toggleCommentThread),       // collapse/expand the selected thread
@@ -1655,6 +1672,7 @@ type helpRow struct{ Key, Desc string }
 
 var helpNavRows = []helpRow{
 	{"j / k", "move"},
+	{"] / [", "section / thread"},
 	{"h / l", "focus column"},
 	{"tab", "next pane"},
 	{"↵", "open"},

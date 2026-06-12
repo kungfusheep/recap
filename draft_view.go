@@ -376,6 +376,18 @@ func draftSelBottom() {
 	}
 }
 
+// jumpThread moves to the next/previous visible TOP-LEVEL comment — the
+// comments pane's ]/[ : thread-to-thread, skipping replies (todo:6a8f8b49).
+func jumpThread(d int) {
+	for i := draftUI.Sel + d; i >= 0 && i < len(draftUI.Comments); i += d {
+		if draftUI.Comments[i].Visible && !draftUI.Comments[i].Reply {
+			draftUI.Sel = i
+			onDraftSelChanged()
+			return
+		}
+	}
+}
+
 func moveDraft(d int) {
 	// step over rows hidden by a collapsed thread (Visible=false renders nothing);
 	// stay put if no visible row exists in that direction.
