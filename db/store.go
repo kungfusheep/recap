@@ -671,6 +671,12 @@ func (s *Store) UpdateComment(commentID int64, body string) error {
 	return err
 }
 
+// CommentByID fetches a single comment by id.
+func (s *Store) CommentByID(id int64) (Comment, error) {
+	row := s.db.QueryRow(`SELECT `+commentCols+` FROM comments WHERE id = ?`, id)
+	return scanComment(row)
+}
+
 // EditOwnComment updates one of the HUMAN's comments — draft or submitted —
 // and clears the agent read-receipt, so an edit to already-sent feedback
 // re-enters the agent's queue (changed feedback the agent never re-reads is

@@ -759,7 +759,14 @@ func cmdReply(args []string) error {
 		}
 	}
 	notify.Reload() // push: the reply threads into any open TUI without a refresh
-	fmt.Printf("replied to comment #%d\n", commentID)
+	// echo the comment's CURRENT first line: comments are editable, so the body
+	// can change between being served by `recap next` and being answered — the
+	// echo makes a stale-read race visible to the replier immediately.
+	if cur, err := st.CommentByID(commentID); err == nil {
+		fmt.Printf("replied to comment #%d (%q)\n", commentID, firstLine(cur.Body))
+	} else {
+		fmt.Printf("replied to comment #%d\n", commentID)
+	}
 	return nil
 }
 

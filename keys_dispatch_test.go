@@ -108,3 +108,27 @@ func TestEKeyEditsOwnComment(t *testing.T) {
 		t.Fatal("the agent's comment must not be editable")
 	}
 }
+
+// pasting into the edit prompt inserts the clipboard payload at the cursor —
+// the c415 report: bracketed paste keys previously fell through the
+// TextHandler unhandled, so paste did nothing. Driven through the real input
+// stack with a Key{Paste} event.
+func TestPasteIntoEditPrompt(t *testing.T) {
+	setupCommentsPane(t)
+	draftUI.Sel = 0
+	uiApp.RenderNow()
+	if !uiApp.Input().Dispatch(riffkey.Key{Rune: 'e'}) {
+		t.Fatal("'e' not handled")
+	}
+	uiApp.RenderNow() // prompt modal mounts
+	if !promptUI.Open {
+		t.Fatal("edit prompt did not open")
+	}
+	before := promptUI.Field.Value
+	if !uiApp.Input().Dispatch(riffkey.Key{Paste: " plus pasted text"}) {
+		t.Fatal("paste key not handled by the prompt field")
+	}
+	if promptUI.Field.Value != before+" plus pasted text" {
+		t.Fatalf("paste not inserted: %q", promptUI.Field.Value)
+	}
+}
