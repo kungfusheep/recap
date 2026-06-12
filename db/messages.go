@@ -151,3 +151,19 @@ func (s *Store) markMessageRead(col string, ids ...int64) error {
 	}
 	return nil
 }
+
+// LatestAgentComment returns the newest comment authored by an AGENT (not the
+// human) — the TUI's arrival notifications watermark against it.
+func (s *Store) LatestAgentComment() (id int64, who string, taskID int64) {
+	s.db.QueryRow(`SELECT id, who, task_id FROM comments WHERE who != 'you' ORDER BY id DESC LIMIT 1`).
+		Scan(&id, &who, &taskID)
+	return
+}
+
+// LatestPeerMessage returns the newest agent-sent message (the human's own
+// sends have no from_repo) — again for arrival notifications.
+func (s *Store) LatestPeerMessage() (id int64, fromWho, fromRepo, body string) {
+	s.db.QueryRow(`SELECT id, COALESCE(from_who,''), from_repo, body FROM messages WHERE from_repo != '' ORDER BY id DESC LIMIT 1`).
+		Scan(&id, &fromWho, &fromRepo, &body)
+	return
+}

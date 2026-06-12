@@ -225,6 +225,17 @@ type inboxData struct {
 	repos      []string      // distinct repos from the unfiltered set (filter cycle)
 	identName  string
 	identColor Color
+
+	// arrival watermark data: the newest task/agent-comment/peer-message ids,
+	// compared at APPLY time so async arrivals toast in the corner feed.
+	maxTaskID    int64
+	maxTaskTitle string
+	cmtID        int64
+	cmtWho       string
+	cmtTaskID    int64
+	msgID        int64
+	msgFrom      string
+	msgBody      string
 }
 
 // fetchInbox runs the inbox reload's queries — db + small files, no view
@@ -264,6 +275,15 @@ func fetchInbox(repoFilter string, pins map[int64]bool) *inboxData {
 		}
 	}
 	d.lastRev, _ = uiStore.LatestReviewIDs()
+	for _, t := range d.tasks {
+		if t.ID > d.maxTaskID {
+			d.maxTaskID, d.maxTaskTitle = t.ID, t.Title
+		}
+	}
+	d.cmtID, d.cmtWho, d.cmtTaskID = uiStore.LatestAgentComment()
+	var fromWho, fromRepo string
+	d.msgID, fromWho, fromRepo, d.msgBody = uiStore.LatestPeerMessage()
+	d.msgFrom = msgSender(fromWho, fromRepo)
 	// open proposals: cross-repo documents, so the repo filter matches the
 	// TARGET (the repo that would own the work).
 	if props, err := uiStore.Proposals(""); err == nil {
@@ -621,6 +641,39 @@ func applyInbox(d *inboxData) {
 	// distinct repos for the filter cycle (fetched from the unfiltered set)
 	inboxUI.Repos = append(inboxUI.Repos[:0], d.repos...)
 	inboxUI.DetailDirty = true
+	notifyArrivals(d)
+}
+
+// arrival watermarks: the newest ids seen at the last apply. The first apply
+// primes silently (launch isn't "news"); after that, anything newer toasts in
+// the corner feed (todo:d959c7e2) — agent work arriving, an agent comment, a
+// peer message. The human's own actions don't qualify (own comments are
+// who=='you', own sends have no from_repo).
+var (
+	notifPrimed   bool
+	notifSeenTask int64
+	notifSeenCmt  int64
+	notifSeenMsg  int64
+)
+
+func notifyArrivals(d *inboxData) {
+	if !notifPrimed {
+		notifPrimed = true
+		notifSeenTask, notifSeenCmt, notifSeenMsg = d.maxTaskID, d.cmtID, d.msgID
+		return
+	}
+	if d.maxTaskID > notifSeenTask {
+		toast(fmt.Sprintf("#%d arrived — %s", d.maxTaskID, clipTo(d.maxTaskTitle, 44)))
+		notifSeenTask = d.maxTaskID
+	}
+	if d.cmtID > notifSeenCmt {
+		toast(fmt.Sprintf("%s commented on #%d", d.cmtWho, d.cmtTaskID))
+		notifSeenCmt = d.cmtID
+	}
+	if d.msgID > notifSeenMsg {
+		toast(fmt.Sprintf("✉ %s: %s", d.msgFrom, clipTo(firstLine(d.msgBody), 40)))
+		notifSeenMsg = d.msgID
+	}
 }
 
 // revLabel is a revision child row's caption: "original" for the base diff (the

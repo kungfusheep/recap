@@ -2385,3 +2385,61 @@ func TestCloseDoneAndDecided(t *testing.T) {
 		t.Fatal("closing an OPEN proposal should refuse")
 	}
 }
+
+// Async arrivals toast in the corner feed (todo:d959c7e2): a new task, an
+// agent comment, and a peer message each notify once — and the FIRST apply
+// primes silently (launching isn't news).
+func TestArrivalNotifications(t *testing.T) {
+	prevApp, prevStore, prevOmni, prevLayer, prevFeed := uiApp, uiStore, omni, diffUI.Layer, statusFeed
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	diffUI.Layer = NewLayer()
+	diffUI.Layer.Render = func() {}
+	statusFeed = newFeed(nil)
+	t.Cleanup(func() {
+		uiApp, uiStore, omni, diffUI.Layer, statusFeed = prevApp, prevStore, prevOmni, prevLayer, prevFeed
+		inboxUI = inboxView{Expanded: map[int64]bool{}, TaskByID: map[int64]db.Task{}, PropByID: map[int64]db.Proposal{}, DoneLimit: 10}
+		notifPrimed, notifSeenTask, notifSeenCmt, notifSeenMsg = false, 0, 0, 0
+		feedItems, feedVisible = nil, false
+		statusMsg = ""
+	})
+	t.Setenv("RECAP_DB", filepath.Join(t.TempDir(), "recap.db"))
+
+	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "pre-existing", Status: db.StatusPending})
+	reloadTasks() // primes the watermarks — no toasts for what's already there
+	if v, _ := statusFeed.take(); len(v) != 0 {
+		t.Fatalf("launch apply must prime silently, got %v", v)
+	}
+
+	// agent activity lands: a task, a comment, a message
+	id2, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "fresh agent work arriving now", Status: db.StatusPending})
+	if _, err := st.AddComment(id2, "Kestrel", "a note"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SendMessage("tui", "Glyph Smith", "recap", 0, 0, "heads up about the thing"); err != nil {
+		t.Fatal(err)
+	}
+	reloadTasks()
+	v, _ := statusFeed.take()
+	all := ""
+	for _, n := range v {
+		all += n.Text + "\n"
+	}
+	for _, want := range []string{
+		fmt.Sprintf("#%d arrived — fresh agent work arriving now", id2),
+		fmt.Sprintf("Kestrel commented on #%d", id2),
+		"✉ Glyph Smith@tui: heads up about the thing",
+	} {
+		if !strings.Contains(all, want) {
+			t.Fatalf("missing arrival toast %q in:\n%s", want, all)
+		}
+	}
+	// a third apply with nothing new stays quiet — still just the 3 fading
+	reloadTasks()
+	statusFeed.tick()
+	if v, _ := statusFeed.take(); len(v) != 3 {
+		t.Fatalf("no-change apply must not re-toast (still the 3 fading): %v", v)
+	}
+}
