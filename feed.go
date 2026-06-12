@@ -28,6 +28,11 @@ const (
 	feedTTL   = 2800 * time.Millisecond
 	feedFade  = 700 * time.Millisecond
 	feedLimit = 6
+	feedWidth = 64 // the row's column budget
+	// feedClip keeps the TEXT inside the row: dot + space eat 2 columns, and
+	// the clip's own ellipsis must land before the row edge — text longer
+	// than the row hard-clipped mid-word with no ellipsis (m280).
+	feedClip = feedWidth - 3
 )
 
 type feed struct {
@@ -105,7 +110,7 @@ func drainFeed() {
 		return
 	}
 	for _, a := range adds {
-		feedItems = append(feedItems, notification{Text: a, Alive: true})
+		feedItems = append(feedItems, notification{Text: clipTo(a, feedClip), Alive: true})
 	}
 	// cap: the stack stays small — overflow drops the oldest outright
 	if n := len(feedItems) - feedLimit; n > 0 {
@@ -140,7 +145,7 @@ func feedExitComplete() {
 // (If retains the row while the Out tween runs, then OnComplete removes it).
 func feedRow(n *notification) Component {
 	return If(&n.Alive).Then(
-		HBox.Width(49).Opacity(In(1.0).Out(
+		HBox.Width(feedWidth).Opacity(In(1.0).Out(
 			Animate.Duration(feedFade).Ease(EaseLinear).
 				OnComplete(feedExitComplete)(0.0),
 		))(
@@ -155,7 +160,7 @@ func feedRow(n *notification) Component {
 func feedOverlay() Component {
 	return If(&feedVisible).Then(
 		Overlay.BottomRight().Offset(-2, -1)(
-			VBox.Width(49).Gap(1)(
+			VBox.Width(feedWidth).Gap(1)(
 				ForEach(&feedItems, feedRow),
 			),
 		),

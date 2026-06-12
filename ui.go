@@ -719,7 +719,7 @@ func notifyArrivals(d *inboxData) {
 		notifSeenCmt = d.cmtID
 	}
 	if d.msgID > notifSeenMsg {
-		toast(fmt.Sprintf("✉ %s: %s", d.msgFrom, clipTo(firstLine(d.msgBody), 40)))
+		toast(fmt.Sprintf("✉ %s: %s", d.msgFrom, firstLine(d.msgBody))) // drainFeed clips to the row budget
 		notifSeenMsg = d.msgID
 	}
 }
