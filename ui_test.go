@@ -372,7 +372,7 @@ func TestDraftCommentBodyWraps(t *testing.T) {
 	t.Cleanup(func() { draftUI.Comments = prev; draftUI.Sel = prevSel })
 
 	long := "this is a deliberately long top-level comment that should wrap across several lines inside the narrow draft column instead of truncating at a single line in the available space"
-	draftUI.Comments = []draftCommentVM{{ID: 1, Location: "general", Body: long, Visible: true}}
+	draftUI.Comments = []draftCommentVM{{ID: 1, Location: "general", Body: long, BodyRows: bodyMarkupRows(long), Visible: true}}
 	draftUI.Sel = 0
 	node := List(&draftUI.Comments).Selection(&draftUI.Sel).Style(&listBaseStyle).
 		SelectedStyle(Style{}).Marker("  ").Render(draftRow)
@@ -719,7 +719,7 @@ func TestThreadComments(t *testing.T) {
 
 // a reply row renders its "↳ who" label and body indented in the comments pane.
 func TestReplyRowRenders(t *testing.T) {
-	c := draftCommentVM{Location: "↳ agent", Indent: "  ", When: "10:20", Body: "renamed it", Visible: true}
+	c := draftCommentVM{Location: "↳ agent", Indent: "  ", When: "10:20", Body: "renamed it", BodyRows: bodyMarkupRows("renamed it"), Visible: true}
 	tmpl := Build(VBox.Width(50)(draftRow(&c)))
 	buf := NewBuffer(50, 6)
 	tmpl.Execute(buf, 50, 6)
@@ -1680,12 +1680,18 @@ func TestProposalInboxSection(t *testing.T) {
 			t.Fatalf("document missing %q:\n%s", want, text)
 		}
 	}
-	// the thread rides the proposal-owned column; the task draft pane stays dark
-	if draftUI.Has {
-		t.Fatal("task draft pane lit up for a proposal")
+	// the thread rides the SHARED comments pane (todo:6d9eb05e — one
+	// component, two sources), routed by PropID
+	if !draftUI.Has || draftUI.PropID != pid {
+		t.Fatalf("shared pane not carrying the thread: has=%v prop=%d", draftUI.Has, draftUI.PropID)
 	}
-	if !propUI.HasThread || len(propUI.Thread) != 1 || propUI.Thread[0].Who != "Kestrel@recap" {
-		t.Fatalf("thread column wrong: has=%v %+v", propUI.HasThread, propUI.Thread)
+	if len(draftUI.Comments) != 1 || draftUI.Comments[0].WhoLabel != "Kestrel@recap" {
+		t.Fatalf("thread row wrong: %+v", draftUI.Comments)
+	}
+	// task-comment-only verbs gate off; the author colours by its repo identity
+	editDraftComment()
+	if promptUI.Open {
+		t.Fatal("editDraftComment must gate on a proposal thread")
 	}
 	// document rows are line-commentable, anchored to SOURCE lines: the doc is
 	// "# heading\n\nbody text" so "body text" anchors to source line 3.
@@ -1732,8 +1738,14 @@ func TestProposalInboxSection(t *testing.T) {
 		t.Fatal("commented document line not found in the rendered layer")
 	}
 	// the human's comment carries a name too (todo:5a724f62)
-	if n := len(propUI.Thread); n != 2 || propUI.Thread[1].Who != "You" {
-		t.Fatalf("human comment should read as You: %+v", propUI.Thread)
+	foundYou := false
+	for _, c := range draftUI.Comments {
+		if c.WhoLabel == "You" {
+			foundYou = true
+		}
+	}
+	if len(draftUI.Comments) != 2 || !foundYou {
+		t.Fatalf("human comment should read as You: %+v", draftUI.Comments)
 	}
 
 	// structural proof the If-swapped pane actually renders: execute the real
@@ -1762,14 +1774,12 @@ func TestProposalInboxSection(t *testing.T) {
 	if !foundWho {
 		t.Fatal("agent name missing from the rendered thread column")
 	}
-	// todo:7b4ae660 — the focus line follows focus into the thread pane on
-	// FIRST open: paneDraft must target the proposal thread's own ref, never
-	// the task draft ref (zero until a task with comments is visited).
-	propUI.PaneRef = NodeRef{X: 100, W: 30}
-	draftUI.PaneRef = NodeRef{}
+	// todo:7b4ae660 — the focus line follows focus into the comments pane on
+	// FIRST open: the SHARED pane carries the thread, so its ref is live.
+	draftUI.PaneRef = NodeRef{X: 100, W: 30}
 	setPane(paneDraft)
 	if focusLineX != 100 || focusLineW != 30 {
-		t.Fatalf("focus line should target the thread pane: x=%v w=%v", focusLineX, focusLineW)
+		t.Fatalf("focus line should target the comments pane: x=%v w=%v", focusLineX, focusLineW)
 	}
 	setPane(paneList)
 
@@ -1803,27 +1813,34 @@ func TestProposalInboxSection(t *testing.T) {
 		t.Fatalf("digest model broken — expected exactly one unread ping per party, got %v", pings)
 	}
 
-	// c462: threaded replies — r on a thread row nests the reply under it
+	// c462: threaded replies — r on a pane row nests the reply under it,
+	// routed at the PROPOSAL (never the task comment tables)
 	drainPropDetail()
-	propUI.ThreadSel = 0 // Kestrel's root comment
-	rootID := propUI.Thread[0].ID
-	replyToPropComment()
+	draftUI.Sel = 0 // Kestrel's root comment
+	rootID := draftUI.Comments[0].ID
+	replyToComment()
 	if !promptUI.Open {
-		t.Fatal("reply prompt did not open from the thread pane")
+		t.Fatal("reply prompt did not open from the shared pane")
 	}
 	promptUI.Field.Value = "agreed — **bold call** and `clean code`"
 	promptUI.submit()
 	drainPropDetail()
-	if len(propUI.Thread) < 2 || !propUI.Thread[1].Reply || propUI.Thread[1].ParentID != rootID {
-		t.Fatalf("reply not nested under its root: %+v", propUI.Thread)
+	if cs, _ := st.ProposalComments(pid); len(cs) != 5 || cs[4].ParentID != rootID {
+		t.Fatalf("reply not threaded at the proposal: %+v", cs)
 	}
-	if propUI.Thread[1].Indent == "" || propUI.Thread[1].Who != "You" {
-		t.Fatalf("reply row should indent and read as You: %+v", propUI.Thread[1])
+	var replyVM *draftCommentVM
+	for i := range draftUI.Comments {
+		if draftUI.Comments[i].ParentID == rootID {
+			replyVM = &draftUI.Comments[i]
+		}
 	}
-	// c463: thread bodies render through the summary markup — the markers are
+	if replyVM == nil || !replyVM.Reply || replyVM.Indent == "" {
+		t.Fatalf("reply row should nest and indent: %+v", draftUI.Comments)
+	}
+	// c463: bodies render through the summary markup — the markers are
 	// consumed and the styled words survive as spans
 	bodyText := ""
-	for _, r := range propUI.Thread[1].BodyRows {
+	for _, r := range replyVM.BodyRows {
 		for _, sp := range r.Spans {
 			bodyText += sp.Text
 		}

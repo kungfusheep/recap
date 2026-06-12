@@ -29,10 +29,11 @@ type draftCommentVM struct {
 	LocColor Color  // colour for the location line — the agent's personal colour on its replies
 	WhoLabel string // the author leading the row — "You" or the agent's name (c460); empty on replies (↳ who covers it)
 	WhoColor Color
-	Indent   string // leading spaces for nested replies (precomputed; build-once safe)
-	When     string // comment time (HH:MM) from CreatedAt
-	Snippet  string // the diff line commented on (may be empty)
-	FoldCue  string // "▸ N replies" on a collapsed thread root (empty = expanded/no replies)
+	Indent   string      // leading spaces for nested replies (precomputed; build-once safe)
+	When     string      // comment time (HH:MM) from CreatedAt
+	Snippet  string      // the diff line commented on (may be empty)
+	BodyRows []propRowVM // the body through the briefing markup (c463) — Rich rows, CharWrap at render width
+	FoldCue  string      // "▸ N replies" on a collapsed thread root (empty = expanded/no replies)
 	Body     string
 	File     string
 	Line     int
@@ -67,6 +68,10 @@ type draftView struct {
 	ReplyingTo int64 // parent comment for a reply in flight
 
 	TaskID int64 // the task whose comments are loaded (for in-place reloads)
+	// PropID, when set, marks the pane's content as a PROPOSAL thread (the
+	// shared component's second source): r replies at the proposal, and the
+	// task-comment-only verbs (edit/delete/receipts) gate off with a cue.
+	PropID int64
 	// Collapsed thread roots ('o'): the root row stays with a "▸ N replies" cue,
 	// its reply rows are dropped from Comments. Keyed by comment id so it
 	// survives reloads while the task's pane stays open.
@@ -96,6 +101,9 @@ func loadDraftPane(taskID int64) {
 // an editable draft.
 func applyDraftComments(taskID int64, cs []db.TaskComment) {
 	draftUI.TaskID = taskID
+	if taskID != 0 {
+		draftUI.PropID = 0 // a task load returns the pane to its first source
+	}
 	draftUI.Comments = nil
 	for k := range diffUI.Commented {
 		delete(diffUI.Commented, k)
@@ -137,7 +145,13 @@ func applyDraftComments(taskID int64, cs []db.TaskComment) {
 		vm.WhoLabel, vm.WhoColor = dash(c.Who), agentColor
 		if c.Who == "you" {
 			vm.WhoLabel, vm.WhoColor = "You", cBright
+		} else if i := strings.LastIndex(c.Who, "@"); i > 0 {
+			// "Name@repo" authors (proposal threads) colour by that repo's identity
+			if _, ic := loadIdentity(c.Who[i+1:]); ic.Mode != 0 {
+				vm.WhoColor = ic
+			}
 		}
+		vm.BodyRows = bodyMarkupRows(c.Body)
 		draftUI.Comments = append(draftUI.Comments, vm)
 	}
 	// header reflects draft-in-progress vs settled comments.
@@ -155,6 +169,21 @@ func applyDraftComments(taskID int64, cs []db.TaskComment) {
 	// order top-level comments (general first, then anchored by file:line) with each
 	// reply nested under its parent.
 	draftUI.Comments = threadComments(draftUI.Comments)
+}
+
+// bodyMarkupRows projects a comment body through the briefing markup (c463)
+// for BOTH the pane's sources. span() bakes BG=cBG (right on the diff/document
+// panes) — zeroed here so cells inherit the pane fill / selection band (the
+// c469 dark blocks). No pre-wrap: Rich CharWraps at the column's render width.
+func bodyMarkupRows(body string) []propRowVM {
+	var out []propRowVM
+	for _, row := range summaryBody(body, 1<<20) {
+		for i := range row {
+			row[i].Style.BG = Color{}
+		}
+		out = append(out, propRowVM{Spans: row})
+	}
+	return out
 }
 
 // threadComments orders a flat comment list into threads: top-level comments in
@@ -314,7 +343,11 @@ func draftRow(c *draftCommentVM) Component {
 		// TextBlock must be bounded to the width LEFT after the indent, else it wraps to
 		// the full column and the indent shoves it off the right edge (worse the deeper a
 		// reply nests). Grow(1) gives it exactly the remaining column width to wrap into.
-		HBox(Text(&c.Indent), VBox.Grow(1)(TextBlock(&c.Body).FG(&cFG))),
+		HBox(Text(&c.Indent), VBox.Grow(1)(
+			ForEach(&c.BodyRows, func(r *propRowVM) Component {
+				return Rich(&r.Spans).CharWrap()
+			}),
+		)),
 		// the agent's reaction sits below the body, attributed to the agent's name in
 		// its personal colour (Text, not TextBlock, so the emoji renders cleanly).
 		If(&c.HasEmote).Then(HBox(Text(&c.Indent), Text(&c.Emote), SpaceW(1), Text(&agentLabel).FG(&agentColor))),
@@ -356,6 +389,9 @@ func selectedDraft() *draftCommentVM {
 // fills its dot now (optimistic) and persists off the render thread (no main-thread
 // I/O). The agent sees it on its next poll / review show.
 func markSelectedCommentRead() {
+	if draftUI.PropID != 0 {
+		return // proposal comments carry no receipt protocol yet
+	}
 	c := selectedDraft()
 	// only the AGENT's comments get a user read-receipt — your own comments don't
 	// need one (you wrote them); the dot on an agent comment is YOUR receipt to it.
@@ -403,6 +439,12 @@ func saveReply() {
 	if draftUI.ReplyingTo == 0 || body == "" {
 		return
 	}
+	if draftUI.PropID != 0 {
+		// the pane's second source: thread the reply at the PROPOSAL and ping
+		// the parties (digest model) — never the task comment tables.
+		saveProposalReply(propUI.Prop, draftUI.ReplyingTo)
+		return
+	}
 	if _, err := uiStore.AddReply(draftUI.ReplyingTo, "you", body); err != nil {
 		toast("error: " + err.Error())
 		return
@@ -415,6 +457,10 @@ func saveReply() {
 // editDraftComment opens the body prompt pre-filled with the selected comment's
 // text; saving calls UpdateComment.
 func editDraftComment() {
+	if draftUI.PropID != 0 {
+		toast("proposal comments can't be edited yet — r replies instead")
+		return
+	}
 	c := selectedDraft()
 	if c == nil {
 		return
@@ -431,6 +477,10 @@ func editDraftComment() {
 }
 
 func deleteDraftComment() {
+	if draftUI.PropID != 0 {
+		toast("proposal comments can't be deleted — the thread is the record")
+		return
+	}
 	c := selectedDraft()
 	if c == nil {
 		return

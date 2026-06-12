@@ -780,12 +780,6 @@ func applyPaneFocus() {
 		r = diffPaneRef
 	case paneDraft:
 		r = draftUI.PaneRef
-		if propUI.Active {
-			// the proposal thread is its own column — without this the focus
-			// line read the TASK draft ref, which is zero until a task with
-			// comments has been visited (the first-open dead line).
-			r = propUI.PaneRef
-		}
 	}
 	if r.W > 0 {
 		focusLineX, focusLineW = float64(r.X), float64(r.W)
@@ -1552,8 +1546,6 @@ func buildMain() Component {
 					Key("<Esc>", func() { setPane(paneList) }),
 				)),
 			),
-			// right — the proposal thread column (proposal-owned, same aesthetic)
-			propThreadPane(),
 			// right — comments overview (shown whenever the task has any comments)
 			If(&draftUI.Has).Then(
 				VBox.Grow(2).Fill(&cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0).NodeRef(&draftUI.PaneRef)(
@@ -1679,8 +1671,6 @@ func columnShades() Component {
 		If(&pane).Ne(paneDiff).Then(ScreenEffect(mk(&diffPaneRef))),
 		// the draft column only exists when draftUI.Has; otherwise its ref is stale.
 		If(&draftUI.Has).Then(If(&pane).Ne(paneDraft).Then(ScreenEffect(mk(&draftUI.PaneRef)))),
-		// the proposal thread column shades the same way (its own ref).
-		If(&propUI.HasThread).Then(If(&pane).Ne(paneDraft).Then(ScreenEffect(mk(&propUI.PaneRef)))),
 	)
 }
 
@@ -1887,7 +1877,7 @@ func syncDiffToDraft() {
 }
 
 func setPane(p string) {
-	if p == paneDraft && !draftUI.Has && !propUI.HasThread {
+	if p == paneDraft && !draftUI.Has {
 		p = paneList // can't focus a pane that isn't shown
 	}
 	if p == paneDraft && pane != paneDraft {
@@ -1895,7 +1885,7 @@ func setPane(p string) {
 	}
 	pane = p
 	applyPaneFocus() // a focus switch applies its colours in the switch function
-	if p == paneDraft && draftUI.Has {
+	if p == paneDraft {
 		onDraftSelChanged() // focus-in: sync the diff to the current comment
 	}
 }
@@ -1903,7 +1893,7 @@ func setPane(p string) {
 // panes returns the focus ring in left-to-right order, including the draft pane
 // only when it's visible.
 func panes() []string {
-	if draftUI.Has || propUI.HasThread {
+	if draftUI.Has {
 		return []string{paneList, paneDiff, paneDraft}
 	}
 	return []string{paneList, paneDiff}

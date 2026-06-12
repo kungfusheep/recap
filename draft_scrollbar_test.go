@@ -299,7 +299,7 @@ func TestDraftScrollbarTrackFullHeight(t *testing.T) {
 	}
 
 	// short thread (does NOT overflow) — track must STILL be full
-	draftUI.Comments = []draftCommentVM{{Location: "general", Body: "short one", Visible: true}, {Location: "general", Body: "short two", Visible: true}}
+	draftUI.Comments = []draftCommentVM{{Location: "general", Body: "short one", BodyRows: bodyMarkupRows("short one"), Visible: true}, {Location: "general", Body: "short two", BodyRows: bodyMarkupRows("short two"), Visible: true}}
 	draftUI.Sel = 0
 	if n := trackRows(); n < H-6 {
 		t.Fatalf("short content: track only %d rows of a %d-row pane — collapsed track", n, H)
@@ -326,8 +326,8 @@ func TestDraftSelectionBandPaintedByList(t *testing.T) {
 	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
 	reloadTasks()
 	draftUI.Comments = []draftCommentVM{
-		{Location: "general", Body: "FIRSTBODY", Visible: true},
-		{Location: "general", Body: "SECONDBODY", Visible: true},
+		{Location: "general", Body: "FIRSTBODY", BodyRows: bodyMarkupRows("FIRSTBODY"), Visible: true},
+		{Location: "general", Body: "SECONDBODY", BodyRows: bodyMarkupRows("SECONDBODY"), Visible: true},
 	}
 	draftUI.Has = true
 	draftUI.Sel = 0

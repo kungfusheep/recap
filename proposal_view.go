@@ -31,22 +31,6 @@ type propRowVM struct {
 	BG    Color
 }
 
-// propThreadVM is one comment row in the proposal's thread column — the
-// draft pane's look (location line, snippet, body, time), proposal-owned.
-type propThreadVM struct {
-	ID       int64
-	ParentID int64
-	Who      string
-	WhoColor Color
-	Location string
-	Snippet  string
-	Body     string      // raw body (reply prompts echo it)
-	BodyRows []propRowVM // the body through the briefing markup (c463) — Rich rows, CharWrap at render width
-	When     string
-	Indent   string // nested replies indent (precomputed; build-once safe)
-	Reply    bool
-}
-
 // propView is the pane's state in one concrete struct: the document layer +
 // row/meta projection, the pick machinery, and the thread column. One bound
 // package instance (propUI) — stable var, pointer-bound into compiled views.
@@ -66,13 +50,7 @@ type propView struct {
 
 	Commented map[int]bool // source lines carrying a comment → gutter wash
 
-	Thread    []propThreadVM
-	ThreadSel int
-	HasThread bool
-	Note      string // thread column header pill ("3 comments")
-
 	Focused float64 // scrollbar fade target, mirrors the diff pane's cue
-	PaneRef NodeRef // thread column's screen rect — focus line + shade target
 }
 
 var propUI = propView{Commented: map[int]bool{}}
@@ -81,12 +59,12 @@ var propUI = propView{Commented: map[int]bool{}}
 
 // propResult is the staged fetch: raw db rows, projected thread VMs, washes.
 type propResult struct {
-	key     string
-	reset   bool
-	prop    db.Proposal
-	parties []string
-	thread  []propThreadVM
-	washes  map[int]bool
+	key      string
+	reset    bool
+	prop     db.Proposal
+	parties  []string
+	comments []db.TaskComment // projected for the SHARED comments pane (one component, two sources)
+	washes   map[int]bool
 }
 
 var (
@@ -132,106 +110,28 @@ func fetchPropDetail(p db.Proposal, key string, reset bool) *propResult {
 	}
 	r.parties, _ = uiStore.ProposalParties(p.ID)
 	comments, _ := uiStore.ProposalComments(p.ID)
-	var flat []propThreadVM
 	for _, c := range comments {
-		vm := propThreadVM{
-			ID:       c.ID,
-			ParentID: c.ParentID,
-			Who:      propSender(c.WhoName, c.WhoRepo),
-			WhoColor: cBright,
-			Body:     c.Body,
-			When:     shortStamp(c.CreatedAt),
-			Location: "general",
-		}
-		// the human's comments carry a name too (todo:5a724f62) — "You", to
-		// read alongside the agents' identity-coloured names.
+		tc := db.TaskComment{}
+		tc.ID, tc.ParentID, tc.Body, tc.CreatedAt = c.ID, c.ParentID, c.Body, c.CreatedAt
+		tc.Who = propSender(c.WhoName, c.WhoRepo) // "Name@repo" — the pane colours it by identity
 		if c.WhoRepo == "" {
-			vm.Who = "You"
-		}
-		if c.WhoRepo != "" {
-			if _, ic := loadIdentity(c.WhoRepo); ic.Mode != 0 {
-				vm.WhoColor = ic
-			}
+			tc.Who = "you" // the pane's own "You" treatment
 		}
 		if c.Line > 0 {
-			vm.Location = fmt.Sprintf("document · line %d", c.Line)
-			vm.Snippet = cleanLine(c.Snippet)
+			tc.File, tc.Line, tc.Snippet = propDocFile, c.Line, c.Snippet
 			r.washes[c.Line] = true
 		}
-		// the body renders through the summary markup (c463): bullets, `code`,
-		// **bold**, Label: lead-ins. No pre-wrap (width 1<<20) — Rich CharWraps
-		// each row at the column's actual render width.
-		for _, row := range summaryBody(c.Body, 1<<20) {
-			// span() bakes BG=cBG (right for the diff/document panes, which sit
-			// on cBG) — here it stamped dark blocks over the pane fill and the
-			// selection band (c469). Zero the BG so cells inherit whatever the
-			// row sits on: cPaneBG normally, the band when selected.
-			for i := range row {
-				row[i].Style.BG = Color{}
-			}
-			vm.BodyRows = append(vm.BodyRows, propRowVM{Spans: row})
-		}
-		flat = append(flat, vm)
+		// receipts filled so no misleading unread dots (proposal comments have
+		// no receipt protocol yet)
+		tc.ReadAgent, tc.ReadUser = c.CreatedAt, c.CreatedAt
+		r.comments = append(r.comments, tc)
 	}
-	r.thread = threadPropComments(flat)
 	return r
 }
 
-// threadPropComments orders the flat thread: roots in id order, each followed
-// by its reply subtree — replies indent and relabel "↳", the diff comments
-// pane's treatment (c462).
-func threadPropComments(flat []propThreadVM) []propThreadVM {
-	present := make(map[int64]bool, len(flat))
-	for _, v := range flat {
-		present[v.ID] = true
-	}
-	byParent := map[int64][]propThreadVM{}
-	var roots []propThreadVM
-	for _, v := range flat {
-		if v.ParentID != 0 && present[v.ParentID] {
-			byParent[v.ParentID] = append(byParent[v.ParentID], v)
-		} else {
-			roots = append(roots, v)
-		}
-	}
-	var out []propThreadVM
-	var walk func(v propThreadVM, depth int)
-	walk = func(v propThreadVM, depth int) {
-		if depth > 0 {
-			v.Reply = true
-			v.Indent = strings.Repeat("  ", depth)
-			v.Location = "↳ reply"
-			v.Snippet = "" // the root carries the anchor; don't repeat it
-		}
-		out = append(out, v)
-		for _, child := range byParent[v.ID] {
-			walk(child, depth+1)
-		}
-	}
-	for _, v := range roots {
-		walk(v, 0)
-	}
-	return out
-}
-
-// replyToPropComment threads a human reply under the selected thread row (r).
-func replyToPropComment() {
-	if propUI.ThreadSel < 0 || propUI.ThreadSel >= len(propUI.Thread) {
-		return
-	}
-	target := propUI.Thread[propUI.ThreadSel]
-	// reply to the ROOT of the selected row's thread, like the comments pane:
-	// a reply to a reply still lands in the same conversation.
-	parent := target.ID
-	p := propUI.Prop
-	promptUI.open(
-		fmt.Sprintf("reply · proposal #%d", p.ID),
-		target.Who, "  "+firstLine(target.Body), "",
-		func() {
-			saveProposalReply(p, parent)
-		},
-	)
-}
+// propDocFile is the pseudo-file every document anchor uses — one document per
+// proposal, so anchor locations read "document · line N".
+const propDocFile = "document"
 
 // drainPropDetail swaps a staged fetch into the pane — render thread, called
 // from the staged-apply seam. A result keyed for a selection we've moved off
@@ -245,16 +145,12 @@ func drainPropDetail() {
 		return
 	}
 	propUI.Prop, propUI.Parties = r.prop, r.parties
-	propUI.Thread = r.thread
-	propUI.HasThread = len(r.thread) > 0
-	propUI.Note = fmt.Sprintf("%d comment%s", len(r.thread), plural(len(r.thread)))
 	propUI.Commented = r.washes
-	if propUI.ThreadSel >= len(propUI.Thread) {
-		propUI.ThreadSel = len(propUI.Thread) - 1
-	}
-	if propUI.ThreadSel < 0 {
-		propUI.ThreadSel = 0
-	}
+	// the SHARED comments pane carries the thread (the user's call on
+	// todo:6d9eb05e — one component, two sources; the split pane was a
+	// mistake). PropID routes its mutations at the proposal, not task tables.
+	applyDraftComments(0, r.comments)
+	draftUI.PropID = r.prop.ID
 	if propUI.Layer != nil {
 		if r.reset {
 			propUI.Layer.ScrollToTop()
@@ -268,15 +164,13 @@ func drainPropDetail() {
 func openPropDetail(p db.Proposal, key string, reset bool) {
 	propUI.Active = true
 	propUI.Prop = p
-	// the task panes go dark: the draft column is task-only again (no gates).
-	draftUI.Has, draftUI.Comments = false, nil
 	propDetailKick(p, key, reset)
 }
 
 // closePropDetail returns the detail area to task content.
 func closePropDetail() {
 	propUI.Active = false
-	propUI.HasThread = false
+	draftUI.PropID = 0 // the pane goes back to task comments
 }
 
 // --- document projection -----------------------------------------------------
@@ -448,54 +342,6 @@ func propDocPane() Component {
 	)
 }
 
-// propThreadRow renders one thread comment — the draft pane's row shape.
-func propThreadRow(c *propThreadVM) Component {
-	return VBox.PaddingVH(0, 1)(
-		HBox(
-			Text(&c.Indent),
-			Text(&c.Who).FG(&c.WhoColor).Bold(),
-			SpaceW(2),
-			Text(&c.Location).FG(&cSubtle),
-			Space(),
-			Text(&c.When).FG(&cMuted),
-		),
-		If(&c.Snippet).Eq("").Then(Text("")).Else(HBox(SpaceW(2), Text(&c.Snippet).FG(&cSubtle))),
-		// the body bounds to the width left after the indent (the draft pane's
-		// wrap treatment) so nested replies don't shove text off the edge.
-		HBox(Text(&c.Indent), SpaceW(2), VBox.Grow(1)(
-			ForEach(&c.BodyRows, func(r *propRowVM) Component {
-				return Rich(&r.Spans).CharWrap()
-			}),
-		)),
-		Text(" "),
-	)
-}
-
-// propThreadPane is the right-hand thread column while a proposal with
-// comments is selected — the comments pane's aesthetic, proposal-owned.
-func propThreadPane() Component {
-	return If(&propUI.HasThread).Then(
-		VBox.Grow(2).Fill(&cPaneBG).CascadeStyle(&paneStyle).PaddingTRBL(1, 0, 0, 0).NodeRef(&propUI.PaneRef)(
-			HBox(SpaceW(3), Text("thread").FG(&cBright).Bold(), Space(), Text(&propUI.Note).FG(&cSubtle), SpaceW(2)),
-			SpaceH(2),
-			List(&propUI.Thread).
-				Selection(&propUI.ThreadSel).
-				Style(&listBaseStyle).
-				SelectedStyle(&draftSelStyle).
-				Marker("  ").
-				Render(propThreadRow),
-			If(&pane).Eq(paneDraft).Then(On(
-				Key("j", func() { movePropThread(1) }),
-				Key("k", func() { movePropThread(-1) }),
-				Key("r", replyToPropComment), // threaded reply under the selected comment
-
-				Key("<Enter>", func() { setPane(paneList) }),
-				Key("<Esc>", func() { setPane(paneList) }),
-			)),
-		),
-	)
-}
-
 // --- comment actions ---------------------------------------------------------
 
 // commentOnProposal threads a general human comment onto the selected proposal
@@ -584,15 +430,4 @@ func openPropLineComment() {
 		return
 	}
 	uiApp.EnterJumpMode()
-}
-
-// movePropThread moves the thread column's selection.
-func movePropThread(d int) {
-	propUI.ThreadSel += d
-	if propUI.ThreadSel >= len(propUI.Thread) {
-		propUI.ThreadSel = len(propUI.Thread) - 1
-	}
-	if propUI.ThreadSel < 0 {
-		propUI.ThreadSel = 0
-	}
 }
