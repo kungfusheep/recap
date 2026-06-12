@@ -1430,6 +1430,9 @@ func TestFocusBarTracksPane(t *testing.T) {
 	render := func() *Buffer {
 		buf := NewBuffer(W, H)
 		tmpl.Execute(buf, W, H)
+		// the line is a post-process in the app pipeline; apply it the same way
+		// the App would, over the tween carrier's current rect.
+		NewFocusLine(&focusLineRef, &cFG).Apply(buf, PostContext{Width: W, Height: H})
 		return buf
 	}
 	barSpan := func(buf *Buffer) (x, w int) {
@@ -1471,13 +1474,12 @@ func TestFocusBarTracksPane(t *testing.T) {
 		t.Fatal("bar did not move off the list pane")
 	}
 	if bg := buf.Get(diffPaneRef.X+2, H-1).Style.BG; bg != cBG {
-		t.Fatalf("bar cells over the diff column should wear cBG, got %v", bg)
+		t.Fatalf("inked line over the diff column must keep cBG beneath, got %v", bg)
 	}
-	// the bar row reads as part of the pane: its cells wear the focused pane's
-	// fill (terminal cells can't keep an underlying bg on overwrite, so the bar
-	// carries the matching colour — never a default-bg block).
+	// the line is INKED over existing cells: the underlying pane background is
+	// genuinely preserved (rune+FG only — no block, c408's shape).
 	if bg := buf.Get(2, H-1).Style.BG; bg != cPaneBG {
-		t.Fatalf("bar cells over the list column should wear cPaneBG, got %v", bg)
+		t.Fatalf("inked line over the list column must keep cPaneBG beneath, got %v", bg)
 	}
 
 	// a SET status message must not cut the panes short (the c404 artifact): it

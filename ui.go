@@ -632,11 +632,9 @@ func syncSelectionFlags() {
 var (
 	focusBarX int16
 	focusBarW int16
-	// focusBarBG matches the FOCUSED pane's fill so the glyph row reads as part
-	// of the pane (terminal cells can't keep the underlying bg on overwrite —
-	// transparent rune writes are with glyph's intake; exact when settled, only
-	// approximate mid-slide).
-	focusBarBG Color
+	// focusLineRef is the invisible tween carrier's rect — the FocusLine
+	// screen effect inks the ▁ across it each frame.
+	focusLineRef NodeRef
 )
 
 // focusBarTween builds the underline's tween: x and width share duration + ease
@@ -681,12 +679,6 @@ func applyPaneFocus() {
 	}
 	if r.W > 0 {
 		focusBarX, focusBarW = int16(r.X), int16(r.W)
-	}
-	switch pane {
-	case paneDiff:
-		focusBarBG = cBG
-	default:
-		focusBarBG = cPaneBG // list + comments columns share the pane fill
 	}
 }
 
@@ -1457,14 +1449,15 @@ func buildMain() Component {
 					// honours the binding both ways since the eligibility fix), so
 					// the spacer needs no escape hatch — bind and go.
 					VBox.Width(focusBarTween(&focusBarX)).Height(1)(),
-					VBox.Width(focusBarTween(&focusBarW)).Height(1).Fill(&focusBarBG)(
-						HRule().Char('▁').FG(&cFG),
-					),
+					VBox.Width(focusBarTween(&focusBarW)).Height(1).NodeRef(&focusLineRef)(),
 				),
 			),
 		),
 		// per-column focus fade: unfocused columns dim (mail's FocusShade)
 		columnShades(),
+		// the focus underline is INKED by a post-process over the invisible
+		// tween carrier — rune+FG only, every cell's background preserved.
+		ScreenEffect(NewFocusLine(&focusLineRef, &cFG)),
 		// floating comment prompts (add/edit + read), over the inbox/diff
 		inputPromptOverlay(),
 		readCommentOverlay(),
