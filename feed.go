@@ -49,11 +49,13 @@ func newFeed(after func()) *feed {
 	f.after = after
 	if f.after == nil {
 		f.after = func() {
+			app := uiApp // snapshot at ARM time — the timer fires seconds later
+			// and must not read the mutable global (test apps churn under it)
 			time.AfterFunc(feedTTL, func() {
 				f.mu.Lock()
 				f.expires++
 				f.mu.Unlock()
-				if app := uiApp; app != nil {
+				if app != nil {
 					app.RequestRender()
 				}
 			})
