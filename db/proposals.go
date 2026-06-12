@@ -367,3 +367,80 @@ func (s *Store) AdvancePartyWatermark(proposalID int64, repo string, id int64) e
 		id, proposalID, repo, id)
 	return err
 }
+
+// ProposalRevision is one superseding version of a proposal's document.
+// Deliberation stays in comments; a revision is settled consensus
+// consolidated into the document (the task-revision rhythm). The original
+// body remains version 1 on the proposals row.
+type ProposalRevision struct {
+	ID         int64
+	ProposalID int64
+	Body       string
+	Summary    string // what changed, for the digest + history line
+	CreatedAt  string
+}
+
+const proposalRevisionSchema = `
+CREATE TABLE IF NOT EXISTS proposal_revisions (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	proposal_id INTEGER NOT NULL,
+	body TEXT NOT NULL,
+	summary TEXT,
+	created_at TEXT NOT NULL
+);`
+
+// ReviseProposal appends a new document version. Proposer-only (one author
+// voice; other parties request changes in comments) and open-only (a decided
+// document is the record).
+func (s *Store) ReviseProposal(id int64, whoRepo, body, summary string) (int64, error) {
+	if body == "" {
+		return 0, fmt.Errorf("the revised document body is required")
+	}
+	p, err := s.ProposalByID(id)
+	if err != nil {
+		return 0, fmt.Errorf("no proposal #%d", id)
+	}
+	if p.Status != ProposalOpen {
+		return 0, fmt.Errorf("proposal #%d is %s — a decided document is the record", id, p.Status)
+	}
+	if whoRepo != p.ProposerRepo {
+		return 0, fmt.Errorf("only the proposer (%s) revises the document — request changes in a comment instead", p.ProposerRepo)
+	}
+	res, err := s.db.Exec(`INSERT INTO proposal_revisions (proposal_id, body, summary, created_at)
+		VALUES (?,?,?,?)`, id, body, nullStr(summary), NowStamp())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// ProposalRevisions returns a proposal's document versions, oldest first
+// (the original body on the proposals row is version 1 and not repeated here).
+func (s *Store) ProposalRevisions(id int64) ([]ProposalRevision, error) {
+	rows, err := s.db.Query(`SELECT id, proposal_id, body, COALESCE(summary,''), created_at
+		FROM proposal_revisions WHERE proposal_id = ? ORDER BY id`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ProposalRevision
+	for rows.Next() {
+		var r ProposalRevision
+		if err := rows.Scan(&r.ID, &r.ProposalID, &r.Body, &r.Summary, &r.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ProposalCurrentBody resolves the document as it stands: the latest
+// revision's body, or the original when none exist. The returned version
+// number is 1-based (1 = the original).
+func (s *Store) ProposalCurrentBody(p Proposal) (body string, version int) {
+	revs, err := s.ProposalRevisions(p.ID)
+	if err != nil || len(revs) == 0 {
+		return p.Body, 1
+	}
+	return revs[len(revs)-1].Body, len(revs) + 1
+}

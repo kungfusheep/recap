@@ -125,7 +125,13 @@ func cmdProposal(args []string) error {
 		if p.DecidedAt != "" {
 			fmt.Printf("decided:  %s\n", p.DecidedAt)
 		}
-		fmt.Printf("\n%s\n", p.Body)
+		body, version := st.ProposalCurrentBody(p)
+		if version > 1 {
+			revs, _ := st.ProposalRevisions(id)
+			last := revs[len(revs)-1]
+			fmt.Printf("document:  rev %d of %d  ·  %s  ·  %s\n", version, version, last.CreatedAt, dash(last.Summary))
+		}
+		fmt.Printf("\n%s\n", body)
 		if cs, _ := st.ProposalComments(id); len(cs) > 0 {
 			seen := st.PartyWatermark(id, currentRepo())
 			fmt.Printf("\nthread (%d):\n", len(cs))
@@ -171,6 +177,44 @@ func cmdProposal(args []string) error {
 		for _, p := range ps {
 			fmt.Printf("#%-3d %-9s %s → %s  %s\n", p.ID, p.Status, p.ProposerRepo, p.TargetRepo, p.Title)
 		}
+		return nil
+	case "revise":
+		fs := flag.NewFlagSet("proposal revise", flag.ExitOnError)
+		body := fs.String("body", "", "the full revised document (or --file)")
+		file := fs.String("file", "", "read the revised document from a file")
+		summary := fs.String("summary", "", "what changed (required — the digest line)")
+		if len(args) < 2 {
+			return fmt.Errorf("usage: recap proposal revise <id> --file doc.md --summary \"…\"")
+		}
+		id, err := parseID(args[1])
+		if err != nil {
+			return err
+		}
+		fs.Parse(args[2:])
+		if *file != "" {
+			b, err := os.ReadFile(*file)
+			if err != nil {
+				return err
+			}
+			*body = string(b)
+		}
+		if *summary == "" {
+			return fmt.Errorf("--summary is required: parties see it in the digest")
+		}
+		if _, err := st.ReviseProposal(id, currentRepo(), *body, *summary); err != nil {
+			return err
+		}
+		p, _ := st.ProposalByID(id)
+		parties, _ := st.ProposalParties(id)
+		for _, r := range parties {
+			if r == currentRepo() {
+				continue
+			}
+			st.SendProposalPing(id, currentRepo(), identityWho(), r,
+				fmt.Sprintf("proposal #%d (%q) has a REVISED document: %s — recap proposal show %d", id, p.Title, *summary, id))
+		}
+		notify.Reload()
+		fmt.Printf("proposal #%d document revised\n", id)
 		return nil
 	case "comment":
 		fs := flag.NewFlagSet("proposal comment", flag.ExitOnError)
@@ -226,7 +270,7 @@ func cmdProposal(args []string) error {
 		fmt.Printf("commented on proposal #%d\n", id)
 		return nil
 	default:
-		return fmt.Errorf("unknown proposal subcommand %q (show|ls|comment)", args[0])
+		return fmt.Errorf("unknown proposal subcommand %q (show|ls|comment|revise)", args[0])
 	}
 }
 

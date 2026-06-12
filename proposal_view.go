@@ -52,7 +52,8 @@ type propView struct {
 	Meta    []propLineMeta // parallel to Rows: jump/anchor coordinates by row
 	ViewRef NodeRef        // screen rect of the LayerView, for jump-target coords
 
-	Commented map[int]bool // source lines carrying a comment → gutter wash
+	Commented  map[int]bool // source lines carrying a comment → gutter wash
+	DocVersion int          // the rendered document's version (1 = original)
 
 	Focused float64 // scrollbar fade target, mirrors the diff pane's cue
 }
@@ -63,12 +64,13 @@ var propUI = propView{Commented: map[int]bool{}}
 
 // propResult is the staged fetch: raw db rows, projected thread VMs, washes.
 type propResult struct {
-	key      string
-	reset    bool
-	prop     db.Proposal
-	parties  []string
-	comments []db.TaskComment // projected for the SHARED comments pane (one component, two sources)
-	washes   map[int]bool
+	key        string
+	reset      bool
+	prop       db.Proposal
+	docVersion int
+	parties    []string
+	comments   []db.TaskComment // projected for the SHARED comments pane (one component, two sources)
+	washes     map[int]bool
 }
 
 var (
@@ -112,6 +114,8 @@ func fetchPropDetail(p db.Proposal, key string, reset bool) *propResult {
 	if fresh, err := uiStore.ProposalByID(p.ID); err == nil {
 		r.prop = fresh
 	}
+	// the pane renders the document as it STANDS (latest revision, pc44)
+	r.prop.Body, r.docVersion = uiStore.ProposalCurrentBody(r.prop)
 	r.parties, _ = uiStore.ProposalParties(p.ID)
 	comments, _ := uiStore.ProposalComments(p.ID)
 	for _, c := range comments {
@@ -148,7 +152,7 @@ func drainPropDetail() {
 	if !propUI.Active || r.prop.ID != propUI.Prop.ID {
 		return
 	}
-	propUI.Prop, propUI.Parties = r.prop, r.parties
+	propUI.Prop, propUI.Parties, propUI.DocVersion = r.prop, r.parties, r.docVersion
 	propUI.Commented = r.washes
 	// the SHARED comments pane carries the thread (the user's call on
 	// todo:6d9eb05e — one component, two sources; the split pane was a
@@ -254,10 +258,14 @@ func prepPropRows(w int) {
 		span("  ·  ", cMuted, false),
 		span(strings.ToUpper(p.Status), proposalStatusColor(p.Status), true),
 	})
-	put(propLineMeta{}, []Span{
+	metaSpans := []Span{
 		span(fmt.Sprintf("%s → %s", propSender(p.ProposerWho, p.ProposerRepo), p.TargetRepo), cMuted, false),
 		span("   parties: "+strings.Join(propUI.Parties, ", "), cSubtle, false),
-	})
+	}
+	if propUI.DocVersion > 1 {
+		metaSpans = append(metaSpans, span(fmt.Sprintf("   doc rev %d", propUI.DocVersion), cHunk, false))
+	}
+	put(propLineMeta{}, metaSpans)
 	put(propLineMeta{}, []Span{})
 	rows, meta := propBodyRows(p.Body, w)
 	for i := range rows {
@@ -519,6 +527,9 @@ func writeProposalADR(p db.Proposal) (string, error) {
 	}
 	comments, _ := uiStore.ProposalComments(p.ID)
 	parties, _ := uiStore.ProposalParties(p.ID)
+	// the LATEST document version is the record (versioning, pc44)
+	docBody, _ := uiStore.ProposalCurrentBody(p)
+	p.Body = docBody
 	var b strings.Builder
 	fmt.Fprintf(&b, "# ADR %d: %s\n\n", p.ID, p.Title)
 	fmt.Fprintf(&b, "- status: accepted\n- date: %s\n", db.NowStamp())

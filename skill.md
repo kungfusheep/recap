@@ -307,6 +307,7 @@ recap proposal show <id>                   # document + thread; advances your wa
 recap proposal comment <id> --body "…"     # @repo in the body joins that repo as a party
 recap proposal comment <id> --body "…" --line N   # anchor to document line N (snippet auto-captured)
 recap proposal comment <id> --body "…" --reply-to <pc-id>   # THREAD under a specific comment
+recap proposal revise <id> --file doc.md --summary "…"   # PROPOSER only: a new document version
 ```
 
 How it flows:
@@ -339,9 +340,12 @@ How it flows:
   the target repo as the permanent record: present tense, self-contained,
   file:line evidence. If it only makes sense next to the message thread, it
   isn't done.
-- **Amendments are proposal COMMENTS, not document edits.** The ADR's
-  deliberation pointer carries the history (P3's marker-semantics amendment
-  is the worked example).
+- **Deliberation lives in COMMENTS; settled consensus consolidates into a
+  REVISION.** Argue positions in the thread; when the thread settles a change
+  (a rename, a scope cut), the PROPOSER folds it into the document with
+  `proposal revise` so sign-off materialises what was decided, not a stale
+  draft plus a pointer. Versions are kept; `show` and the TUI render the
+  latest with a rev marker.
 - **The document follows the TARGET repo's writing guide** where one exists
   (tui: `.claude/writing.md`; short declarative sentences, mechanism over
   outcome, no em-dashes, no intensifiers, no "just"/"simply"). The approved

@@ -2685,3 +2685,56 @@ func TestDMDialogue(t *testing.T) {
 		t.Fatalf("reload did not refresh the open dialogue: %+v", dmUI.Rows)
 	}
 }
+
+// Proposal document versioning (pc44): the proposer revises the document; the
+// pane and the ADR materialise the LATEST version; deliberation comments are
+// untouched; non-proposers and decided proposals are refused.
+func TestProposalVersioning(t *testing.T) {
+	prevStore := uiStore
+	st := testStore(t)
+	uiStore = st
+	t.Cleanup(func() {
+		uiStore = prevStore
+		propUI = propView{Commented: map[int]bool{}}
+		draftUI = draftView{LastSel: -1, Collapsed: map[int64]bool{}}
+	})
+	t.Setenv("RECAP_DB", filepath.Join(t.TempDir(), "recap.db"))
+	pid, _ := st.AddProposal(db.Proposal{Title: "named", Body: "v1 body with app.Post", ProposerRepo: "tui", TargetRepo: "tui"}, nil)
+
+	// only the proposer revises
+	if _, err := st.ReviseProposal(pid, "recap", "hijack", "nope"); err == nil {
+		t.Fatal("non-proposer revision must refuse")
+	}
+	if _, err := st.ReviseProposal(pid, "tui", "v2 body with app.Apply", "post becomes apply"); err != nil {
+		t.Fatal(err)
+	}
+	body, version := st.ProposalCurrentBody(mustProposal(t, st, pid))
+	if version != 2 || !strings.Contains(body, "app.Apply") {
+		t.Fatalf("current body should be rev 2: v=%d %q", version, body)
+	}
+
+	// the pane fetch renders the latest
+	propUI.Prop = mustProposal(t, st, pid)
+	propUI.Active = true
+	r := fetchPropDetail(propUI.Prop, "k", true)
+	if !strings.Contains(r.prop.Body, "app.Apply") || r.docVersion != 2 {
+		t.Fatalf("pane fetch should carry rev 2: v=%d %q", r.docVersion, r.prop.Body)
+	}
+
+	// decided proposals refuse revision (the record is the record)
+	if err := st.DecideProposal(pid, db.ProposalApproved); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ReviseProposal(pid, "tui", "v3", "too late"); err == nil {
+		t.Fatal("revising a decided proposal must refuse")
+	}
+}
+
+func mustProposal(t *testing.T, st *db.Store, id int64) db.Proposal {
+	t.Helper()
+	p, err := st.ProposalByID(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
