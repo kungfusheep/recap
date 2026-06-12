@@ -283,6 +283,7 @@ func cmdDone(args []string) error {
 	sha := fs.String("sha", "", "commit sha (default: short HEAD)")
 	doneForce := fs.Bool("force", false, "record a sha even if it doesn't resolve in the repo")
 	workRepo := fs.String("repo-path", "", "repo the WORK landed in, when it differs from the todo's repo (cross-repo todos) — the sha resolves there and the diff renders from there")
+	viaProposal := fs.Int64("proposal", 0, "the proposal that resolves this todo — no sha/diff required; the item points at the proposal instead")
 	ref, rest := splitID(args)
 	fs.Parse(rest)
 	if ref == "" {
@@ -319,13 +320,29 @@ func cmdDone(args []string) error {
 		taskRepo = filepath.Base(taskPath)
 	}
 	resolved := *sha
-	if resolved == "" {
-		resolved = "HEAD"
-	}
-	// refuse a sha this checkout can't resolve (the dangling-sha "no changes" bug)
-	resolved, err = pinSHA(taskPath, resolved, *doneForce)
-	if err != nil {
-		return err
+	if *viaProposal != 0 {
+		// the proposal IS the artifact (todo:a7d5f91d): no sha, no diff — the
+		// item carries a pointer at the deliberation instead of an unrelated
+		// commit that confuses every review.
+		if _, err := st.ProposalByID(*viaProposal); err != nil {
+			return err
+		}
+		resolved = ""
+		pointer := fmt.Sprintf("Resolved by proposal #%d — recap proposal show %d (no diff; the proposal is the artifact).", *viaProposal, *viaProposal)
+		if *summary == "" {
+			*summary = pointer
+		} else {
+			*summary = pointer + "\n\n" + *summary
+		}
+	} else {
+		if resolved == "" {
+			resolved = "HEAD"
+		}
+		// refuse a sha this checkout can't resolve (the dangling-sha "no changes" bug)
+		resolved, err = pinSHA(taskPath, resolved, *doneForce)
+		if err != nil {
+			return err
+		}
 	}
 	id, err := st.Add(db.Task{
 		Repo: taskRepo, RepoPath: taskPath, SHA: resolved, Title: item.Title,

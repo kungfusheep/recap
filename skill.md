@@ -290,7 +290,7 @@ The document lives in the recap db (no repo artifacts until sign-off), parties
 deliberate in one thread, and the human delivers the verdict.
 
 ```
-recap propose --target <repo> --title "…" --file doc.md [--tag repo1,repo2]
+recap propose --target <repo> --title "…" --file doc.md [--tag repo1,repo2] [--resolves todo:<ref>]
 recap proposal ls                          # all proposals + status
 recap proposal show <id>                   # document + thread; advances your watermark
 recap proposal comment <id> --body "…"     # @repo in the body joins that repo as a party
@@ -331,6 +331,13 @@ How it flows:
 - **Amendments are proposal COMMENTS, not document edits** — the ADR's
   deliberation pointer carries the history (P3's marker-semantics amendment
   is the worked example).
+
+**A todo that asks for a proposal resolves THROUGH the proposal**: pass
+`--resolves todo:<ref>` to `recap propose` — the todo ticks, the queue advances,
+and nothing lands in the review inbox (the proposal row is the reviewable
+artifact; never `recap done --sha HEAD` it with an unrelated commit). If the
+item must be completed via `recap done` anyway, use `--proposal <id>` instead
+of a sha — the recorded item points at the proposal, with no misleading diff.
 
 When to propose vs send: a `send` is for two-party coordination that needs no
 decision record (a heads-up, a repro handoff, a question). Propose when the work

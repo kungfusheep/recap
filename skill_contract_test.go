@@ -378,3 +378,83 @@ func TestSkillContract_WhoamiNameCollision(t *testing.T) {
 		t.Fatalf("own-repo re-name should succeed: %v\n%s", err, out)
 	}
 }
+
+// A todo that asks for a proposal resolves THROUGH the proposal
+// (todo:a7d5f91d): propose --resolves ticks the line and queues nothing in the
+// review inbox; done --proposal records an item with NO sha, pointing at the
+// proposal instead of an unrelated diff.
+func TestSkillContract_ProposalResolvesTodo(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "recap.db")
+	cfgPath := filepath.Join(dir, "config.toml")
+	todoFile := filepath.Join(dir, "TODO.md")
+	if err := os.WriteFile(cfgPath, []byte("todo_template = \""+todoFile+"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := append(os.Environ(), "RECAP_DB="+dbPath, "RECAP_CONFIG="+cfgPath)
+	repo := filepath.Join(dir, "proj")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	c := exec.Command("git", "init", "-q")
+	c.Dir = repo
+	if out, err := c.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	run := func(args ...string) (string, error) {
+		cmd := exec.Command(recapBin, args...)
+		cmd.Env = env
+		cmd.Dir = repo
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+
+	os.WriteFile(todoFile, []byte("- [ ] write a proposal for the flux capacitor\n- [ ] write a proposal for the second thing\n"), 0o644)
+	out, err := run("next")
+	if err != nil {
+		t.Fatalf("next: %v\n%s", err, out)
+	}
+	ref := ""
+	for _, f := range strings.Fields(out) {
+		if strings.HasPrefix(f, "todo:") {
+			ref = f
+			break
+		}
+	}
+	if ref == "" {
+		t.Fatalf("no todo ref served:\n%s", out)
+	}
+
+	// path 1: the proposal itself resolves the todo — line ticks, no inbox item
+	if out, err := run("propose", "--target", "proj", "--title", "flux capacitor", "--body", "the doc", "--resolves", ref); err != nil {
+		t.Fatalf("propose --resolves: %v\n%s", err, out)
+	} else if !strings.Contains(out, "resolved "+ref) {
+		t.Fatalf("propose should report the resolved todo:\n%s", out)
+	}
+	b, _ := os.ReadFile(todoFile)
+	if !strings.Contains(string(b), "[x] write a proposal for the flux capacitor") {
+		t.Fatalf("todo line not ticked:\n%s", b)
+	}
+	if out, _ := run("ls"); strings.Contains(out, "flux capacitor") {
+		t.Fatalf("propose --resolves must not create an inbox task:\n%s", out)
+	}
+
+	// path 2: done --proposal records the item with NO sha, pointing at the proposal
+	out, _ = run("next")
+	ref2 := ""
+	for _, f := range strings.Fields(out) {
+		if strings.HasPrefix(f, "todo:") {
+			ref2 = f
+			break
+		}
+	}
+	if ref2 == "" {
+		t.Fatalf("second todo not served:\n%s", out)
+	}
+	if out, err := run("done", ref2, "--proposal", "1", "--criterion", "proposal exists", "--result", "PASS"); err != nil {
+		t.Fatalf("done --proposal: %v\n%s", err, out)
+	}
+	if out, _ := run("show", "1"); !strings.Contains(out, "Resolved by proposal #1") {
+		t.Fatalf("recorded item should point at the proposal:\n%s", out)
+	}
+}

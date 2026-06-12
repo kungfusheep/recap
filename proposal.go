@@ -6,8 +6,11 @@ import (
 	"os"
 	"strings"
 
+	"github.com/kungfusheep/recap/config"
+	"github.com/kungfusheep/recap/cursor"
 	"github.com/kungfusheep/recap/db"
 	"github.com/kungfusheep/recap/notify"
+	"github.com/kungfusheep/recap/todo"
 )
 
 // cmdPropose creates a cross-repo work proposal: a document under multi-party
@@ -21,6 +24,7 @@ func cmdPropose(args []string) error {
 	body := fs.String("body", "", "the proposal document (or --file)")
 	file := fs.String("file", "", "read the proposal document from a file")
 	tags := fs.String("tag", "", "comma-separated repos to notify for review")
+	resolves := fs.String("resolves", "", "todo ref this proposal RESOLVES (todo:<hash> from recap next) — marks the todo done; nothing lands in the review inbox")
 	fs.Parse(args)
 	if *file != "" {
 		b, err := os.ReadFile(*file)
@@ -59,6 +63,31 @@ func cmdPropose(args []string) error {
 	}
 	notify.Reload()
 	fmt.Printf("proposal #%d opened (target %s, parties: %s)\n", id, *target, strings.Join(parties, ", "))
+	// a todo that ASKED for this proposal resolves through the act of opening
+	// it (todo:a7d5f91d): the line ticks, the queue advances, and no task lands
+	// in the review inbox — the proposal row IS the reviewable artifact.
+	if *resolves != "" {
+		item := findRef(buildQueue(st, currentRepo(), currentRepoPath()), *resolves)
+		switch {
+		case item.Ref == "":
+			fmt.Fprintf(os.Stderr, "recap: proposal opened, but no queue item %q to resolve\n", *resolves)
+		case item.Kind != "todo":
+			fmt.Fprintf(os.Stderr, "recap: proposal opened, but %q is a %s, not a todo\n", *resolves, item.Kind)
+		default:
+			if cfg, err := config.LoadConfig(); err == nil {
+				if path, err := todo.PathFor(cfg.TODOTemplate, currentRepoPath()); err == nil && path != "" {
+					if err := markTodoLineDone(path, item.Title); err != nil {
+						fmt.Fprintf(os.Stderr, "recap: couldn't mark the TODO line (%v)\n", err)
+					}
+				}
+			}
+			if cur, _ := cursor.Load(currentRepo()); cur == *resolves {
+				cursor.Save(currentRepo(), "", "")
+			}
+			notify.Reload()
+			fmt.Printf("resolved %s via proposal #%d\n", *resolves, id)
+		}
+	}
 	return nil
 }
 
