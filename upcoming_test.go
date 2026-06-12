@@ -133,13 +133,11 @@ func TestUpcomingSectionFixedHeight(t *testing.T) {
 	t.Cleanup(func() {
 		uiStore, uiApp, omni = prevStore, prevApp, prevOmni
 		inboxUI.Rows = nil
-		hasUpcoming = false
 		upcomingItems = nil
 		upcomingNone = false
 	})
 	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "INBOXMARKER", Status: db.StatusPending})
 	reloadTasks()
-	hasUpcoming = true
 	upcomingWidth = 30
 
 	inboxY := func() int {

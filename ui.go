@@ -1472,11 +1472,12 @@ func buildMain() Component {
 					SpaceW(2),
 				),
 				SpaceH(2),
-				If(&hasUpcoming).Then(
-					// no divider rule: an auto-stretch HRule in a left-padded box
-					// overshoots its container and bleeds into the next column, so
-					// the section is separated from the inbox by whitespace instead.
-					VBox.Width(&upcomingWidth).PaddingTRBL(0, 2, 2, 3).Gap(1)(
+				// the section renders ALWAYS — a fixed block whether or not data
+				// (or even a TODO path) exists, so launching or moving between
+				// repos never shifts the inbox below (todo:cb175549). No divider
+				// rule: an auto-stretch HRule in a left-padded box overshoots and
+				// bleeds into the next column, so whitespace separates instead.
+				VBox.Width(&upcomingWidth).PaddingTRBL(0, 2, 2, 3).Gap(1)(
 						// explicit width from the column's NodeRef (upcomingWidth) — a
 						// plain VBox/ForEach content-sizes to the short "UPCOMING" label
 						// and truncates the rows; the removed divider HRule used to force
@@ -1501,7 +1502,6 @@ func buildMain() Component {
 								)
 							}),
 						),
-					),
 				),
 				List(&inboxUI.Rows).
 					Selection(&inboxUI.Sel).

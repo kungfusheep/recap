@@ -2271,3 +2271,41 @@ func TestBracketJumps(t *testing.T) {
 		t.Fatalf("[ should step back a root, got %d", draftUI.Sel)
 	}
 }
+
+// The upcoming band renders from frame one (todo:cb175549): with a PROPOSAL
+// selected at launch and no upcoming data loaded, the UPCOMING block is still
+// present (placeholder shown), so the inbox below never shifts when data lands.
+func TestUpcomingBandAlwaysPresent(t *testing.T) {
+	prevStore, prevApp, prevOmni, prevKick := uiStore, uiApp, omni, propDetailKick
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	t.Cleanup(func() {
+		uiStore, uiApp, omni, propDetailKick = prevStore, prevApp, prevOmni, prevKick
+		inboxUI = inboxView{Expanded: map[int64]bool{}, TaskByID: map[int64]db.Task{}, PropByID: map[int64]db.Proposal{}, DoneLimit: 10}
+		propUI = propView{Commented: map[int]bool{}}
+		upcomingItems, upcomingNone, upcomingWidth = nil, false, 0
+	})
+	t.Setenv("RECAP_DB", filepath.Join(t.TempDir(), "recap.db"))
+	if _, err := st.AddProposal(db.Proposal{Title: "p", Body: "b", ProposerRepo: "tui", TargetRepo: "tui"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	propDetailKick = func(p db.Proposal, key string, reset bool) {}
+	reloadTasks()
+	inboxUI.Sel = 0 // launch state: the proposal row is selected, nothing loaded
+	upcomingWidth = 30
+	upcomingNone = true
+
+	buf := NewBuffer(140, 40)
+	Build(buildMain()).Execute(buf, 140, 40)
+	found := false
+	for y := 0; y < 40; y++ {
+		if strings.Contains(buf.GetLine(y), "UPCOMING") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("UPCOMING block missing at launch — the band must render before any data loads")
+	}
+}

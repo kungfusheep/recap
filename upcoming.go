@@ -20,7 +20,6 @@ import (
 var (
 	upcomingItems   []upcomingRow // ALL incomplete TODO tasks (the view's ForEach Limit caps the rendered rows)
 	upcomingNone    bool          // no incomplete tasks → the band shows a placeholder row
-	hasUpcoming     bool          // gates the whole section
 	currentRef      string        // the in-flight item's ref (amends:N / todo:hash) — for in-place flaring
 	hasCurrent      bool          // true when something is in flight; gates the spinner animation
 	upcomingWidth   int16         // inbox column width — set at startup + resize events (int16(termW*inboxColPct), pinned to layout by test)
@@ -78,25 +77,31 @@ func drainUpcoming() {
 	markInFlight() // re-mark inbox rows now the fresh cursor ref has landed (no reload lag)
 	upcomingItems = buildUpcomingRows(staged.items, currentRef)
 	upcomingNone = len(upcomingItems) == 0
-	// show the section for any repo with a resolvable TODO path — NOT just when it
-	// has items — so it reserves a fixed block and the inbox below doesn't jump as
-	// you move between projects with different numbers of upcoming tasks.
-	hasUpcoming = staged.hasPath
 }
 
 // kickUpcoming starts an async TODO load when the selected repo differs from
 // what's shown. Called from the selection-change path (events, not the frame
 // hook); the repo/loading fields are dedupe state, so repeat calls are free.
 func kickUpcoming() {
-	t, ok := selectedTask()
-	if !ok {
+	var repoPath string
+	if t, ok := selectedTask(); ok {
+		repoPath = t.RepoPath
+	} else if row := selectedRow(); row != nil && row.Proposal {
+		// a proposal row shows the TARGET repo's upcoming — the managing queue
+		// the sign-off todo would land on (and the band no longer goes blank at
+		// launch, when proposals lead the list).
+		if p, okp := inboxUI.PropByID[row.ID]; okp {
+			repoPath, _ = uiStore.RepoPathFor(p.TargetRepo)
+		}
+	}
+	if repoPath == "" {
 		return
 	}
-	if t.RepoPath == upcomingRepo || t.RepoPath == upcomingLoading {
+	if repoPath == upcomingRepo || repoPath == upcomingLoading {
 		return // already shown or in flight
 	}
-	upcomingLoading = t.RepoPath
-	repo := t.RepoPath
+	upcomingLoading = repoPath
+	repo := repoPath
 	app := uiApp // snapshot: the goroutine must not read the mutable global
 	go func() {
 		ref, _ := cursor.Load(filepath.Base(repo)) // the displayed repo's in-flight item ref
