@@ -2406,6 +2406,8 @@ func TestArrivalNotifications(t *testing.T) {
 		statusMsg = ""
 	})
 	t.Setenv("RECAP_DB", filepath.Join(t.TempDir(), "recap.db"))
+	// other tests prime the package watermarks against THEIR dbs — start fresh
+	notifPrimed, notifSeenTask, notifSeenCmt, notifSeenMsg = false, 0, 0, 0
 
 	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "pre-existing", Status: db.StatusPending})
 	reloadTasks() // primes the watermarks — no toasts for what's already there
