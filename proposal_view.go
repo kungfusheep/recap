@@ -332,7 +332,13 @@ func prepPropRows(w int) {
 	put := func(m propLineMeta, spans []Span) {
 		bg := cBG
 		if m.Line > 0 && propUI.Commented[m.Line] {
-			bg = cFileHdrBG // commented document lines wash, the diff pane's cue
+			// commented document lines carry the diff pane's FAINT wash — and
+			// the spans take it too, else text cells punch default-bg holes in
+			// the band (the c467 artifact; cFileHdrBG here read as broken bands).
+			bg = cCommentBG
+			for i := range spans {
+				spans[i].Style.BG = cCommentBG
+			}
 		}
 		propUI.Rows = append(propUI.Rows, propRowVM{Spans: spans, BG: bg})
 		propUI.Meta = append(propUI.Meta, m)

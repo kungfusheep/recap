@@ -1712,6 +1712,25 @@ func TestProposalInboxSection(t *testing.T) {
 	if !propUI.Commented[3] {
 		t.Fatal("commented document line should wash")
 	}
+	// c467: the wash is the diff pane's FAINT cCommentBG and covers the text
+	// cells too — assert the rendered buffer cell UNDER the text, not the VM.
+	prepPropRows(60)
+	wbuf := NewBuffer(60, len(propUI.Rows)+2)
+	propTemplate().Execute(wbuf, 60, int16(len(propUI.Rows)+2))
+	washOK := false
+	for y := 0; y < len(propUI.Rows); y++ {
+		if x := strings.Index(wbuf.GetLine(y), "body text"); x >= 0 {
+			cell := wbuf.Get(x, y)
+			if cell.Style.BG == cCommentBG {
+				washOK = true
+			} else {
+				t.Fatalf("washed line's text cell bg = %v, want cCommentBG %v", cell.Style.BG, cCommentBG)
+			}
+		}
+	}
+	if !washOK {
+		t.Fatal("commented document line not found in the rendered layer")
+	}
 	// the human's comment carries a name too (todo:5a724f62)
 	if n := len(propUI.Thread); n != 2 || propUI.Thread[1].Who != "You" {
 		t.Fatalf("human comment should read as You: %+v", propUI.Thread)
