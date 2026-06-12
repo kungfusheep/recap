@@ -55,7 +55,7 @@ func openAgentsDash() {
 			vm.StatusColor = cHunk
 		default:
 			vm.Status = "idle"
-			vm.StatusColor = cMuted
+			vm.StatusColor = cSubtle // the help overlay's dim level — cMuted sank too far on cFloat
 		}
 		// the right-hand time IS the sort key (c448): how long since this
 		// agent's last activity — so the top of the list visibly reads most
@@ -133,7 +133,7 @@ func agentsOverlay() Component {
 					SEDropShadow().Strength(0.3).Focus(&dashUI.Ref),
 					SEVignette().Smooth().Strength(In(Animate(0.3)).Out(Animate(0))).Dodge(&dashUI.Ref),
 				),
-				HBox(Text("agents").FG(&cBright).Bold(), Space(), Text("esc close").FG(&cMuted)),
+				HBox(Text("agents").FG(&cBright).Bold(), Space(), Text("esc close").FG(&cSubtle)),
 				ForEach(&dashUI.Rows, func(r *agentVM) Component {
 					return VBox(
 						HBox(
@@ -143,7 +143,7 @@ func agentsOverlay() Component {
 							SpaceW(2),
 							Text(&r.Repo).FG(&cSubtle),
 							Space(),
-							Text(&r.When).FG(&cMuted),
+							Text(&r.When).FG(&cSubtle),
 						),
 						HBox(SpaceW(2), Text(&r.Status).FG(&r.StatusColor)),
 						HBox(SpaceW(2), Text(&r.Last).FG(&cFG)),
