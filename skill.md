@@ -394,5 +394,5 @@ real check — tighten it before recording.
   agent attribution.
 - Submitting reviews (`recap review submit`) is the **human reviewer's** action, never the
   loop's — never self-review.
-- The review db (`$RECAP_DB` or `~/.config/recap/recap.db`) is private to the reviewer and
+- The review db (`$RECAP_DB` or `~/.local/share/recap/recap.db` — XDG data dir) is private to the reviewer and
   cross-repo: never commit it, never push it, never surface its contents publicly.

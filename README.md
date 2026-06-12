@@ -108,7 +108,8 @@ yours.
 
 ## Storage & privacy
 
-One SQLite db at `$RECAP_DB`, else `~/.config/recap/recap.db`, plus small state
+One SQLite db at `$RECAP_DB`, else `~/.local/share/recap/recap.db` (XDG data
+dir — state is data, not config), plus small state
 files beside it. Cross-repo by design. **Never commit or push it.** It is your
 private layer.
 
