@@ -97,4 +97,6 @@ section + doc-rendering detail mode.
    the deliberation thread; `c` threads a human comment and pings every
    party through the digest model).
 4. sign-off: ADR writer + managing-repo todo append.
-5. skill section + broadcast.
+5. skill section + broadcast. **DONE** (skill.md "Proposals" section — verbs,
+   digest etiquette, the don't-pre-build rule; fleet broadcast m145–m151 to
+   live listeners + every known agent repo durably).
