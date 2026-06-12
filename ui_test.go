@@ -2190,11 +2190,23 @@ func TestProposalSignOff(t *testing.T) {
 	if !heard["tui"] || !heard["recap"] {
 		t.Fatalf("parties not notified of the verdict: %v", heard)
 	}
-	// the decided proposal leaves the open list
-	for _, r := range inboxUI.Rows {
-		if r.Proposal {
-			t.Fatalf("decided proposal still in the inbox: %+v", r)
+	// the decided proposal leaves the OPEN section but stays visible in the
+	// trailing DECIDED record (c476), wearing its verdict glyph state
+	var decided *taskVM
+	for i := range inboxUI.Rows {
+		r := &inboxUI.Rows[i]
+		if r.Proposal && r.State == "proposal" {
+			t.Fatalf("decided proposal still in the OPEN section: %+v", r)
 		}
+		if r.Proposal && r.State == "proposal-approved" {
+			decided = r
+		}
+	}
+	if decided == nil || decided.GroupLabel != "DECIDED PROPOSALS" {
+		t.Fatalf("approved proposal missing from the decided record: %+v", decided)
+	}
+	if _, ok := inboxUI.PropByID[decided.ID]; !ok {
+		t.Fatal("decided proposal must stay resolvable for the detail pane")
 	}
 	// double-decide refused (X after a)
 	if err := st.DecideProposal(pid, db.ProposalDeclined); err == nil {

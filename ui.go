@@ -232,6 +232,7 @@ type inboxData struct {
 	drafts     map[int64]int // open draft comment counts (row pill)
 	revs       map[int64][]db.Revision
 	props      []db.Proposal // open proposals — the PROPOSALS section at the top of the list
+	decided    []db.Proposal // signed-off proposals — the trailing DECIDED section (c476)
 	repos      []string      // distinct repos from the unfiltered set (filter cycle)
 	identName  string
 	identColor Color
@@ -268,11 +269,21 @@ func fetchInbox(repoFilter string, pins map[int64]bool) *inboxData {
 	d.lastRev, _ = uiStore.LatestReviewIDs()
 	// open proposals: cross-repo documents, so the repo filter matches the
 	// TARGET (the repo that would own the work).
-	if props, err := uiStore.Proposals(db.ProposalOpen); err == nil {
+	if props, err := uiStore.Proposals(""); err == nil {
 		for _, p := range props {
-			if repoFilter == "" || p.TargetRepo == repoFilter {
-				d.props = append(d.props, p)
+			if repoFilter != "" && p.TargetRepo != repoFilter {
+				continue
 			}
+			if p.Status == db.ProposalOpen {
+				d.props = append(d.props, p)
+			} else {
+				d.decided = append(d.decided, p)
+			}
+		}
+		// decided: newest verdict first, capped — a record, not a queue
+		sort.Slice(d.decided, func(i, j int) bool { return d.decided[i].DecidedAt > d.decided[j].DecidedAt })
+		if len(d.decided) > 10 {
+			d.decided = d.decided[:10]
 		}
 	}
 	// distinct repos for the filter cycle (from the unfiltered set)
@@ -558,6 +569,32 @@ func applyInbox(d *inboxData) {
 			RevIdx:   -1,
 			Title:    fmt.Sprintf("load more  ·  %d more completed", doneSkipped),
 		})
+	}
+	// signed-off proposals trail the list (c476): the decision record stays
+	// visible — verdict glyph + when it was decided; the detail pane still
+	// renders the document and thread.
+	for i, p := range d.decided {
+		inboxUI.PropByID[p.ID] = p
+		color := cBright
+		if _, ic := loadIdentity(p.ProposerRepo); ic.Mode != 0 {
+			color = ic
+		}
+		vm := taskVM{
+			ID:        p.ID,
+			IDText:    fmt.Sprintf("P%d", p.ID),
+			Title:     p.Title,
+			Repo:      fmt.Sprintf("%s → %s", p.ProposerRepo, p.TargetRepo),
+			RepoColor: color,
+			State:     "proposal-" + p.Status,
+			Proposal:  true,
+			Header:    true,
+			RevIdx:    -1,
+			When:      shortStamp(p.DecidedAt),
+		}
+		if i == 0 {
+			vm.HasGroup, vm.GroupLabel = true, "DECIDED PROPOSALS"
+		}
+		inboxUI.Rows = append(inboxUI.Rows, vm)
 	}
 
 	// restore the selection to the same row (task + revision) it was on before, so
@@ -1761,6 +1798,8 @@ func taskRow(r *taskVM) Component {
 						Case(db.StateRework, Text("↻").FG(&cDel)).
 						Case(db.StateDone, Text("✓").FG(&cSubtle)).
 						Case("proposal", Text("◆").FG(&cHunk)).
+						Case("proposal-approved", Text("✓").FG(&cAdd)).
+						Case("proposal-declined", Text("✕").FG(&cDel)).
 						Default(Text("●").FG(&cBright))),
 			),
 			SpaceW(1),
