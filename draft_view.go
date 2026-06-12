@@ -373,8 +373,11 @@ func editDraftComment() {
 	if c == nil {
 		return
 	}
-	if !c.Draft {
-		statusMsg = "submitted comments are read-only (unsubmit with U to edit)"
+	// your own comments are editable draft OR submitted (editing submitted
+	// feedback clears the agent's read receipt so the change re-enters its
+	// queue); the agent's comments are read-only — the record stays honest.
+	if c.Who != "you" {
+		statusMsg = "the agent's comments are read-only"
 		return
 	}
 	draftUI.EditingID = c.ID

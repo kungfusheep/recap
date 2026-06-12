@@ -85,3 +85,45 @@ func TestMessageLifecycle(t *testing.T) {
 		t.Fatal("read on a missing message should error")
 	}
 }
+
+// the human can edit their OWN comments — draft or submitted — and the edit
+// clears the agent read-receipt so changed feedback re-enters the agent's
+// queue; the agent's comments are not editable.
+func TestEditOwnComment(t *testing.T) {
+	st := testStoreDB(t)
+	id, _ := st.Add(Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: StatusPending})
+	cid, err := st.AddReviewComment(id, "you", "first draft wording", "", 0, "", "")
+	if err != nil {
+		t.Fatalf("comment: %v", err)
+	}
+	if _, err := st.SubmitReview(id, VerdictRequestChanges, "go"); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if err := st.MarkReadAgent(cid); err != nil {
+		t.Fatalf("agent read: %v", err)
+	}
+
+	// edit the SUBMITTED comment: body changes, agent receipt clears
+	if err := st.EditOwnComment(cid, "sharper wording"); err != nil {
+		t.Fatalf("edit submitted own comment: %v", err)
+	}
+	cs, _ := st.Comments(id)
+	var got *Comment
+	for i := range cs {
+		if cs[i].ID == cid {
+			got = &cs[i]
+		}
+	}
+	if got == nil || got.Body != "sharper wording" {
+		t.Fatalf("body not updated: %+v", got)
+	}
+	if got.ReadAgent != "" {
+		t.Fatalf("edit must clear the agent read-receipt, got %q", got.ReadAgent)
+	}
+
+	// the agent's comments are not editable
+	aid, _ := st.AddReply(cid, "agent", "the agent's words")
+	if err := st.EditOwnComment(aid, "tampered"); err == nil {
+		t.Fatal("editing an agent comment must be refused")
+	}
+}

@@ -75,3 +75,36 @@ func TestRKeyOpensReplyPrompt(t *testing.T) {
 		t.Fatalf("reply target = %d, want the selected comment %d", draftUI.ReplyingTo, draftUI.Comments[0].ID)
 	}
 }
+
+// 'e' through the input stack opens the edit prompt prefilled with the selected
+// comment's body — including on a SUBMITTED comment of your own (todo:a4aa0003;
+// previously refused as read-only). Kills the Key("e") mutant.
+func TestEKeyEditsOwnComment(t *testing.T) {
+	id := setupCommentsPane(t)
+	// submit the draft so the comment is no longer draft-state
+	if _, err := uiStore.SubmitReview(id, db.VerdictRequestChanges, "go"); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	loadDraftPane(id)
+	draftUI.Sel = 0 // the root comment, who="you", now submitted
+	uiApp.RenderNow()
+
+	if !uiApp.Input().Dispatch(riffkey.Key{Rune: 'e'}) {
+		t.Fatal("'e' was not handled in the comments pane")
+	}
+	if !promptUI.Open {
+		t.Fatal("dispatched 'e' did not open the edit prompt on a submitted own comment")
+	}
+	if promptUI.Field.Value != "root note" {
+		t.Fatalf("edit prompt not prefilled with the comment body: %q", promptUI.Field.Value)
+	}
+
+	// the agent's reply stays read-only
+	promptUI.close()
+	draftUI.Sel = 1 // the agent reply
+	uiApp.RenderNow()
+	uiApp.Input().Dispatch(riffkey.Key{Rune: 'e'})
+	if promptUI.Open {
+		t.Fatal("the agent's comment must not be editable")
+	}
+}

@@ -671,6 +671,24 @@ func (s *Store) UpdateComment(commentID int64, body string) error {
 	return err
 }
 
+// EditOwnComment updates one of the HUMAN's comments — draft or submitted —
+// and clears the agent read-receipt, so an edit to already-sent feedback
+// re-enters the agent's queue (changed feedback the agent never re-reads is
+// lost feedback). The agent's comments are not editable by anyone.
+func (s *Store) EditOwnComment(commentID int64, body string) error {
+	if body == "" {
+		return fmt.Errorf("comment body is required")
+	}
+	res, err := s.db.Exec(`UPDATE comments SET body = ?, read_agent = NULL WHERE id = ? AND who = 'you'`, body, commentID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("no editable comment #%d (only your own comments can be edited)", commentID)
+	}
+	return nil
+}
+
 // DeleteComment removes a single draft review comment (without discarding the
 // whole draft). Only draft comments are deletable.
 func (s *Store) DeleteComment(commentID int64) error {

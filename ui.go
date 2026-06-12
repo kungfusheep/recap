@@ -1806,7 +1806,7 @@ func saveEditedComment() {
 		statusMsg = "(empty — comment unchanged)"
 		return
 	}
-	if err := uiStore.UpdateComment(draftUI.EditingID, body); err != nil {
+	if err := uiStore.EditOwnComment(draftUI.EditingID, body); err != nil {
 		statusMsg = "error: " + err.Error()
 		return
 	}
