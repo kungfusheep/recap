@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kungfusheep/recap/agents"
 	"github.com/kungfusheep/recap/config"
 	"github.com/kungfusheep/recap/notify"
 	"github.com/kungfusheep/recap/todo"
@@ -625,10 +626,13 @@ func cmdWhoami(args []string) error {
 	// hand-parse so --color works whether it comes before or after the name (Go's
 	// flag package stops at the first positional, which would swallow it).
 	var color string
+	var alsoMe bool
 	var nameParts []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
+		case a == "--also":
+			alsoMe = true
 		case a == "--color" || a == "-color":
 			if i+1 < len(args) {
 				color = args[i+1]
@@ -655,6 +659,28 @@ func cmdWhoami(args []string) error {
 			fmt.Printf("name theme: %s\n", cfg.NameTheme)
 		}
 		return nil
+	}
+	// duplicate-name barrier (c439): a name claimed by ANOTHER repo's loop is
+	// refused unless this is explicitly the same agent expanding to a new repo
+	// (--also). Two unrelated agents converging on "Spark" is an identity
+	// collision, not a shared identity.
+	if name != "" && !alsoMe {
+		if snap, err := agents.Snapshot(nil); err == nil {
+			for _, ag := range snap {
+				if !strings.EqualFold(ag.Name, name) {
+					continue
+				}
+				owns := false
+				for _, r := range ag.Repos {
+					if r == repo {
+						owns = true
+					}
+				}
+				if !owns {
+					return fmt.Errorf("the name %q is already used by the loop in %s — if you ARE that agent expanding to this repo, re-run with --also; otherwise pick a different name (recap whoami with no args shows the name theme)", name, strings.Join(ag.Repos, ", "))
+				}
+			}
+		}
 	}
 	if err := saveIdentity(repo, name, color); err != nil {
 		return err

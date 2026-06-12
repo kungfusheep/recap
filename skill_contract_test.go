@@ -333,3 +333,48 @@ func TestSkillContract_ProposalComments(t *testing.T) {
 		t.Fatalf("@mention did not join the parties:\n%s", show)
 	}
 }
+
+// the duplicate-name barrier (c439): a name held by another repo's loop is
+// refused; --also claims it as the same agent expanding; re-naming your own
+// repo is always fine.
+func TestSkillContract_WhoamiNameCollision(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "recap.db")
+	env := append(os.Environ(), "RECAP_DB="+dbPath)
+	repoA, repoB := filepath.Join(dir, "alpha"), filepath.Join(dir, "beta")
+	for _, r := range []string{repoA, repoB} {
+		os.MkdirAll(r, 0o755)
+		c := exec.Command("git", "init", "-q")
+		c.Dir = r
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git init: %v\n%s", err, out)
+		}
+	}
+	run := func(dir string, args ...string) (string, error) {
+		cmd := exec.Command(recapBin, args...)
+		cmd.Env = env
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+
+	if out, err := run(repoA, "whoami", "Spark", "--color", "#abcdef"); err != nil {
+		t.Fatalf("first claim should succeed: %v\n%s", err, out)
+	}
+	// a DIFFERENT repo claiming the same name (case-insensitive) is refused
+	out, err := run(repoB, "whoami", "spark")
+	if err == nil {
+		t.Fatalf("name collision must be refused:\n%s", out)
+	}
+	if !strings.Contains(out, "--also") || !strings.Contains(out, "alpha") {
+		t.Fatalf("refusal should name the holder and the --also path:\n%s", out)
+	}
+	// the same agent expanding claims it explicitly
+	if out, err := run(repoB, "whoami", "Spark", "--also"); err != nil {
+		t.Fatalf("--also expansion should succeed: %v\n%s", err, out)
+	}
+	// re-running in your own repo never trips the barrier
+	if out, err := run(repoA, "whoami", "Spark", "--color", "#123456"); err != nil {
+		t.Fatalf("own-repo re-name should succeed: %v\n%s", err, out)
+	}
+}

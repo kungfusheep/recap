@@ -132,6 +132,12 @@ emotes are attributed to that name in that colour. To deliberately start fresh, 
 clears it (`recap whoami` with an empty name) or sets a new one. This is **recap-only** —
 never put a name in git commits.
 
+**Names are unique across the fleet.** `recap whoami` refuses a name another
+repo's loop already holds. If you genuinely ARE that agent expanding into a new
+repo, re-run with `--also`; otherwise pick a fresh name. Never `--also` a name
+you didn't originally claim — two unrelated agents sharing a name corrupts the
+dashboard, the message ledger, and the review record.
+
 ## Taking work — `recap next` (the single entry point)
 
 Do not hand-roll the priority order or declare what you're working on. **`recap next` is
