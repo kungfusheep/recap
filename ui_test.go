@@ -1475,4 +1475,22 @@ func TestFocusBarTracksPane(t *testing.T) {
 	if bg := buf.Get(2, H-1).Style.BG; bg != cPaneBG {
 		t.Fatalf("bottom row under the list column lost its pane background: %v want %v", bg, cPaneBG)
 	}
+
+	// a SET status message must not cut the panes short (the c404 artifact): it
+	// floats in the overlay, the pane background still reaches the bottom row.
+	statusMsg = "recorded #1"
+	defer func() { statusMsg = "" }()
+	buf = render()
+	if bg := buf.Get(2, H-1).Style.BG; bg != cPaneBG {
+		t.Fatalf("status message cut the pane off the bottom row: bg=%v want %v", bg, cPaneBG)
+	}
+	found := false
+	for y := H - 3; y < H; y++ {
+		if strings.Contains(buf.GetLine(y), "recorded #1") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("floating status message not rendered near the bottom")
+	}
 }

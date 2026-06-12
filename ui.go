@@ -1427,8 +1427,7 @@ func buildMain() Component {
 				),
 			),
 		),
-		// transient status (errors/confirmations) only — no permanent keybar
-		If(&statusMsg).Then(HBox(SpaceW(3), Text(&statusMsg).FG(&cSubtle))),
+
 		// the focus underline: a one-eighth ▁ line overlaid on the BOTTOM ROW of
 		// the panes (an overlay, so the pane backgrounds reach the screen edge and
 		// the glyph blends over them — overlay cells with default BG keep the
@@ -1436,13 +1435,20 @@ func buildMain() Component {
 		// SLIDES on focus change: spacer + bar widths are glyph tweens toward
 		// targets applyPaneFocus sets at the focus event.
 		Overlay.BottomLeft().Opacity(1.0)(
-			HBox.Height(1)(
-				// a present dyn width means "explicitly sized" even at 0 (glyph
-				// honours the binding both ways since the eligibility fix), so the
-				// spacer needs no escape hatch — bind and go.
-				VBox.Width(focusBarTween(&focusBarX)).Height(1)(),
-				VBox.Width(focusBarTween(&focusBarW)).Height(1)(
-					HRule().Char('▁').FG(&cFG),
+			VBox(
+				// transient status (errors/confirmations) floats over the pane —
+				// a flow row here would cut the pane backgrounds off the screen
+				// edge (the c404 artifact); overlay cells with default BG keep the
+				// pane's own colour beneath the text.
+				If(&statusMsg).Then(HBox(SpaceW(3), Text(&statusMsg).FG(&cSubtle))),
+				HBox.Height(1)(
+					// a present dyn width means "explicitly sized" even at 0 (glyph
+					// honours the binding both ways since the eligibility fix), so
+					// the spacer needs no escape hatch — bind and go.
+					VBox.Width(focusBarTween(&focusBarX)).Height(1)(),
+					VBox.Width(focusBarTween(&focusBarW)).Height(1)(
+						HRule().Char('▁').FG(&cFG),
+					),
 				),
 			),
 		),
