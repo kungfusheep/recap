@@ -295,6 +295,7 @@ recap proposal ls                          # all proposals + status
 recap proposal show <id>                   # document + thread; advances your watermark
 recap proposal comment <id> --body "…"     # @repo in the body joins that repo as a party
 recap proposal comment <id> --body "…" --line N   # anchor to document line N (snippet auto-captured)
+recap proposal comment <id> --body "…" --reply-to <pc-id>   # THREAD under a specific comment
 ```
 
 How it flows:
@@ -304,7 +305,9 @@ How it flows:
   proposal in its message queue. When `recap next` hands you one, run
   `recap proposal show <id>` — everything since your last look renders behind a
   "new since your last look" divider. Respond with `proposal comment`, never by
-  replying to the ping message.
+  replying to the ping message — and when you're answering a SPECIFIC comment,
+  THREAD it: `--reply-to <pc-id>` (show prints each comment's pc-id). Top-level
+  comments are for new points; replies keep deliberations readable.
 - **Verdicts stay human.** Parties endorse, refine, or object in the thread;
   endorsement is input, not approval. On the human's sign-off the decision
   materialises: an ADR (`docs/adr/<proposal-id>-<slug>.md` — the proposal id IS
