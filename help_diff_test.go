@@ -10,8 +10,8 @@ import (
 // the ? cheatsheet shows the diff keybinds, including the new fold + file-nav keys.
 // (add diff keybinds to ? menu) — verified by rendering the overlay.
 func TestHelpShowsDiffKeybinds(t *testing.T) {
-	buf := NewBuffer(90, 30)
-	Build(helpOverlay()).Execute(buf, 90, 30)
+	buf := NewBuffer(120, 30)
+	Build(helpOverlay()).Execute(buf, 120, 30)
 	var all string
 	for y := 0; y < 30; y++ {
 		all += " " + buf.GetLine(y)

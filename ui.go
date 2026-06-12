@@ -1474,7 +1474,7 @@ func columnShades() Component {
 // screen-effect treatment (animated dodged vignette + focused drop shadow).
 func helpOverlay() Component {
 	return Overlay.Centered()(
-		VBox.Width(80).Fill(&cFloat).CascadeStyle(&floatStyle).
+		VBox.Width(96).Fill(&cFloat).CascadeStyle(&floatStyle).
 			PaddingVH(1, 2).NodeRef(&helpRef).
 			Opacity(In(Animate(1.0)).Out(Animate(0))).
 			Gap(1)(
@@ -1484,10 +1484,14 @@ func helpOverlay() Component {
 				Key("q", toggleHelp),
 			),
 			Text("keyboard").FG(&cBright).Bold(),
-			HBox(
-				helpSection("navigate", 3, 12, &helpNavRows),
-				helpSection("actions", 2, 8, &helpActionRows),
-				helpSection("diff", 3, 9, &helpDiffRows),
+			// column shares sized to their content: actions carries the longest
+			// descriptions ("revisions / fold thread"), so it gets the biggest
+			// share; Gap separates the columns so a clipped description can never
+			// visually run into the next column's keys.
+			HBox.Gap(3)(
+				helpSection("navigate", 4, 12, &helpNavRows),
+				helpSection("actions", 5, 8, &helpActionRows),
+				helpSection("diff", 4, 9, &helpDiffRows),
 			),
 			ScreenEffect(
 				SEVignette().Strength(In(Animate.From(0)(0.55)).Out(Animate(0))).Dodge(&helpRef).Smooth(),

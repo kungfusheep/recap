@@ -1357,3 +1357,48 @@ func TestStatusGlyphTemplateOwned(t *testing.T) {
 		t.Fatalf("theme-var change did not recolor live: fg=%v want %v", fg, cDel)
 	}
 }
+
+// the help overlay must render every description in full — no mid-word clipping,
+// no column running into its neighbour's keys (the layout/truncation report,
+// todo:f6c96daf, screenshot-verified). Renders the real overlay through buildMain.
+func TestHelpOverlayNoTruncation(t *testing.T) {
+	prevApp, prevStore, prevOmni := uiApp, uiStore, omni
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	t.Cleanup(func() {
+		uiApp, uiStore, omni = prevApp, prevStore, prevOmni
+		inboxUI.Rows = nil
+		helpOpen = false
+	})
+	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
+	reloadTasks()
+	helpOpen = true
+
+	tmpl := Build(buildMain())
+	buf := NewBuffer(140, 40)
+	tmpl.Execute(buf, 140, 40)
+	var lines []string
+	for y := 0; y < 40; y++ {
+		lines = append(lines, buf.GetLine(y))
+	}
+	all := strings.Join(lines, "\n")
+
+	// every section's longest descriptions render whole, on one line
+	for _, want := range []string{
+		"revisions / fold thread",
+		"unsubmit → inbox",
+		"open [[file]] link",
+		"submit (amends)",
+		"open in $EDITOR",
+		"next / prev file",
+		"fold file / all",
+		"focus column",
+		"agent messages",
+	} {
+		if !strings.Contains(all, want) {
+			t.Errorf("help overlay clips %q:\n%s", want, all)
+		}
+	}
+}
