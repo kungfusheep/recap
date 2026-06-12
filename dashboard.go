@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	. "github.com/kungfusheep/glyph"
 	"github.com/kungfusheep/recap/cursor"
@@ -35,7 +37,14 @@ type dashView struct {
 
 var dashUI dashView
 
+// flareMaxAge: a cursor flare untouched this long is stale — the loop died or
+// predates the park-clears-cursor fix — and must not read as "working".
+const flareMaxAge = 2 * time.Hour
+
 // openAgentsDash gathers every named agent's state and shows the overlay.
+// One row per AGENT (identities can span repos — c436's duplicate names);
+// status is the best across their repos, with the flare honoured only while
+// its cursor file is fresh.
 func openAgentsDash() {
 	dbp, err := db.Path()
 	if err != nil {
@@ -52,32 +61,51 @@ func openAgentsDash() {
 		latest, _ = uiStore.LatestTaskPerRepo()
 	}
 
-	dashUI.Rows = dashUI.Rows[:0]
+	type agg struct {
+		vm    agentVM
+		repos []string
+		rank  int // 2 working, 1 parked, 0 idle
+		last  string
+	}
+	byName := map[string]*agg{}
 	for _, m := range matches {
 		repo := strings.TrimPrefix(filepath.Base(m), "identity-")
 		name, color := loadIdentity(repo)
 		if name == "" {
 			continue
 		}
-		vm := agentVM{Dot: "●", Name: name, NameColor: color, Repo: repo}
+		a := byName[name]
+		if a == nil {
+			a = &agg{vm: agentVM{Dot: "●", Name: name, NameColor: color, Status: "idle", StatusColor: cMuted}}
+			byName[name] = a
+		}
+		a.repos = append(a.repos, repo)
+		rank, status, color2 := 0, "", Color{}
 		switch {
-		case cursor.Title(repo) != "":
-			vm.Status = "working: " + clipTo(cursor.Title(repo), 44)
-			vm.StatusColor = cAdd
+		case cursor.Title(repo) != "" && cursor.Age(repo) < flareMaxAge:
+			rank, color2 = 2, cAdd
+			status = "working: " + clipTo(cursor.Title(repo), 40) + "  · " + shortAge(cursor.Age(repo))
 		case live[repo]:
-			vm.Status = "parked — listening for work"
-			vm.StatusColor = cHunk
-		default:
-			vm.Status = "idle"
-			vm.StatusColor = cMuted
+			rank, status, color2 = 1, "parked — listening for work", cHunk
 		}
-		if t, ok := latest[repo]; ok {
-			vm.Last = "last: " + clipTo(t.Title, 48)
-			vm.When = hhmm(t.CreatedAt)
-		} else {
-			vm.Last = "last: —"
+		if rank > a.rank {
+			a.rank, a.vm.Status, a.vm.StatusColor = rank, status, color2
 		}
-		dashUI.Rows = append(dashUI.Rows, vm)
+		if t, ok := latest[repo]; ok && t.CreatedAt > a.last {
+			a.last = t.CreatedAt
+			a.vm.Last = "last: " + clipTo(t.Title, 48)
+			a.vm.When = hhmm(t.CreatedAt)
+		}
+	}
+
+	dashUI.Rows = dashUI.Rows[:0]
+	for _, a := range byName {
+		sort.Strings(a.repos)
+		a.vm.Repo = strings.Join(a.repos, ", ")
+		if a.vm.Last == "" {
+			a.vm.Last = "last: —"
+		}
+		dashUI.Rows = append(dashUI.Rows, a.vm)
 	}
 	sort.Slice(dashUI.Rows, func(i, j int) bool { return dashUI.Rows[i].Name < dashUI.Rows[j].Name })
 	if len(dashUI.Rows) == 0 {
@@ -85,6 +113,17 @@ func openAgentsDash() {
 		return
 	}
 	dashUI.Open = true
+}
+
+func shortAge(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	default:
+		return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
+	}
 }
 
 func clipTo(s string, n int) string {

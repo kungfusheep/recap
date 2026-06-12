@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // The in-flight marker is a pure protocol fact, not a thing the agent declares:
@@ -68,4 +69,19 @@ func Save(repo, ref, title string) error {
 		return err
 	}
 	return os.WriteFile(p, []byte(ref+"\t"+title+"\n"), 0o644)
+}
+
+// Age returns how long ago the repo's cursor file was last written — a
+// liveness hint for status displays (a flare untouched for hours is stale,
+// whatever it says). Zero time when no cursor exists.
+func Age(repo string) time.Duration {
+	p, err := path(repo)
+	if err != nil {
+		return 0
+	}
+	fi, err := os.Stat(p)
+	if err != nil {
+		return 0
+	}
+	return time.Since(fi.ModTime())
 }

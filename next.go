@@ -200,6 +200,11 @@ func cmdNext(args []string) error {
 
 	if !ok {
 		if *wait {
+			// the queue is empty: the in-flight flare is OVER — clear the cursor
+			// BEFORE parking, or every parked loop reads as "working" on its last
+			// item forever (the c436 stale-status bug).
+			cursor.Save(repo, "", "")
+			notify.Reload()
 			// hard loop: an empty queue is "wait", not "done". Park until work appears
 			// (so a request_changes from the reviewer brings the agent back to life).
 			next, ok = waitForWork(st, repo)

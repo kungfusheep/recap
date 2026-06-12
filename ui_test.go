@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	. "github.com/kungfusheep/glyph"
 	"github.com/kungfusheep/riffkey"
@@ -1523,15 +1524,26 @@ func TestAgentDashboard(t *testing.T) {
 	// RECAP_DB redirects db.Path() — identity/cursor/listener files land in the
 	// temp dir, never the real config (the first run of this test polluted it).
 	t.Setenv("RECAP_DB", filepath.Join(t.TempDir(), "recap.db"))
-	// identities + a recorded task + a cursor flare in the isolated config dir
-	if err := saveIdentity("wren-repo", "Wren", "#aabbcc"); err != nil {
-		t.Fatalf("identity: %v", err)
-	}
-	if err := saveIdentity("finch-repo", "Finch", "#ccaabb"); err != nil {
-		t.Fatalf("identity: %v", err)
+	// identities + a recorded task + a cursor flare in the isolated config dir.
+	// Wren spans TWO repos (the c436 duplicate-name case) — one grouped row.
+	for repo, pair := range map[string][2]string{
+		"wren-repo":  {"Wren", "#aabbcc"},
+		"wren-lab":   {"Wren", "#aabbcc"},
+		"finch-repo": {"Finch", "#ccaabb"},
+		"stale-repo": {"Heron", "#bbccaa"},
+	} {
+		if err := saveIdentity(repo, pair[0], pair[1]); err != nil {
+			t.Fatalf("identity: %v", err)
+		}
 	}
 	st.Add(db.Task{Repo: "wren-repo", RepoPath: "/tmp/w", Title: "shipped the wrenizer", Status: db.StatusPending})
 	cursor.Save("finch-repo", "todo:abc", "polishing the finch cache")
+	// Heron's flare is OLD: an untouched cursor file must read idle, not working
+	cursor.Save("stale-repo", "todo:zzz", "ancient business")
+	if p, err := db.Path(); err == nil {
+		old := time.Now().Add(-3 * time.Hour)
+		os.Chtimes(filepath.Join(filepath.Dir(p), "current-stale-repo"), old, old)
+	}
 	reloadTasks()
 
 	uiApp.SetView(buildMain())
@@ -1550,9 +1562,25 @@ func TestAgentDashboard(t *testing.T) {
 	for y := 0; y < 40; y++ {
 		all += buf.GetLine(y) + "\n"
 	}
-	for _, want := range []string{"Wren", "Finch", "working: polishing the finch cache", "last: shipped the wrenizer", "idle"} {
+	for _, want := range []string{"Finch", "working: polishing the finch cache", "last: shipped the wrenizer"} {
 		if !strings.Contains(all, want) {
 			t.Fatalf("dashboard missing %q:\n%s", want, all)
+		}
+	}
+	// duplicate-name grouping: ONE Wren row listing both repos
+	if strings.Count(all, "Wren") != 1 {
+		t.Fatalf("Wren should appear exactly once (grouped):\n%s", all)
+	}
+	if !strings.Contains(all, "wren-lab, wren-repo") {
+		t.Fatalf("grouped row should list both repos:\n%s", all)
+	}
+	// the stale flare reads idle, never working
+	if strings.Contains(all, "ancient business") {
+		t.Fatalf("3h-old flare still shows as working:\n%s", all)
+	}
+	for _, r := range dashUI.Rows {
+		if r.Name == "Heron" && r.Status != "idle" {
+			t.Fatalf("Heron's stale flare should read idle, got %q", r.Status)
 		}
 	}
 }
