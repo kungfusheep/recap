@@ -27,6 +27,8 @@ type draftCommentVM struct {
 	ReadDot  string // ●/○ — has the OPPOSITE party read this? (you-comment → agent read it; agent-comment → you read it). You don't see a receipt on your own read.
 	Location string // "file · line N" / "general" / "↳ who" for a reply
 	LocColor Color  // colour for the location line — the agent's personal colour on its replies
+	WhoLabel string // the author leading the row — "You" or the agent's name (c460); empty on replies (↳ who covers it)
+	WhoColor Color
 	Indent   string // leading spaces for nested replies (precomputed; build-once safe)
 	When     string // comment time (HH:MM) from CreatedAt
 	Snippet  string // the diff line commented on (may be empty)
@@ -130,6 +132,12 @@ func applyDraftComments(taskID int64, cs []db.TaskComment) {
 			vm.Snippet = cleanLine(c.Snippet)
 		}
 		vm.LocColor = cSubtle
+		// every row leads with its author (c460), like the proposal thread:
+		// "You" for the human, the agent's name in its colour otherwise.
+		vm.WhoLabel, vm.WhoColor = dash(c.Who), agentColor
+		if c.Who == "you" {
+			vm.WhoLabel, vm.WhoColor = "You", cBright
+		}
 		draftUI.Comments = append(draftUI.Comments, vm)
 	}
 	// header reflects draft-in-progress vs settled comments.
@@ -183,6 +191,7 @@ func threadComments(vms []draftCommentVM) []draftCommentVM {
 		if depth > 0 { // a reply: relabel + indent, drop the repeated snippet
 			v.Reply = true
 			v.Location = "↳ " + dash(v.Who)
+			v.WhoLabel = "" // the reply label carries the author already
 			v.Indent = strings.Repeat("  ", depth)
 			v.Snippet = ""
 			if v.Who != "you" { // the agent's voice in its personal colour
@@ -261,7 +270,9 @@ func draftRow(c *draftCommentVM) Component {
 	// Indent (precomputed per row) nests replies; empty for top-level comments.
 	return VBox(If(&c.Visible).Then(VBox.PaddingVH(1, 1)(
 		// one read-receipt dot: has the OTHER party read this? (● read / ○ unread)
-		HBox(Text(&c.Indent), Text(&c.ReadDot).FG(&cHunk), SpaceW(1), Text(&c.Location).FG(&c.LocColor),
+		HBox(Text(&c.Indent), Text(&c.ReadDot).FG(&cHunk), SpaceW(1),
+			If(&c.WhoLabel).Then(HBox(Text(&c.WhoLabel).FG(&c.WhoColor).Bold(), SpaceW(2))),
+			Text(&c.Location).FG(&c.LocColor),
 			If(&c.FoldCue).Then(HBox(SpaceW(2), Text(&c.FoldCue).FG(&cMuted))),
 			Space(), Text(&c.When).FG(&cMuted)),
 		If(&c.Snippet).Then(Text(&c.Snippet).FG(&cMuted)),

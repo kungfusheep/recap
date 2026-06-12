@@ -774,6 +774,10 @@ func TestGeneralCommentAppearsAfterSave(t *testing.T) {
 	for _, c := range draftUI.Comments {
 		if c.Body == "a general note" && c.Location == "general" {
 			found = true
+			// c460: rows in the regular comments view lead with their author
+			if c.WhoLabel != "You" {
+				t.Fatalf("human comment should lead with You, got %q", c.WhoLabel)
+			}
 		}
 	}
 	if !found {
