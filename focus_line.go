@@ -13,10 +13,10 @@ import (
 //
 // Position and width are glyph-animated floats (Animate compiled through the
 // effect pipeline, the FocusShade-Strength pattern), so the slide renders at
-// SUB-CELL resolution: edge cells with partial coverage draw quadrant caps
-// (▗ leading / ▖ trailing — the block set has no partial-width lower-eighths,
-// so the quadrant pair is the finest cap available; settled edges are integral
-// and render pure ▁).
+// SUB-CELL resolution using the BRAILLE bottom-dot row — ⣀ for full cells,
+// ⢀/⡀ for half-covered edge cells — which steps at half-cell resolution with
+// UNIFORM height (the quadrant caps tried first read as bumps; braille's
+// bottom dots keep one visual weight across body and edges).
 type FocusLine struct {
 	xArg, wArg any
 	x, w       EffectFloat64
@@ -52,11 +52,11 @@ func (f FocusLine) Apply(buf *Buffer, ctx PostContext) {
 		var r rune
 		switch {
 		case cov >= 0.75:
-			r = '▁'
-		case lo > float64(cx): // covered part is the cell's right side: leading cap
-			r = '▗'
-		default: // covered part is the cell's left side: trailing cap
-			r = '▖'
+			r = '⣀' // both bottom dots
+		case lo > float64(cx): // covered part is the cell's right side: leading edge
+			r = '⢀' // right bottom dot
+		default: // covered part is the cell's left side: trailing edge
+			r = '⡀' // left bottom dot
 		}
 		cell := buf.Get(cx, y)
 		cell.Rune = r
