@@ -364,6 +364,12 @@ func cmdDone(args []string) error {
 	if cur, _ := cursor.Load(repo); cur == ref {
 		cursor.Save(repo, "", "") // drop the flare immediately; next recap next advances
 	}
+	// belt-and-braces against the shared-TODO lost update: an external editor
+	// (Obsidian holds these files open) can clobber the [x] mark moments after
+	// we write it, resurrecting the line — the snooze keeps the COMPLETED ref
+	// out of the queue for its TTL either way, and a genuinely re-added todo
+	// resurfaces after.
+	_ = snooze.Record(repo, ref)
 	notify.Reload()
 	fmt.Printf("done #%d → inbox: %s\n", id, item.Title)
 	return nil

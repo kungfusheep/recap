@@ -10,6 +10,7 @@ import (
 	"github.com/kungfusheep/recap/cursor"
 	"github.com/kungfusheep/recap/db"
 	"github.com/kungfusheep/recap/notify"
+	"github.com/kungfusheep/recap/snooze"
 	"github.com/kungfusheep/recap/todo"
 )
 
@@ -84,6 +85,7 @@ func cmdPropose(args []string) error {
 			if cur, _ := cursor.Load(currentRepo()); cur == *resolves {
 				cursor.Save(currentRepo(), "", "")
 			}
+			_ = snooze.Record(currentRepo(), *resolves) // shield against the shared-TODO lost update
 			notify.Reload()
 			fmt.Printf("resolved %s via proposal #%d\n", *resolves, id)
 		}
