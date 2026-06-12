@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -233,7 +234,12 @@ func (s *Store) ReopenTask(id int64) error {
 	return err
 }
 
-// Path resolves the global review db location: $RECAP_DB or ~/.config/recap/recap.db.
+// Path resolves the global review db location: $RECAP_DB, or the user DATA
+// dir — ~/.local/share/recap (XDG_DATA_HOME respected). The db and the loop
+// state beside it (identities, cursors, snoozes, listeners, attachments) are
+// data, not config: their original home in ~/.config/recap put a growing
+// sqlite db inside every dotfiles backup. config.toml alone stays there — it
+// IS config.
 func Path() (string, error) {
 	if p := os.Getenv("RECAP_DB"); p != "" {
 		return p, nil
@@ -242,7 +248,42 @@ func Path() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".config", "recap", "recap.db"), nil
+	dataDir := os.Getenv("XDG_DATA_HOME")
+	if dataDir == "" {
+		dataDir = filepath.Join(home, ".local", "share")
+	}
+	dir := filepath.Join(dataDir, "recap")
+	migrateOnce.Do(func() { migrateFromConfig(filepath.Join(home, ".config", "recap"), dir) })
+	return filepath.Join(dir, "recap.db"), nil
+}
+
+var migrateOnce sync.Once
+
+// migrateFromConfig moves the loop's state out of the old config-dir home —
+// every file except config.toml. Renames keep inodes, so a process holding
+// the old files (a running TUI, a parked loop) keeps working until it
+// naturally restarts; fresh invocations land here. Never clobbers a
+// populated new home.
+func migrateFromConfig(old, dir string) {
+	if _, err := os.Stat(filepath.Join(old, "recap.db")); err != nil {
+		return // nothing to migrate (fresh install, or already moved)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "recap.db")); err == nil {
+		return // the new home is already populated
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	entries, err := os.ReadDir(old)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.Name() == "config.toml" {
+			continue // genuinely config — stays with the dotfiles
+		}
+		_ = os.Rename(filepath.Join(old, e.Name()), filepath.Join(dir, e.Name()))
+	}
 }
 
 // Open opens the global review db (creating it and its dir if needed).
