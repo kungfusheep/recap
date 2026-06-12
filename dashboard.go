@@ -38,7 +38,7 @@ var dashUI dashView
 func openAgentsDash() {
 	snap, err := agents.Snapshot(uiStore)
 	if err != nil {
-		statusMsg = "agents: " + err.Error()
+		toast("agents: " + err.Error())
 		return
 	}
 	dashUI.Rows = dashUI.Rows[:0]
@@ -68,7 +68,7 @@ func openAgentsDash() {
 	}
 	sort.Slice(dashUI.Rows, func(i, j int) bool { return dashUI.Rows[i].Name < dashUI.Rows[j].Name })
 	if len(dashUI.Rows) == 0 {
-		statusMsg = "no named agents yet (agents run `recap whoami`)"
+		toast("no named agents yet (agents run `recap whoami`)")
 		return
 	}
 	dashUI.Open = true

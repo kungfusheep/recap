@@ -157,7 +157,7 @@ func commentOnProposal(row *taskVM) {
 				return
 			}
 			if _, err := uiStore.AddProposalComment(p.ID, "", "you", body); err != nil {
-				statusMsg = "comment: " + err.Error()
+				toast("comment: " + err.Error())
 				return
 			}
 			parties, _ := uiStore.ProposalParties(p.ID)
@@ -171,7 +171,7 @@ func commentOnProposal(row *taskVM) {
 			notify.Reload() // wakes any party parked on --wait
 			inboxUI.DetailDirty = true
 			reloadTasks()
-			statusMsg = fmt.Sprintf("commented on proposal #%d", p.ID)
+			toast(fmt.Sprintf("commented on proposal #%d", p.ID))
 		},
 	)
 }

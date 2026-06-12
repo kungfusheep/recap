@@ -158,8 +158,18 @@ func runUI() error {
 	// the flare draws over vim).
 	go func() {
 		for range time.Tick(120 * time.Millisecond) {
+			live := false
 			if hasCurrent { // App.Suspend() gates the actual draw while $EDITOR owns the screen
 				spinFrame++
+				live = true
+			}
+			// the notification feed fades on the same gated ticker — tick()
+			// stages the fade frame and reports whether anything still lives,
+			// so an idle app with an empty feed requests no frames.
+			if statusFeed.tick() {
+				live = true
+			}
+			if live {
 				uiApp.RequestRender()
 			}
 		}
@@ -655,6 +665,7 @@ func refreshDetail() {
 		onInboxReloaded()
 	}
 	drainUpcoming()
+	drainFeed()
 	// a result whose key no longer matches the shown selection is stale — the
 	// newer kick's result is already on its way; drop it.
 	if staged := takeStagedDetail(); staged != nil && staged.key == inboxUI.LastDiffKey {
@@ -1499,22 +1510,11 @@ func buildMain() Component {
 			),
 		),
 
-		// the focus underline: a one-eighth ▁ line overlaid on the BOTTOM ROW of
-		// the panes (an overlay, so the pane backgrounds reach the screen edge and
-		// the glyph blends over them — overlay cells with default BG keep the
-		// underlying cell's background). It matches the focused pane's x/width and
-		// SLIDES on focus change: spacer + bar widths are glyph tweens toward
-		// targets applyPaneFocus sets at the focus event.
-		Overlay.BottomLeft().Opacity(1.0)(
-			VBox(
-				// transient status (errors/confirmations) floats over the pane —
-				// a flow row here would cut the pane backgrounds off the screen
-				// edge (the c404 artifact). It sits over the list column's corner,
-				// one row above the focus line.
-				If(&statusMsg).Then(HBox.Fill(&cPaneBG)(SpaceW(3), Text(&statusMsg).FG(&cSubtle))),
-				SpaceH(1), // the focus line's row — drawn by the FocusLine effect
-			),
-		),
+		// transient status (errors/confirmations) streams through the
+		// bottom-right notification feed (mail's component, feed.go) — it
+		// replaced the status bar that sat one row above the focus line and
+		// collided with it (todo:a5f726bf).
+		feedOverlay(),
 		// per-column focus fade: unfocused columns dim (mail's FocusShade)
 		columnShades(),
 		// the focus underline is INKED by a post-process over the invisible
@@ -1868,14 +1868,14 @@ func saveEditedComment() {
 		return
 	}
 	if body == "" {
-		statusMsg = "(empty — comment unchanged)"
+		toast("(empty — comment unchanged)")
 		return
 	}
 	if err := uiStore.EditOwnComment(draftUI.EditingID, body); err != nil {
-		statusMsg = "error: " + err.Error()
+		toast("error: " + err.Error())
 		return
 	}
-	statusMsg = "comment updated"
+	toast("comment updated")
 	inboxUI.DetailDirty = true
 	refreshDetailNow()
 }
@@ -1899,10 +1899,10 @@ func saveGeneralComment() {
 		return
 	}
 	if _, err := uiStore.AddReviewComment(t.ID, "you", body, "", 0, "", ""); err != nil {
-		statusMsg = "error: " + err.Error()
+		toast("error: " + err.Error())
 		return
 	}
-	statusMsg = fmt.Sprintf("commented on #%d", t.ID)
+	toast(fmt.Sprintf("commented on #%d", t.ID))
 	inboxUI.DetailDirty = true // refresh the comments pane so the new comment shows (was "lost")
 	refreshDetailNow()
 }
@@ -1954,10 +1954,10 @@ func pushUndo(fn func()) {
 func pushCategoriseUndo(taskID int64) {
 	pushUndo(func() {
 		if err := uiStore.UnsubmitReview(taskID); err != nil {
-			statusMsg = fmt.Sprintf("undo #%d: %s", taskID, err.Error())
+			toast(fmt.Sprintf("undo #%d: %s", taskID, err.Error()))
 			return
 		}
-		statusMsg = fmt.Sprintf("undid #%d → inbox", taskID)
+		toast(fmt.Sprintf("undid #%d → inbox", taskID))
 		reloadTasks()
 	})
 }
@@ -1966,7 +1966,7 @@ func pushCategoriseUndo(taskID int64) {
 // of the current selection — it undoes what you last did, not what's highlighted.
 func undoLast() {
 	if len(undoStack) == 0 {
-		statusMsg = "(nothing to undo)"
+		toast("(nothing to undo)")
 		return
 	}
 	fn := undoStack[len(undoStack)-1]
@@ -1982,11 +1982,11 @@ func approveSelected() {
 		return
 	}
 	if _, err := submitReview(uiStore, t.ID, db.VerdictApprove, ""); err != nil {
-		statusMsg = "error: " + err.Error()
+		toast("error: " + err.Error())
 		return
 	}
 	pushCategoriseUndo(t.ID)
-	statusMsg = fmt.Sprintf("#%d approved  ·  u to undo", t.ID)
+	toast(fmt.Sprintf("#%d approved  ·  u to undo", t.ID))
 	inboxUI.KeepSelOnReload = true // hold the cursor; let the next item slide up
 	reloadTasks()
 }
@@ -2065,10 +2065,10 @@ func rerun() {
 		return
 	}
 	if strings.TrimSpace(t.CheckCmd) == "" {
-		statusMsg = "(no check command)"
+		toast("(no check command)")
 		return
 	}
-	statusMsg = "running: " + t.CheckCmd + " …"
+	toast("running: " + t.CheckCmd + " …")
 	uiApp.RenderNow()
 	cmd := exec.Command("sh", "-c", t.CheckCmd)
 	if t.RepoPath != "" {
@@ -2076,9 +2076,9 @@ func rerun() {
 	}
 	out, err := cmd.CombinedOutput()
 	if err == nil {
-		statusMsg = "✓ PASS  " + t.CheckCmd
+		toast("✓ PASS  " + t.CheckCmd)
 	} else {
-		statusMsg = "✗ FAIL  " + t.CheckCmd + "  — " + lastLine(string(out))
+		toast("✗ FAIL  " + t.CheckCmd + "  — " + lastLine(string(out)))
 	}
 }
 
@@ -2116,7 +2116,7 @@ func openDiffLineComment() {
 		return
 	}
 	if !anyCommentableRow() {
-		statusMsg = "(no diff lines to comment on)"
+		toast("(no diff lines to comment on)")
 		return
 	}
 	diffUI.PickHeaders = false
@@ -2136,7 +2136,7 @@ func openFoldPick() {
 		}
 	}
 	if !hasHeader {
-		statusMsg = "(no files to fold)"
+		toast("(no files to fold)")
 		return
 	}
 	diffUI.PickHeaders = true
@@ -2215,10 +2215,10 @@ func saveLineComment() {
 		return
 	}
 	if _, err := uiStore.AddReviewComment(t.ID, "you", body, diffUI.PickFile, diffUI.PickLine, diffUI.PickAnchor, diffUI.PickSnippet); err != nil {
-		statusMsg = "error: " + err.Error()
+		toast("error: " + err.Error())
 		return
 	}
-	statusMsg = fmt.Sprintf("commented on %s:%d", diffUI.PickFile, diffUI.PickLine)
+	toast(fmt.Sprintf("commented on %s:%d", diffUI.PickFile, diffUI.PickLine))
 	inboxUI.DetailDirty = true
 	refreshDetailNow()
 }
@@ -2234,11 +2234,11 @@ func submitSelected() {
 	}
 	_, err := submitReview(uiStore, t.ID, db.VerdictRequestChanges, "")
 	if err != nil {
-		statusMsg = "error: " + err.Error()
+		toast("error: " + err.Error())
 		return
 	}
 	pushCategoriseUndo(t.ID)
-	statusMsg = fmt.Sprintf("#%d submitted → amends  ·  u to undo", t.ID)
+	toast(fmt.Sprintf("#%d submitted → amends  ·  u to undo", t.ID))
 	inboxUI.KeepSelOnReload = true // hold the cursor; let the next item slide up
 	reloadTasks()
 }
@@ -2251,10 +2251,10 @@ func unsubmitSelected() {
 		return
 	}
 	if err := uiStore.UnsubmitReview(t.ID); err != nil {
-		statusMsg = "error: " + err.Error()
+		toast("error: " + err.Error())
 		return
 	}
-	statusMsg = fmt.Sprintf("#%d unsubmitted → inbox", t.ID)
+	toast(fmt.Sprintf("#%d unsubmitted → inbox", t.ID))
 	reloadTasks()
 }
 

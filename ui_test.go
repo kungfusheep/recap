@@ -1489,20 +1489,16 @@ func TestFocusBarTracksPane(t *testing.T) {
 		t.Fatalf("cell left of the rounded span should be un-inked")
 	}
 
-	// a SET status message floats one row above and never cuts the panes short
+	// the old status bar is GONE (todo:a5f726bf): a bare statusMsg renders
+	// nowhere — status streams through the corner feed instead (toast(),
+	// pinned by TestToastRendersBottomRight), so nothing can collide with the
+	// focus line's row again.
 	statusMsg = "recorded #1"
 	buf = render(focusLineX, focusLineW)
-	if bg := buf.Get(2, H-1).Style.BG; bg != cPaneBG {
-		t.Fatalf("status message cut the pane off the bottom row: bg=%v", bg)
-	}
-	found := false
-	for y := H - 3; y < H; y++ {
+	for y := 0; y < H; y++ {
 		if strings.Contains(buf.GetLine(y), "recorded #1") {
-			found = true
+			t.Fatalf("bare statusMsg still renders (row %d) — the status bar should be gone", y)
 		}
-	}
-	if !found {
-		t.Fatal("floating status message not rendered near the bottom")
 	}
 }
 
@@ -1691,5 +1687,88 @@ func TestProposalInboxSection(t *testing.T) {
 	}
 	if pings["tui"] != 1 || pings["recap"] != 1 {
 		t.Fatalf("digest model broken — expected exactly one unread ping per party, got %v", pings)
+	}
+}
+
+// The corner notification feed (todo:a5f726bf): entries live for the TTL, fade
+// over the tail, expire, and cap at the limit — under a fake clock so the
+// lifecycle is deterministic.
+func TestFeedLifecycle(t *testing.T) {
+	now := time.Now()
+	f := newFeed(func() time.Time { return now })
+	f.push("first")
+	v, ok := f.take()
+	if !ok || len(v) != 1 || v[0].Text != "first" || v[0].Opacity != 1 {
+		t.Fatalf("fresh push wrong: ok=%v v=%+v", ok, v)
+	}
+	// inside the fade window: opacity strictly between 0 and 1
+	now = now.Add(f.ttl - f.fade/2)
+	if live := f.tick(); !live {
+		t.Fatal("feed should still be live mid-fade")
+	}
+	v, _ = f.take()
+	if len(v) != 1 || v[0].Opacity <= 0 || v[0].Opacity >= 1 {
+		t.Fatalf("mid-fade opacity wrong: %+v", v)
+	}
+	// past the TTL: expired, feed reports not-live (the ticker's gate)
+	now = now.Add(f.fade)
+	if live := f.tick(); live {
+		t.Fatal("feed should be dead past the TTL")
+	}
+	if v, _ = f.take(); len(v) != 0 {
+		t.Fatalf("expired entries still in view: %+v", v)
+	}
+	// the limit: pushing limit+2 keeps only the newest limit entries
+	for i := 0; i < f.limit+2; i++ {
+		f.push(fmt.Sprintf("n%d", i))
+	}
+	v, _ = f.take()
+	if len(v) != f.limit || v[0].Text != "n2" {
+		t.Fatalf("limit not enforced: len=%d first=%q", len(v), v[0].Text)
+	}
+}
+
+// toast() streams into the bottom-right overlay and the old status bar is gone:
+// the text renders in the lower-right region of the frame, not on the row above
+// the focus line at the left edge.
+func TestToastRendersBottomRight(t *testing.T) {
+	prevStore, prevApp, prevOmni, prevFeed := uiStore, uiApp, omni, statusFeed
+	st := testStore(t)
+	uiStore = st
+	uiApp = NewApp()
+	omni = newOmniBox(uiApp, omniCommands())
+	statusFeed = newFeed(nil)
+	t.Cleanup(func() {
+		uiStore, uiApp, omni, statusFeed = prevStore, prevApp, prevOmni, prevFeed
+		feedItems, feedVisible = nil, false
+		statusMsg = ""
+		inboxUI.Rows = nil
+	})
+	st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
+	reloadTasks()
+
+	toast("recorded #97 — all good")
+	drainFeed()
+	if !feedVisible || len(feedItems) != 1 {
+		t.Fatalf("toast did not reach the bound feed: visible=%v items=%+v", feedVisible, feedItems)
+	}
+	if statusMsg != "recorded #97 — all good" {
+		t.Fatalf("statusMsg compatibility broken: %q", statusMsg)
+	}
+
+	tmpl := Build(buildMain())
+	buf := NewBuffer(120, 40)
+	tmpl.Execute(buf, 120, 40)
+	foundY, foundX := -1, -1
+	for y := 0; y < 40; y++ {
+		if x := strings.Index(buf.GetLine(y), "recorded #97"); x >= 0 {
+			foundY, foundX = y, x
+		}
+	}
+	if foundY < 0 {
+		t.Fatal("toast text not rendered anywhere")
+	}
+	if foundY < 30 || foundX < 60 {
+		t.Fatalf("toast rendered at (%d,%d) — expected the bottom-right corner", foundX, foundY)
 	}
 }

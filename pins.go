@@ -95,16 +95,16 @@ func togglePin() {
 	pushUndo(func() {
 		setPin(id, was)
 		if was {
-			statusMsg = fmt.Sprintf("re-pinned #%d", id)
+			toast(fmt.Sprintf("re-pinned #%d", id))
 		} else {
-			statusMsg = fmt.Sprintf("unpinned #%d", id)
+			toast(fmt.Sprintf("unpinned #%d", id))
 		}
 		reloadTasks()
 	})
 	if was {
-		statusMsg = fmt.Sprintf("unpinned #%d  ·  u to undo", id)
+		toast(fmt.Sprintf("unpinned #%d  ·  u to undo", id))
 	} else {
-		statusMsg = fmt.Sprintf("pinned #%d  ·  u to undo", id)
+		toast(fmt.Sprintf("pinned #%d  ·  u to undo", id))
 	}
 	reloadTasks()
 }

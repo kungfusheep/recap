@@ -43,9 +43,9 @@ func runEditorAt(repo, file string, line int) {
 	_ = sc.EnterRawMode()
 	uiApp.Resume() // re-enable + force a full repaint (raw-mode re-entry cleared the screen)
 	if runErr != nil {
-		statusMsg = "editor: " + runErr.Error()
+		toast("editor: " + runErr.Error())
 	} else {
-		statusMsg = fmt.Sprintf("edited %s:%d", file, line)
+		toast(fmt.Sprintf("edited %s:%d", file, line))
 	}
 }
 
@@ -54,7 +54,7 @@ func runEditorAt(repo, file string, line int) {
 func editDiffLine(m diffLineMeta) {
 	t, ok := selectedTask()
 	if !ok {
-		statusMsg = "no task selected"
+		toast("no task selected")
 		return
 	}
 	runEditorAt(t.RepoPath, m.File, m.Line)
@@ -64,7 +64,7 @@ func editDiffLine(m diffLineMeta) {
 // line opens THAT line in $EDITOR (mirrors the comment line-picker).
 func openEditorPick() {
 	if !anyCommentableRow() {
-		statusMsg = "(no diff lines to open)"
+		toast("(no diff lines to open)")
 		return
 	}
 	diffUI.PickHeaders = false

@@ -121,12 +121,12 @@ func (pv *promptView) insertLink(path string) {
 func (pv *promptView) pasteImage() {
 	path, err := links.PasteImage()
 	if err != nil {
-		statusMsg = "paste: " + err.Error()
+		toast("paste: " + err.Error())
 		uiApp.RequestRender()
 		return
 	}
 	pv.insertLink(path)
-	statusMsg = "pasted screenshot → " + path
+	toast("pasted screenshot → " + path)
 	uiApp.RequestRender()
 }
 

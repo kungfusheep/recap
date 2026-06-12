@@ -53,9 +53,9 @@ func omniCommands() []omniItem {
 			Action: func() {
 				applyTheme(nt.Name, nt.Palette)
 				if err := saveThemeName(nt.Name); err != nil {
-					statusMsg = "theme save failed: " + err.Error()
+					toast("theme save failed: " + err.Error())
 				} else {
-					statusMsg = "theme: " + nt.Label
+					toast("theme: " + nt.Label)
 				}
 			},
 		})

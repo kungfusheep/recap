@@ -81,7 +81,7 @@ func openMessages() {
 func (mv *msgView) load() bool {
 	ms, err := uiStore.Messages("")
 	if err != nil {
-		statusMsg = "messages: " + err.Error()
+		toast("messages: " + err.Error())
 		return false
 	}
 	var unseen []int64
@@ -145,7 +145,7 @@ func (mv *msgView) comment() {
 	}
 	row := mv.Rows[mv.Sel]
 	if row.FromRepo == "" {
-		statusMsg = "that's your own comment — reply to an agent's message"
+		toast("that's your own comment — reply to an agent's message")
 		uiApp.RequestRender()
 		return
 	}
@@ -161,7 +161,7 @@ func (mv *msgView) comment() {
 			}
 			mid, err := uiStore.SendMessage("", "you", target, id, taskID, body)
 			if err != nil {
-				statusMsg = "comment: " + err.Error()
+				toast("comment: " + err.Error())
 				return
 			}
 			// the human has read their own words
@@ -171,7 +171,7 @@ func (mv *msgView) comment() {
 			mv.load()
 			mv.Sel = len(mv.Rows) - 1
 			mv.prep()
-			statusMsg = fmt.Sprintf("sent m%d → %s", mid, target)
+			toast(fmt.Sprintf("sent m%d → %s", mid, target))
 		},
 	)
 }

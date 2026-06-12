@@ -50,7 +50,7 @@ type todoVM struct {
 func openTodoEditor() {
 	t, ok := selectedTask()
 	if !ok {
-		statusMsg = "no task selected"
+		toast("no task selected")
 		return
 	}
 	todoUI.openFor(t.Repo, t.RepoPath)
@@ -63,16 +63,16 @@ func (tv *todoView) openFor(repo, repoPath string) {
 	cfg, _ := config.LoadConfig()
 	path, err := todo.PathFor(cfg.TODOTemplate, repoPath)
 	if err != nil {
-		statusMsg = "todo path: " + err.Error()
+		toast("todo path: " + err.Error())
 		return
 	}
 	if path == "" {
-		statusMsg = "no todo_template configured (~/.config/recap/config.toml)"
+		toast("no todo_template configured (~/.config/recap/config.toml)")
 		return
 	}
 	items, err := todo.Read(path)
 	if err != nil {
-		statusMsg = "todo read: " + err.Error()
+		toast("todo read: " + err.Error())
 		return
 	}
 	tv.Path = path
@@ -136,7 +136,7 @@ func (tv *todoView) halfUp()   { tv.move(-todoHalfPage) }
 
 func (tv *todoView) save() {
 	if err := todo.Write(tv.Path, tv.Data); err != nil {
-		statusMsg = "todo write: " + err.Error()
+		toast("todo write: " + err.Error())
 		return
 	}
 	// editing the TODO in-app changes the same file the upcoming section reads, but

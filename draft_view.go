@@ -358,10 +358,10 @@ func saveReply() {
 		return
 	}
 	if _, err := uiStore.AddReply(draftUI.ReplyingTo, "you", body); err != nil {
-		statusMsg = "error: " + err.Error()
+		toast("error: " + err.Error())
 		return
 	}
-	statusMsg = "replied"
+	toast("replied")
 	inboxUI.DetailDirty = true
 	refreshDetailNow()
 }
@@ -377,7 +377,7 @@ func editDraftComment() {
 	// feedback clears the agent's read receipt so the change re-enters its
 	// queue); the agent's comments are read-only — the record stays honest.
 	if c.Who != "you" {
-		statusMsg = "the agent's comments are read-only"
+		toast("the agent's comments are read-only")
 		return
 	}
 	draftUI.EditingID = c.ID
@@ -390,14 +390,14 @@ func deleteDraftComment() {
 		return
 	}
 	if !c.Draft {
-		statusMsg = "submitted comments are read-only (unsubmit with U to edit)"
+		toast("submitted comments are read-only (unsubmit with U to edit)")
 		return
 	}
 	if err := uiStore.DeleteComment(c.ID); err != nil {
-		statusMsg = "error: " + err.Error()
+		toast("error: " + err.Error())
 		return
 	}
-	statusMsg = "comment deleted"
+	toast("comment deleted")
 	if draftUI.Sel > 0 {
 		draftUI.Sel--
 	}
@@ -415,9 +415,9 @@ func openDraftLinks() {
 	}
 	refs := links.Extract(c.Body)
 	if len(refs) == 0 {
-		statusMsg = "no [[file]] links in this comment"
+		toast("no [[file]] links in this comment")
 		return
 	}
 	n := links.Open(c.Body)
-	statusMsg = fmt.Sprintf("opened %d/%d link(s)", n, len(refs))
+	toast(fmt.Sprintf("opened %d/%d link(s)", n, len(refs)))
 }
