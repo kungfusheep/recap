@@ -1725,6 +1725,16 @@ func TestProposalInboxSection(t *testing.T) {
 	if !foundDoc {
 		t.Fatal("proposal document did not render through the swapped pane")
 	}
+	// c455: the thread column shows WHO wrote each comment — names lead rows
+	foundWho := false
+	for y := 0; y < 40; y++ {
+		if strings.Contains(buf.GetLine(y), "Kestrel@recap") {
+			foundWho = true
+		}
+	}
+	if !foundWho {
+		t.Fatal("agent name missing from the rendered thread column")
+	}
 
 	// `c`: the human comment threads, joins no phantom "" party, and pings each
 	// party once — a second comment while pings sit unread adds NO new pings.
