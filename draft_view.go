@@ -354,6 +354,28 @@ func draftRow(c *draftCommentVM) Component {
 	)))
 }
 
+// draftSelTop/Bottom are the vim jumps (gg/G): first/last VISIBLE row —
+// collapsed reply rows are skipped the same way moveDraft steps over them.
+func draftSelTop() {
+	for i := 0; i < len(draftUI.Comments); i++ {
+		if draftUI.Comments[i].Visible {
+			draftUI.Sel = i
+			onDraftSelChanged()
+			return
+		}
+	}
+}
+
+func draftSelBottom() {
+	for i := len(draftUI.Comments) - 1; i >= 0; i-- {
+		if draftUI.Comments[i].Visible {
+			draftUI.Sel = i
+			onDraftSelChanged()
+			return
+		}
+	}
+}
+
 func moveDraft(d int) {
 	// step over rows hidden by a collapsed thread (Visible=false renders nothing);
 	// stay put if no visible row exists in that direction.

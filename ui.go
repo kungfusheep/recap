@@ -1572,6 +1572,8 @@ func buildMain() Component {
 					If(&pane).Eq(paneDraft).Then(On(
 						Key("j", func() { moveDraft(1) }),
 						Key("k", func() { moveDraft(-1) }),
+						Key("gg", draftSelTop), // vim: first/last comment
+						Key("G", draftSelBottom),
 						Key("<Enter>", openCommentView),
 						Key("r", replyToComment),            // reply to the selected comment (threads under it)
 						Key("o", toggleCommentThread),       // collapse/expand the selected thread

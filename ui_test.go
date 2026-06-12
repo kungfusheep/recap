@@ -2090,3 +2090,25 @@ func TestCollapseAllContexts(t *testing.T) {
 		t.Fatalf("second Z should unfold every thread: %d visible", visibleReplies())
 	}
 }
+
+// vim jumps in the comments pane (todo:99856b95): gg lands on the first
+// VISIBLE row, G on the last — both skipping rows hidden by collapsed threads.
+func TestDraftVimJumps(t *testing.T) {
+	prev := draftUI
+	t.Cleanup(func() { draftUI = prev })
+	draftUI.Comments = []draftCommentVM{
+		{ID: 1, Visible: false}, // hidden (collapsed reply)
+		{ID: 2, Visible: true},
+		{ID: 3, Visible: true},
+		{ID: 4, Visible: false},
+	}
+	draftUI.Sel = 2
+	draftSelTop()
+	if draftUI.Sel != 1 {
+		t.Fatalf("gg should land on the first VISIBLE row, got %d", draftUI.Sel)
+	}
+	draftSelBottom()
+	if draftUI.Sel != 2 {
+		t.Fatalf("G should land on the last VISIBLE row, got %d", draftUI.Sel)
+	}
+}
