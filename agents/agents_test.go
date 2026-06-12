@@ -98,3 +98,44 @@ func TestSnapshotOrdersByLastActive(t *testing.T) {
 		}
 	}
 }
+
+// "Last" activity covers more than top-level tasks (todo:6b47e2fe): an agent
+// whose newest visible action is a comment reply (or revision) shows THAT as
+// its last activity — and orders by it — instead of reading idle since its
+// last recorded task.
+func TestSnapshotCountsRepliesAndRevisions(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("RECAP_DB", filepath.Join(tmp, "recap.db"))
+	st, err := db.Open()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer st.Close()
+	for repo, name := range map[string]string{"talk-repo": "Wren", "quiet-repo": "Finch"} {
+		if err := os.WriteFile(filepath.Join(tmp, "identity-"+repo), []byte(name+"\n#aabbcc\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stamp := func(d time.Duration) string { return time.Now().Add(-d).Format("2006-01-02 15:04:05") }
+	// both agents recorded tasks long ago; Wren replied to a comment chain since
+	idT, _ := st.Add(db.Task{Repo: "talk-repo", RepoPath: "/tmp/t", Title: "old talk work", Status: db.StatusPending, CreatedAt: stamp(3 * time.Hour)})
+	st.Add(db.Task{Repo: "quiet-repo", RepoPath: "/tmp/q", Title: "old quiet work", Status: db.StatusPending, CreatedAt: stamp(2 * time.Hour)})
+	if _, err := st.AddComment(idT, "Wren", "replying mid-amends"); err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := Snapshot(st)
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if snap[0].Name != "Wren" {
+		t.Fatalf("the replying agent should order first, got %v", snap[0].Name)
+	}
+	w := snap[0]
+	if w.LastWork != "replied on #1" {
+		t.Fatalf("last activity should be the reply, got %q", w.LastWork)
+	}
+	if time.Since(w.ActiveAt) > time.Hour {
+		t.Fatalf("ActiveAt should track the recent reply, got %v", w.ActiveAt)
+	}
+}

@@ -239,6 +239,46 @@ func (s *Store) ProposalComments(proposalID int64) ([]ProposalComment, error) {
 	return out, rows.Err()
 }
 
+// RepoActivity is a repo's most recent visible action of ANY kind — task
+// recorded, revision pushed, comment/reply written, proposal comment, peer
+// message — so the dashboard's "last" line tracks real work, not just
+// top-level items (an agent mid-amends looked idle for an hour otherwise).
+type RepoActivity struct {
+	Repo string
+	What string // human line: the task title, "revised #N", "replied on #N", …
+	At   string
+}
+
+// LatestActivityPerRepo returns each repo's newest activity across tasks,
+// revisions, agent comments, proposal comments, and sent messages.
+func (s *Store) LatestActivityPerRepo() (map[string]RepoActivity, error) {
+	// bare columns + MAX(at) per group: SQLite takes them from the max row.
+	rows, err := s.db.Query(`SELECT repo, what, MAX(at) FROM (
+		SELECT t.repo AS repo, t.title AS what, t.created_at AS at FROM tasks t
+		UNION ALL
+		SELECT t.repo, 'revised #' || t.id, r.created_at FROM revisions r JOIN tasks t ON t.id = r.task_id
+		UNION ALL
+		SELECT t.repo, 'replied on #' || t.id, c.created_at FROM comments c JOIN tasks t ON t.id = c.task_id WHERE c.who != 'you'
+		UNION ALL
+		SELECT pc.who_repo, 'commented on proposal #' || pc.proposal_id, pc.created_at FROM proposal_comments pc WHERE pc.who_repo != ''
+		UNION ALL
+		SELECT m.from_repo, 'messaged ' || m.to_repo, m.created_at FROM messages m WHERE m.from_repo != ''
+	) GROUP BY repo`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]RepoActivity{}
+	for rows.Next() {
+		var a RepoActivity
+		if err := rows.Scan(&a.Repo, &a.What, &a.At); err != nil {
+			return nil, err
+		}
+		out[a.Repo] = a
+	}
+	return out, rows.Err()
+}
+
 // LatestTaskPerRepo returns each repo's most recent task — the "last thing
 // they did" line on the agent dashboard.
 func (s *Store) LatestTaskPerRepo() (map[string]Task, error) {

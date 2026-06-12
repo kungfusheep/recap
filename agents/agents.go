@@ -51,9 +51,9 @@ func Snapshot(st *db.Store) ([]Agent, error) {
 	for _, r := range listener.Active() {
 		live[r] = true
 	}
-	var latest map[string]db.Task
+	var latest map[string]db.RepoActivity
 	if st != nil {
-		latest, _ = st.LatestTaskPerRepo()
+		latest, _ = st.LatestActivityPerRepo()
 	}
 
 	byName := map[string]*Agent{}
@@ -79,17 +79,19 @@ func Snapshot(st *db.Store) ([]Agent, error) {
 		if status > a.Status {
 			a.Status, a.Flare, a.FlareAge = status, flare, age
 		}
-		if t, ok := latest[repo]; ok && t.CreatedAt > a.LastAt {
-			a.LastAt, a.LastWork = t.CreatedAt, t.Title
+		if act, ok := latest[repo]; ok && act.At > a.LastAt {
+			a.LastAt, a.LastWork = act.At, act.What
 		}
 		// last-active: a cursor file's mtime is the loop's latest state change
 		// in this repo (even a stale flare marks WHEN it went quiet); a repo
-		// with no cursor (idle/parked) falls back to its last recorded task.
+		// with no cursor (idle/parked) falls back to its latest ACTIVITY of
+		// any kind — task, revision, reply, proposal comment, message — so an
+		// agent mid-amends never reads idle (todo:6b47e2fe).
 		if ts, ok := cursor.Touched(repo); ok && ts.After(a.ActiveAt) {
 			a.ActiveAt = ts
 		}
-		if t, ok := latest[repo]; ok {
-			if ts, err := time.ParseInLocation("2006-01-02 15:04:05", t.CreatedAt, time.Local); err == nil && ts.After(a.ActiveAt) {
+		if act, ok := latest[repo]; ok {
+			if ts, err := time.ParseInLocation("2006-01-02 15:04:05", act.At, time.Local); err == nil && ts.After(a.ActiveAt) {
 				a.ActiveAt = ts
 			}
 		}
