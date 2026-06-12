@@ -1,9 +1,12 @@
 package main
 
 import (
-	"github.com/kungfusheep/recap/db"
+	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/kungfusheep/recap/db"
 )
 
 // the full async review loop: draft comments -> submit (status flips) ->
@@ -496,31 +499,49 @@ func TestDiscardReview(t *testing.T) {
 	}
 }
 
-// resolving a review marks its reviewer comments read — so line comments that ride with
-// an amends (excluded from the reply tier) don't resurface as unread after they've been
-// addressed (todo:1a115ddb: "multiple comments aren't all marked read").
-func TestResolveReviewMarksCommentsRead(t *testing.T) {
-	st := testStore(t)
+// the read-receipt lands where the READING happens: `review show` stamps the
+// comments it prints; resolve marks NOTHING — so a ruling added after the agent
+// read the work order stays unread and gets served on the next `recap next`
+// (the c435 fix: the old resolve blanket-mark silently swallowed late comments).
+func TestReadReceiptLandsAtReviewShow(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("RECAP_DB", filepath.Join(tmp, "recap.db"))
+	st, err := db.Open()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer st.Close()
+	prev := uiStore
+	uiStore = st
+	t.Cleanup(func() { uiStore = prev })
+
 	id, _ := st.Add(db.Task{Repo: "r", RepoPath: "/tmp/r", Title: "t", Status: db.StatusPending})
-	if _, err := st.AddReviewComment(id, "you", "fix A", "f.go", 1, "@@", "x"); err != nil {
-		t.Fatalf("comment A: %v", err)
-	}
-	if _, err := st.AddReviewComment(id, "you", "fix B", "f.go", 2, "@@", "y"); err != nil {
-		t.Fatalf("comment B: %v", err)
-	}
+	st.AddReviewComment(id, "you", "fix A", "f.go", 1, "@@", "x")
+	st.AddReviewComment(id, "you", "fix B", "f.go", 2, "@@", "y")
 	rv, err := st.SubmitReview(id, db.VerdictRequestChanges, "changes")
 	if err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-
 	if un, _ := st.UnreadByAgent(""); len(un) != 2 {
-		t.Fatalf("both reviewer comments should start unread by the agent, got %d", len(un))
+		t.Fatalf("both comments start unread, got %d", len(un))
 	}
+
+	// the agent reads the work order → the printed comments get their receipt
+	if err := cmdReviewShow([]string{fmt.Sprint(rv.ID)}); err != nil {
+		t.Fatalf("review show: %v", err)
+	}
+	if un, _ := st.UnreadByAgent(""); len(un) != 0 {
+		t.Fatalf("review show should stamp the printed comments, %d still unread", len(un))
+	}
+
+	// a ruling lands AFTER the agent read the order, BEFORE the revise/resolve
+	st.AddReviewComment(id, "you", "also: make it global", "", 0, "", "")
 	if err := st.ResolveReview(rv.ID); err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if un, _ := st.UnreadByAgent(""); len(un) != 0 {
-		t.Fatalf("resolving the review should mark its reviewer comments read; %d still unread", len(un))
+	un, _ := st.UnreadByAgent("")
+	if len(un) != 1 || un[0].Body != "also: make it global" {
+		t.Fatalf("the late ruling must SURVIVE resolve unread (so next serves it), got %+v", un)
 	}
 }
 

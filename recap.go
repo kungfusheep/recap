@@ -1015,6 +1015,12 @@ func cmdReviewShow(args []string) error {
 	if thread, _ := st.Comments(rv.TaskID); len(thread) > 0 {
 		top, byParent := splitThread(thread)
 		fmt.Printf("\nthread (%d):\n", len(thread))
+		var shown []int64
+		for _, c := range thread {
+			if c.Who == "you" && c.ReadAgent == "" {
+				shown = append(shown, c.ID)
+			}
+		}
 		for _, c := range top {
 			if c.File != "" {
 				loc := c.File
@@ -1034,6 +1040,13 @@ func cmdReviewShow(args []string) error {
 			}
 			printReplies(c.ID, byParent, 0)
 			fmt.Println()
+		}
+		// the work order PRINTED these comments — that is the read, so the
+		// receipt lands here. Comments arriving AFTER this show stay unread and
+		// get served by the replies tier on the next `recap next` (c435: resolve
+		// used to blanket-mark them, silently swallowing rulings the agent never saw).
+		if len(shown) > 0 {
+			st.MarkReadAgent(shown...)
 		}
 	}
 	return nil
